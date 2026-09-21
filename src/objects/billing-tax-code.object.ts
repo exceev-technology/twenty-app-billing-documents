@@ -26,5 +26,8 @@ export default defineObject({
     boolean(O, 'isActive', { label: 'Active', description: 'Inactive codes stay on old documents but are not offered.', icon: 'IconToggleRight' }, true),
     oneToMany(O, 'components', { label: 'Components', icon: 'IconPercentage' }, { object: 'billingTaxComponent', inverse: 'taxCode' }),
     oneToMany(O, 'catalogItems', { label: 'Catalog items', icon: 'IconPackage' }, { object: 'billingCatalogItem', inverse: 'taxCode' }),
+    oneToMany(O, 'quoteLines', { label: 'Quote lines', icon: 'IconList' }, { object: 'billingQuoteLine', inverse: 'taxCode' }),
+    oneToMany(O, 'invoiceLines', { label: 'Invoice lines', icon: 'IconList' }, { object: 'billingInvoiceLine', inverse: 'taxCode' }),
+    oneToMany(O, 'creditNoteLines', { label: 'Credit note lines', icon: 'IconList' }, { object: 'billingCreditNoteLine', inverse: 'taxCode' }),
   ],
 });

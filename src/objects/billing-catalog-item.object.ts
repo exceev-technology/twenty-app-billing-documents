@@ -1,5 +1,5 @@
 import { defineObject, OnDeleteAction } from 'twenty-sdk/define';
-import { boolean, currency, fieldId, manyToOne, objectId, select, text } from '../schema/fields.ts';
+import { boolean, currency, fieldId, manyToOne, objectId, oneToMany, select, text } from '../schema/fields.ts';
 import { UNITS } from '../schema/options.ts';
 
 const O = 'billingCatalogItem';
@@ -22,5 +22,8 @@ export default defineObject({
     currency(O, 'unitPrice', { label: 'Unit price', icon: 'IconCurrencyDollar' }),
     manyToOne(O, 'taxCode', { label: 'Tax code', icon: 'IconReceiptTax' }, { object: 'billingTaxCode', inverse: 'catalogItems', onDelete: OnDeleteAction.SET_NULL }),
     boolean(O, 'isActive', { label: 'Active', icon: 'IconToggleRight' }, true),
+    oneToMany(O, 'quoteLines', { label: 'Quote lines', icon: 'IconList' }, { object: 'billingQuoteLine', inverse: 'catalogItem' }),
+    oneToMany(O, 'invoiceLines', { label: 'Invoice lines', icon: 'IconList' }, { object: 'billingInvoiceLine', inverse: 'catalogItem' }),
+    oneToMany(O, 'creditNoteLines', { label: 'Credit note lines', icon: 'IconList' }, { object: 'billingCreditNoteLine', inverse: 'catalogItem' }),
   ],
 });

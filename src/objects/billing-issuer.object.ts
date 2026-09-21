@@ -32,5 +32,9 @@ export default defineObject({
     links(O, 'verificationBaseUrl', { label: 'Verification link', description: "Used when the profile's QR mode is \"Link with payload\".", icon: 'IconQrcode' }),
     boolean(O, 'isDefault', { label: 'Default issuer', icon: 'IconStar' }, false),
     oneToMany(O, 'identifiers', { label: 'Legal identifiers', icon: 'IconId' }, { object: 'billingIdentifier', inverse: 'issuer' }),
+    oneToMany(O, 'quotes', { label: 'Quotes', icon: 'IconFileDescription' }, { object: 'billingQuote', inverse: 'issuer' }),
+    oneToMany(O, 'invoices', { label: 'Invoices', icon: 'IconFileInvoice' }, { object: 'billingInvoice', inverse: 'issuer' }),
+    oneToMany(O, 'creditNotes', { label: 'Credit notes', icon: 'IconReceiptRefund' }, { object: 'billingCreditNote', inverse: 'issuer' }),
+    oneToMany(O, 'sequences', { label: 'Numbering sequences', icon: 'IconListNumbers' }, { object: 'billingSequence', inverse: 'issuer' }),
   ],
 });
