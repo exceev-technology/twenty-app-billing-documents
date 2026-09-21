@@ -40,7 +40,7 @@ Verified on 2026-09-21. This preset is a starting point: check it with your acco
 
 ## What this PDF does not cover
 
-VERI*FACTU record-keeping is mandatory from 1 January 2027 for corporate taxpayers and 1 July 2027 for the self-employed and others using invoicing software. Mandatory B2B e-invoicing under the Crea y Crece law was regulated by Real Decreto 238/2026: it applies from October 2027 for businesses with turnover above €8 million, and from October 2028 for the rest. This app is not VERI*FACTU certified. IRPF withholding on professional invoices is not supported yet. Documents print in English until a Spanish language pack exists.
+VERI*FACTU record-keeping is mandatory from 1 January 2027 for corporate taxpayers and 1 July 2027 for the self-employed and others using invoicing software. Mandatory B2B e-invoicing under the Crea y Crece law (Real Decreto 238/2026) applies 12 months (turnover above €8 million) and 24 months (all others) after a pending Ministerial Order takes effect, expected around October 2027 and October 2028. This app is not VERI*FACTU certified. IRPF withholding on professional invoices is not supported yet. Documents print in English until a Spanish language pack exists.
 
 ## Sources
 
