@@ -26,7 +26,11 @@ export function restSeedStore(client: RestLike): SeedStore {
       if (filter) query.filter = filter;
       if (cursor) query.starting_after = cursor;
       const response = await client.get<ListResponse>(`/rest/${plural}`, { query });
-      rows.push(...(response.data?.[plural] ?? []));
+      const page = response.data?.[plural];
+      if (!Array.isArray(page)) {
+        throw new Error(`Twenty did not return a ${plural} list: ${JSON.stringify(response).slice(0, 300)}`);
+      }
+      rows.push(...page);
       const next = response.pageInfo?.hasNextPage ? response.pageInfo.endCursor : null;
       if (!next) return rows;
       cursor = next;

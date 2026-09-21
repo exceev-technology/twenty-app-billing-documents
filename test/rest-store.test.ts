@@ -32,3 +32,8 @@ test('create fails loudly when Twenty answers with something else', async () => 
   const client = { get: async () => ({}), post: async () => ({ data: {} }) } as any;
   await assert.rejects(restSeedStore(client).create('billingProfiles', 'billingProfile', {}), /did not return the created billingProfile/);
 });
+
+test('list fails loudly when Twenty answers with something else', async () => {
+  const client = { get: async () => ({ error: 'unauthorised' }), post: async () => ({}) } as any;
+  await assert.rejects(restSeedStore(client).list('billingProfiles'), /did not return a billingProfiles list/);
+});

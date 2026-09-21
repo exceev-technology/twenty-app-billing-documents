@@ -4,7 +4,7 @@ import fn, { runSeed } from '../src/logic-functions/seed-presets.ts';
 import { PRESETS } from '../src/presets/index.ts';
 import { fakeTwentyRest } from './helpers/fake-twenty.ts';
 
-test("the post-install function validates and runs on every upgrade", () => {
+test('the post-install function validates and runs on every upgrade', () => {
   assert.equal(fn.success, true, fn.errors.join('\n'));
   assert.equal(fn.config.shouldRunOnVersionUpgrade, true);
   assert.equal(fn.config.timeoutSeconds, 300);
