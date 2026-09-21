@@ -101,6 +101,6 @@ const lockChanged = spawnSync('git', ['diff', '--quiet', '--', 'ids.lock.json'])
 console.log(`\nDeployed to ${remote} (${server}). The plan after apply is empty.`);
 if (lockChanged) console.log('ids.lock.json changed: commit it.');
 console.log(
-  'A deploy does not run the post-install function, so presets are not seeded. Run it once from a remote\n' +
-    `signed in as a user (an API key cannot run functions): ${TWENTY} --remote ${remote} dev:function:exec --postInstall`,
+  'A deploy does not run the post-install function, so presets are not seeded. Run the create-missing-presets\n' +
+    'tool from Twenty’s AI assistant or an MCP client (app_create_missing_presets); it is safe to run again.',
 );
