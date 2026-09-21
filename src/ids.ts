@@ -209,6 +209,7 @@ export const IDS: Readonly<Record<string, string>> = {
   'field.person.billingIdentifiers': 'f795f780-786e-4879-8569-c9f39ee6a3c5',
   'field.person.billingInvoices': 'b4e14acd-5557-4817-8e5a-776a4c454a18',
   'field.person.billingQuotes': 'e0a2ee6e-b9a0-4f46-8ec5-3135e7aa3823',
+  'logicFunction.seedPresets': '48617a08-aea0-4320-9c96-03cf99d45d04',
   'object.billingCatalogItem': 'eb7b4a52-976b-4f3f-993d-7014dfb696a7',
   'object.billingCreditNote': '5e184dec-e6b6-4632-8bec-8ae9886ba8bc',
   'object.billingCreditNoteLine': '5a46ed47-f0b4-41fc-97d7-8a86255f63a7',
