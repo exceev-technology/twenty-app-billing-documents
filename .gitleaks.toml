@@ -1,0 +1,14 @@
+# Secret scanning uses gitleaks' default rules. Two files are exempt: they hold
+# generated universal identifiers (v4 UUIDs), never secrets, and
+# test/ids.test.ts plus the identifier lock reject any other kind of value.
+title = "twenty-app-billing-documents"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated identifier registry and its lock: v4 UUIDs only"
+paths = [
+  '''src/ids\.ts$''',
+  '''ids\.lock\.json$''',
+]

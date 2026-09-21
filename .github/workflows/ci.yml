@@ -25,4 +25,4 @@ jobs:
       # Runs as the runner's user: git refuses a repository owned by another
       # user ("dubious ownership"), which is what the container would be.
       - name: Secret scan, whole history
-        run: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source /repo --redact --verbose
+        run: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source /repo --config /repo/.gitleaks.toml --redact --verbose
