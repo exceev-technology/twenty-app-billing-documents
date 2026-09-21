@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Twenty CLI build output and local state
+.twenty/
+
+# Local tooling
+.omc/
+.claude/settings.local.json
+
+# OS
+.DS_Store
