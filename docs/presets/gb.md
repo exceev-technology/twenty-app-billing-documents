@@ -25,7 +25,7 @@ Verified on 2026-09-21. This preset is a starting point: check it with your acco
 
 | Key | Label | Applies to | Required for the seller | Required for a domestic business buyer | Format |
 |---|---|---|---|---|---|
-| `gb.vat` | VAT registration number | BOTH | yes | no | `^GB(\d{9}\|\d{12}\|GD\d{3}\|HA\d{3})$` |
+| `gb.vat` | VAT registration number | BOTH | no | no | `^GB(\d{9}\|\d{12}\|GD\d{3}\|HA\d{3})$` |
 | `gb.company-number` | Company number | SELLER | no | no | `^[A-Z0-9]{8}$` |
 
 ## Tax codes

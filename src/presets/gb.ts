@@ -22,7 +22,7 @@ const preset: Preset = {
     { title: 'Running a limited company: signs, stationery and promotional material (GOV.UK)', url: 'https://www.gov.uk/running-a-limited-company/signs-stationery-and-promotional-material' },
   ],
   identifierTypes: [
-    { key: 'gb.vat', name: 'VAT registration number', appliesTo: 'BOTH', requiredForSeller: true, validationPattern: '^GB(\\d{9}|\\d{12}|GD\\d{3}|HA\\d{3})$' },
+    { key: 'gb.vat', name: 'VAT registration number', appliesTo: 'BOTH', validationPattern: '^GB(\\d{9}|\\d{12}|GD\\d{3}|HA\\d{3})$' },
     { key: 'gb.company-number', name: 'Company number', appliesTo: 'SELLER', validationPattern: '^[A-Z0-9]{8}$' },
   ],
   taxCodes: [
