@@ -27,7 +27,7 @@ test('division rounds half away from zero, the same on both sides of zero', () =
   assert.equal(divRound(0n, 10n), 0n);
 });
 
-test("an amount rounds to the currency's minor unit", () => {
+test('an amount rounds to the currency’s minor unit', () => {
   assert.equal(roundToMinor(9_975_000n, 1n, 'EUR'), 9_980_000n); // 9.975 → 9.98
   assert.equal(roundToMinor(-25_000n, 1n, 'EUR'), -30_000n); // −0.025 → −0.03
   assert.equal(roundToMinor(499_500_000n, 1n, 'JPY'), 500_000_000n); // ¥499.5 → ¥500
