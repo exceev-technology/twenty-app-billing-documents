@@ -13,7 +13,7 @@ Your clients are already in Twenty, so your documents can be too.
   issued, and credit notes to correct them.
 - Any country, any currency: legal identifiers, tax codes, mentions and
   numbering rules are records you edit in Twenty, with presets for
-  13 countries to start from.
+  12 countries plus a generic one to start from.
 - Taxes with several components (for example GST plus QST), exemptions and
   reverse charge with the wording the law requires, and prices entered with
   or without tax.
@@ -26,6 +26,7 @@ and the country preset says so.
 
 - [Product overview](docs/superpowers/specs/2026-09-21-product-overview.md)
 - [Foundation design](docs/superpowers/specs/2026-09-21-foundation-design.md)
+- [Foundation plan](docs/superpowers/plans/2026-09-21-foundation.md)
 
 ## Authors
 
