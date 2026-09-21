@@ -10,6 +10,8 @@ import es from './es.ts';
 import be from './be.ts';
 import nl from './nl.ts';
 import it from './it.ts';
+import india from './in.ts';
+import ae from './ae.ts';
 
 /** Seeding order. Generic first, then countries. */
-export const PRESETS: readonly Preset[] = [generic, ma, fr, gb, us, ca, de, es, be, nl, it];
+export const PRESETS: readonly Preset[] = [generic, ma, fr, gb, us, ca, de, es, be, nl, it, india, ae];
