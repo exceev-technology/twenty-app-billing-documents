@@ -109,7 +109,7 @@ so Lifecycle's issue gate checks it and names the offending record.
 | legalName | TEXT | |
 | legalForm | TEXT | Free text: legal forms differ by country. |
 | profile | RELATION | → billingProfile. |
-| address | ADDRESS | |
+| postalAddress | ADDRESS | Twenty reserves the name `address`. |
 | emails | EMAILS | |
 | phones | PHONES | |
 | website | LINKS | |
