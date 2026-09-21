@@ -115,6 +115,7 @@ export const IDS: Readonly<Record<string, string>> = {
   'field.billingIssuer.name': '38557960-6b70-4157-81e7-5f985bdd5c86',
   'field.billingIssuer.paymentDetails': 'e6c8c137-9b16-4cb8-84bf-7eba781f6eb2',
   'field.billingIssuer.phones': '9a12042d-20bb-4901-8b2d-fdb7213d8133',
+  'field.billingIssuer.postalAddress': '06265ba2-2460-471c-a54d-6c538908f234',
   'field.billingIssuer.profile': '08d8b6f7-5d98-441b-9118-5c6bd893a75a',
   'field.billingIssuer.quotes': 'c9182b6e-21fb-4e02-903e-8acb617ca986',
   'field.billingIssuer.sequences': '9b60b6df-6516-4917-bac4-df6133ed91aa',

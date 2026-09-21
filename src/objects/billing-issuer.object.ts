@@ -20,7 +20,7 @@ export default defineObject({
     text(O, 'legalName', { label: 'Legal name', icon: 'IconAbc' }),
     text(O, 'legalForm', { label: 'Legal form', description: 'Free text: legal forms differ by country.', icon: 'IconBuildingBank' }),
     manyToOne(O, 'profile', { label: 'Profile', icon: 'IconWorld' }, { object: 'billingProfile', inverse: 'issuers', onDelete: OnDeleteAction.SET_NULL }),
-    address(O, 'address', { label: 'Address', icon: 'IconMap' }),
+    address(O, 'postalAddress', { label: 'Address', icon: 'IconMap' }),
     emails(O, 'emails', { label: 'Emails', icon: 'IconMail' }),
     phones(O, 'phones', { label: 'Phones', icon: 'IconPhone' }),
     links(O, 'website', { label: 'Website', icon: 'IconLink' }),

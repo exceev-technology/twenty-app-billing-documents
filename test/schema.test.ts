@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadEntities } from './helpers/entities.ts';
+import { TWENTY_RESERVED_NAMES, isAcceptedOptionLabel } from './helpers/twenty-rules.ts';
 
 const objects = await loadEntities('objects');
 const standardFields = await loadEntities('fields');
 
-const RESERVED = ['id', 'createdAt', 'updatedAt', 'deletedAt', 'createdBy', 'updatedBy', 'position', 'searchVector', 'type'];
+const SYSTEM_FIELDS = ['id', 'createdAt', 'updatedAt', 'deletedAt', 'createdBy', 'updatedBy', 'position', 'searchVector'];
+const RESERVED = [...SYSTEM_FIELDS, ...TWENTY_RESERVED_NAMES];
 
 type Declared = { owner: string; field: any };
 const declared = new Map<string, Declared>();
@@ -38,8 +40,20 @@ test('every field added to a standard object is prefixed billing', () => {
   for (const { file, result } of standardFields) assert.match(result.config.name, /^billing[A-Z]/, file);
 });
 
+test('no object takes a name Twenty reserves, singular or plural', () => {
+  for (const { file, result } of objects) {
+    for (const name of [result.config.nameSingular, result.config.namePlural]) assert.ok(!RESERVED.includes(name), `${file}: ${name}`);
+  }
+});
+
 test('no field takes a name Twenty reserves or already uses', () => {
   for (const { field } of declared.values()) assert.ok(!RESERVED.includes(field.name), field.name);
+});
+
+test('every select option label is one Twenty accepts: 1 to 63 characters, no comma', () => {
+  for (const { field } of declared.values()) {
+    for (const option of field.options ?? []) assert.ok(isAcceptedOptionLabel(option.label), `${field.name}.${option.value}: "${option.label}"`);
+  }
 });
 
 test('field names are unique within each object', () => {

@@ -6,7 +6,7 @@ export const LANGUAGES: readonly Option[] = [
 ];
 
 export const ROUNDING_MODES: readonly Option[] = [
-  ['PER_RATE_ON_TOTAL', 'Per rate, on totals', 'blue'],
+  ['PER_RATE_ON_TOTAL', 'Per rate on totals', 'blue'],
   ['PER_LINE', 'Per line', 'gray'],
 ];
 
