@@ -52,8 +52,13 @@ npm run typecheck
 - Universal identifiers are generated, never written by hand: after declaring
   a new object, field or option, run `npm run ids:sync`. Never edit or delete
   an entry of `src/ids.ts`.
-- After a deploy to a workspace, run `npm run ids:lock` and commit
-  `ids.lock.json`. A test then fails if a released identifier changes.
+- Deploy with `npm run deploy -- --remote <name>`: tests, typecheck, plan,
+  confirmation, apply (never destroying anything), a check that the plan is
+  then empty, and `npm run ids:lock`. Commit `ids.lock.json` afterwards: a test
+  then fails if a released identifier changes.
+- A deploy does not run the post-install function, so it does not seed the
+  presets. Run it once from a remote signed in as a user (an API key cannot run
+  functions): `./node_modules/.bin/twenty --remote <name> dev:function:exec --postInstall`.
 - After changing a preset, run `npm run presets:docs`.
 
 ## Design
