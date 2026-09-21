@@ -40,7 +40,7 @@ Verified on 2026-09-21. This preset is a starting point: check it with your acco
 | `fr.tva.5-5` | TVA 5,5 % | REDUCED | TVA 5.5 % |  |
 | `fr.tva.2-1` | TVA 2,1 % | REDUCED | TVA 2.1 % |  |
 | `fr.franchise` | Franchise en base de TVA | EXEMPT | TVA 0 % | TVA non applicable, article 293 B du CGI. |
-| `fr.autoliquidation` | Autoliquidation | REVERSE_CHARGE | TVA 0 % | Autoliquidation, article 283 du CGI. |
+| `fr.autoliquidation` | Autoliquidation | REVERSE_CHARGE | TVA 0 % | Autoliquidation. |
 | `fr.intracom` | Livraison intracommunautaire | EXEMPT | TVA 0 % | Exonération de TVA, article 262 ter, I du CGI. |
 
 ## Mentions
@@ -59,4 +59,5 @@ E-invoicing reform: from 1 September 2026 every business must be able to receive
 - [Code de commerce, article D441-5: indemnité forfaitaire de 40 euros (Légifrance)](https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000043197457)
 - [Code général des impôts, article 262 ter: exonération des livraisons intracommunautaires (Légifrance)](https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000051764907)
 - [Code général des impôts, article 283: redevables de la taxe, autoliquidation (Légifrance)](https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000051214570)
+- [BOFiP, TVA - Facturation - Mentions obligatoires générales, §520-530: mention "Autoliquidation" requise, sans obligation de citer l’article du CGI (bofip.impots.gouv.fr)](https://bofip.impots.gouv.fr/bofip/140-PGP.html/identifiant=BOI-TVA-DECLA-30-20-20-10-20131018)
 - [Code général des impôts, article 293 B: franchise en base de TVA (Légifrance)](https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000045035275)

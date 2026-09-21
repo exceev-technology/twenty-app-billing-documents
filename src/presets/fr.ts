@@ -25,6 +25,7 @@ const preset: Preset = {
     { title: 'Code de commerce, article D441-5: indemnité forfaitaire de 40 euros (Légifrance)', url: 'https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000043197457' },
     { title: 'Code général des impôts, article 262 ter: exonération des livraisons intracommunautaires (Légifrance)', url: 'https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000051764907' },
     { title: 'Code général des impôts, article 283: redevables de la taxe, autoliquidation (Légifrance)', url: 'https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000051214570' },
+    { title: 'BOFiP, TVA - Facturation - Mentions obligatoires générales, §520-530: mention "Autoliquidation" requise, sans obligation de citer l’article du CGI (bofip.impots.gouv.fr)', url: 'https://bofip.impots.gouv.fr/bofip/140-PGP.html/identifiant=BOI-TVA-DECLA-30-20-20-10-20131018' },
     { title: 'Code général des impôts, article 293 B: franchise en base de TVA (Légifrance)', url: 'https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000045035275' },
   ],
   identifierTypes: [
@@ -40,7 +41,7 @@ const preset: Preset = {
     { code: 'fr.tva.5-5', name: 'TVA 5,5 %', category: 'REDUCED', components: [{ name: 'TVA', rate: 5.5 }] },
     { code: 'fr.tva.2-1', name: 'TVA 2,1 %', category: 'REDUCED', components: [{ name: 'TVA', rate: 2.1 }] },
     { code: 'fr.franchise', name: 'Franchise en base de TVA', category: 'EXEMPT', printNote: 'TVA non applicable, article 293 B du CGI.', components: [{ name: 'TVA', rate: 0 }] },
-    { code: 'fr.autoliquidation', name: 'Autoliquidation', category: 'REVERSE_CHARGE', printNote: 'Autoliquidation, article 283 du CGI.', components: [{ name: 'TVA', rate: 0 }] },
+    { code: 'fr.autoliquidation', name: 'Autoliquidation', category: 'REVERSE_CHARGE', printNote: 'Autoliquidation.', components: [{ name: 'TVA', rate: 0 }] },
     { code: 'fr.intracom', name: 'Livraison intracommunautaire', category: 'EXEMPT', printNote: 'Exonération de TVA, article 262 ter, I du CGI.', components: [{ name: 'TVA', rate: 0 }] },
   ],
 };
