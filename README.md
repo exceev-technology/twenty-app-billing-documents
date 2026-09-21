@@ -57,8 +57,11 @@ npm run typecheck
   then empty, and `npm run ids:lock`. Commit `ids.lock.json` afterwards: a test
   then fails if a released identifier changes.
 - A deploy does not run the post-install function, so it does not seed the
-  presets. Run it once from a remote signed in as a user (an API key cannot run
-  functions): `./node_modules/.bin/twenty --remote <name> dev:function:exec --postInstall`.
+  presets, and on a production server the CLI cannot run a function (that needs
+  a signed-in user, and the CLI signs in with an API key). Run the
+  `create-missing-presets` tool instead, from Twenty's AI assistant or an MCP
+  client (`app_create_missing_presets`). It is safe to run again: it never
+  changes an existing record or brings back a deleted one.
 - After changing a preset, run `npm run presets:docs`.
 
 ## Design
