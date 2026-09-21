@@ -22,7 +22,7 @@ test('list includes soft-deleted rows, asked for separately', async () => {
   assert.ok(twenty.requests.some((r) => r.includes('deletedAt[is]:NOT_NULL')));
 });
 
-test("create returns the created row from Twenty's envelope", async () => {
+test('create returns the created row from Twenty’s envelope', async () => {
   const row = await restSeedStore(fakeTwentyRest()).create('billingProfiles', 'billingProfile', { name: 'Generic' });
   assert.equal(row.name, 'Generic');
   assert.ok(row.id);
