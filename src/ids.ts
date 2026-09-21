@@ -332,4 +332,5 @@ export const IDS: Readonly<Record<string, string>> = {
   'option.billingTaxCode.category.REVERSE_CHARGE': 'ef489b20-7622-4975-af44-56f70820325e',
   'option.billingTaxCode.category.STANDARD': 'cb9c411f-5eaf-4de6-9a94-5149bd0dd2f6',
   'option.billingTaxCode.category.ZERO': '271fead7-4fda-4321-ba98-2ddc6f17e7ac',
+  'role.billing': '13225ae6-4d2f-4c24-aced-05032c90de01',
 };
