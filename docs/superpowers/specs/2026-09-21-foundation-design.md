@@ -324,9 +324,9 @@ One application role:
 ## 5. Repository
 
 ```
-LICENSE                     MIT, Copyright (c) 2026 Exceev Consulting & Exceev Technology
+LICENSE                     MIT, Copyright (c) 2026 Exceev Technology
 README.md                   what it is, requirements, install, status
-package.json                author "Exceev Consulting & Exceev Technology", "private": true until Publish
+package.json                author "Exceev Technology", "private": true until Publish
 src/application-config.ts   new application universalIdentifier
 src/ids.ts, ids.lock.json   identifier registry
 src/objects/                one file per object

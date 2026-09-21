@@ -21,7 +21,7 @@
 - Key grammar: `app`, `role.billing`, `logicFunction.<name>`, `object.<object>`, `field.<object>.<field>`, `option.<object>.<field>.<VALUE>`.
 - Object API names start with `billing`. Fields added to standard objects start with `billing`. No field is named `id`, `createdAt`, `updatedAt`, `deletedAt`, `createdBy`, `updatedBy`, `position`, `searchVector` or `type`.
 - Labels are plain English ("Invoice"). Select option values are `UPPER_SNAKE_CASE`.
-- `LICENSE` already exists from the repository's initial commit. Do not modify it.
+- The author and copyright holder is **Exceev Technology**, everywhere: `LICENSE`, `package.json`, the application manifest, the README. `LICENSE` exists from the repository's initial commit; Task 1 changes only its copyright line.
 - Nothing in the repository names a real workspace, server, client or person. The test workspace's URL and API key live outside the repository.
 - Commits: the repository's git identity is the only author. No `Co-Authored-By` or tool-attribution lines. Conventional prefixes (`feat:`, `test:`, `docs:`, `chore:`, `ci:`).
 - Work on the branch `feat/foundation`. Never push to `main`: push the branch and open a pull request; a maintainer merges it.
@@ -61,6 +61,7 @@ docs/presets/<key>.md                       generated from preset data
 
 **Files:**
 - Create: `.nvmrc`, `package.json`, `tsconfig.json`, `src/ids.ts`, `src/lib/id.ts`, `scripts/sync-ids.mjs`, `src/application-config.ts`
+- Modify: `LICENSE` (copyright line only)
 - Test: `test/ids.test.ts`, `test/application.test.ts`
 
 **Interfaces:**
@@ -90,7 +91,7 @@ git checkout -b feat/foundation FETCH_HEAD
   "private": true,
   "description": "Quotes, invoices and credit notes as PDFs, inside Twenty. Any country, any currency, your own tax rules.",
   "keywords": ["twenty-app", "invoice", "quote", "pdf", "billing"],
-  "author": "Exceev Consulting & Exceev Technology",
+  "author": "Exceev Technology",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -185,10 +186,10 @@ test('the application manifest validates', () => {
   assert.equal(app.success, true, app.errors.join('\n'));
 });
 
-test('the application is listed as Billing Documents, in Sales, by its two authors', () => {
+test('the application is listed as Billing Documents, in Sales, by Exceev Technology', () => {
   assert.equal(app.config.displayName, 'Billing Documents');
   assert.equal(app.config.category, 'Sales');
-  assert.equal(app.config.author, 'Exceev Consulting & Exceev Technology');
+  assert.equal(app.config.author, 'Exceev Technology');
 });
 ```
 
@@ -312,7 +313,7 @@ export default defineApplication({
   displayName: 'Billing Documents',
   description:
     'Quotes, invoices and credit notes as PDFs, inside Twenty. Any country, any currency, your own tax rules.',
-  author: 'Exceev Consulting & Exceev Technology',
+  author: 'Exceev Technology',
   category: 'Sales',
 });
 ```
@@ -327,10 +328,20 @@ Expected: `ids:sync registered 1 new identifier(s).` then `  + app`. `src/ids.ts
 Run: `npm test && npm run typecheck`
 Expected: 7 tests pass; `tsc` prints nothing.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9: Set the copyright holder**
+
+In `LICENSE`, replace the line `Copyright (c) 2026 Exceev Group` with:
+
+```
+Copyright (c) 2026 Exceev Technology
+```
+
+Leave the rest of the MIT text unchanged.
+
+- [ ] **Step 10: Commit**
 
 ```bash
-git add .nvmrc package.json package-lock.json tsconfig.json src/ids.ts src/lib/id.ts scripts/sync-ids.mjs src/application-config.ts test/ids.test.ts test/application.test.ts
+git add .nvmrc package.json package-lock.json tsconfig.json LICENSE src/ids.ts src/lib/id.ts scripts/sync-ids.mjs src/application-config.ts test/ids.test.ts test/application.test.ts
 git commit -m "feat: toolchain, identifier registry and application manifest"
 ```
 
@@ -3817,9 +3828,9 @@ npm run typecheck
 - [Foundation design](docs/superpowers/specs/2026-09-21-foundation-design.md)
 - [Foundation plan](docs/superpowers/plans/2026-09-21-foundation.md)
 
-## Authors
+## Author
 
-Exceev Consulting & Exceev Technology. Released under the [MIT licence](LICENSE).
+Exceev Technology. Released under the [MIT licence](LICENSE).
 ````
 
 - [ ] **Step 3: Run the checks CI runs**

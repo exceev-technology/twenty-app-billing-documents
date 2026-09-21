@@ -91,7 +91,7 @@ own design, spec, plan and review before code.
 
 ## Repository
 
-- Licence: MIT. Authors: Exceev Consulting & Exceev Technology.
+- Licence: MIT. Author and copyright holder: Exceev Technology.
 - The repository is public from the start. Until the first release, the
   README states that the app is under construction and not ready to
   install. The marketplace listing comes after the app works end to end.

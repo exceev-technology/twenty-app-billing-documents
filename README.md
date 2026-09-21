@@ -28,6 +28,6 @@ and the country preset says so.
 - [Foundation design](docs/superpowers/specs/2026-09-21-foundation-design.md)
 - [Foundation plan](docs/superpowers/plans/2026-09-21-foundation.md)
 
-## Authors
+## Author
 
-Exceev Consulting & Exceev Technology. Released under the [MIT licence](LICENSE).
+Exceev Technology. Released under the [MIT licence](LICENSE).
