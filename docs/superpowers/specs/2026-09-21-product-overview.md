@@ -92,7 +92,8 @@ own design, spec, plan and review before code.
 ## Repository
 
 - Licence: MIT. Authors: Exceev Consulting & Exceev Technology.
-- The repository is private until the app works end to end, then public,
-  then listed on the Twenty marketplace.
+- The repository is public from the start. Until the first release, the
+  README states that the app is under construction and not ready to
+  install. The marketplace listing comes after the app works end to end.
 - Every change is verified on a dedicated test workspace holding only
   Twenty's standard objects.

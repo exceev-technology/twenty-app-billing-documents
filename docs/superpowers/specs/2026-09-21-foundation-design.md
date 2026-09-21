@@ -30,6 +30,19 @@ a mapper.
 
 Fourteen objects. API names are prefixed `billing`; labels are plain.
 
+Platform rules the field names follow:
+
+- Every Twenty object already has system fields (`id`, `createdAt`,
+  `updatedAt`, `deletedAt`, `createdBy`, `updatedBy`, `position`), so no
+  field is named after one. Print order is `sortOrder`.
+- Generic names such as `type` are avoided; the identifier's type field is
+  `identifierType`.
+- Every object names its label identifier, the value Twenty shows for a
+  record and types first when one is created. Without one, the CLI adds a
+  `name` field. Documents use `subject`, because a draft has no number yet
+  and the number is never typed by hand. Lines use `description`,
+  identifiers `value`, sequences `periodKey`, every other object `name`.
+
 ### billingProfile: country rules
 
 A preset the user picks for an issuer. Seeded presets are ordinary records
@@ -45,6 +58,8 @@ the user may edit or copy.
 | defaultCurrency | TEXT | ISO 4217. |
 | roundingMode | SELECT | `PER_RATE_ON_TOTAL` (default) or `PER_LINE`. |
 | amountInWords | BOOLEAN | Print the total in words, when the language pack supports it. |
+| invoiceTitle | TEXT | Overrides the invoice title, for example "Tax Invoice" where the law requires those words. Empty: the language pack's. |
+| creditNoteTitle | TEXT | Same, for credit notes. |
 | quoteNumberPattern | TEXT | Tokens `{YYYY}` `{YY}` `{MM}` `{SEQ:n}`. Example `Q-{YYYY}-{SEQ:4}`. |
 | invoiceNumberPattern | TEXT | Example `INV-{YYYY}-{SEQ:4}`. |
 | creditNoteNumberPattern | TEXT | Example `CN-{YYYY}-{SEQ:4}`. |
@@ -67,17 +82,17 @@ the user may edit or copy.
 | profile | RELATION | → billingProfile. |
 | appliesTo | SELECT | `SELLER`, `BUYER`, `BOTH`. |
 | requiredForSeller | BOOLEAN | Issuing is refused while the seller has no value. |
-| requiredForBusinessBuyer | BOOLEAN | Refused while a company buyer has no value. A person buyer is never required to have one. |
+| requiredForBusinessBuyer | BOOLEAN | Refused while a company buyer located in the profile's country, or whose country is unknown, has no value. A foreign buyer or a person buyer is never required to have one, so export invoices are not blocked. |
 | printOnDocuments | BOOLEAN | |
 | includeInQr | BOOLEAN | |
 | validationPattern | TEXT | Optional regular expression, for example 15 digits. |
-| position | NUMBER | Print order. |
+| sortOrder | NUMBER | Print order. |
 
 ### billingIdentifier: an identifier's value
 
 | Field | Type | Notes |
 |---|---|---|
-| type | RELATION | → billingIdentifierType. |
+| identifierType | RELATION | → billingIdentifierType. |
 | value | TEXT | |
 | issuer | RELATION | → billingIssuer. |
 | company | RELATION | → company (standard). |
@@ -123,7 +138,7 @@ so Lifecycle's issue gate checks it and names the offending record.
 | name | TEXT | Printed in the recap: "GST", "QST", "CGST". |
 | rate | NUMBER | Percent, up to 4 decimals (9.975). |
 | compound | BOOLEAN | Computed on the base plus the components before it. |
-| position | NUMBER | |
+| sortOrder | NUMBER | |
 
 ### billingCatalogItem
 
@@ -181,7 +196,7 @@ shape:
 | Field | Type | Notes |
 |---|---|---|
 | (parent) | RELATION | → the document. |
-| position | NUMBER | Print order. |
+| sortOrder | NUMBER | Print order. |
 | catalogItem | RELATION | → billingCatalogItem. Copies its values; the line stays editable. |
 | description | TEXT | |
 | quantity | NUMBER | Up to 3 decimals. |
@@ -261,8 +276,15 @@ too, each with its own identifier in the registry:
 - It seeds configuration only: profiles, identifier types, tax codes and tax
   components. Never issuers, clients or documents.
 - It is idempotent and safe under the platform's three retries.
+- A soft-deleted seeded record counts as existing, so a preset the user
+  deleted stays deleted. No identifier type is added to a deleted profile.
+- A seeded tax code with no component at all is a run that stopped halfway,
+  and the next run adds the preset's components. A code with components,
+  including deleted ones, is the user's and is left alone.
 - A rate that changes by law ships as a new tax code and a release note. The
   old code is left for the user to deactivate.
+- Each preset carries its sources. `docs/presets/<key>.md` is generated from
+  the preset data, and a test fails when a page and its data disagree.
 
 Presets at launch:
 
