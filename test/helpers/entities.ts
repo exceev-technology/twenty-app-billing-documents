@@ -7,7 +7,7 @@ export type Entity = { file: string; result: { success: boolean; errors: string[
 const SRC = fileURLToPath(new URL('../../src/', import.meta.url));
 
 /** Every entity file of a folder, as the validation result its default export is. */
-export async function loadEntities(folder: 'objects' | 'fields'): Promise<Entity[]> {
+export async function loadEntities(folder: 'objects' | 'fields' | 'navigation-menu-items'): Promise<Entity[]> {
   const dir = join(SRC, folder);
   if (!existsSync(dir)) return [];
   const files = readdirSync(dir).filter((name) => name.endsWith('.ts')).sort();
