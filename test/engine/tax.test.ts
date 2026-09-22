@@ -39,14 +39,29 @@ test('tax is taken out of gross prices: 19.99 including 20 % is 16.66 and 3.33',
   });
 });
 
-test('on gross prices the last component takes the remainder, so the parts add up', () => {
-  // 10.00 including GST 5 % and QST 9.975 %: net 8.70 and GST 0.44, so QST is
-  // 0.86, not the 0.87 it would round to on its own.
+test('on gross prices each component takes its exact share and the net takes the remainder', () => {
   assert.deepEqual(taxOn(10_000_000n, GST_QST, true, 'CAD'), {
     net: 8_700_000n,
     parts: [
-      { base: 8_700_000n, tax: 440_000n },
-      { base: 8_700_000n, tax: 860_000n },
+      { base: 8_700_000n, tax: 430_000n },
+      { base: 8_700_000n, tax: 870_000n },
+    ],
+  });
+});
+
+test('on gross prices, components at equal rates get equal taxes and a 0 % component gets nothing', () => {
+  assert.deepEqual(taxOn(1_000_000n, [pct(90_000n), pct(90_000n)], true, 'INR'), {
+    net: 840_000n,
+    parts: [
+      { base: 840_000n, tax: 80_000n },
+      { base: 840_000n, tax: 80_000n },
+    ],
+  });
+  assert.deepEqual(taxOn(1_000_000n, [pct(200_000n), pct(0n)], true, 'EUR'), {
+    net: 830_000n,
+    parts: [
+      { base: 830_000n, tax: 170_000n },
+      { base: 830_000n, tax: 0n },
     ],
   });
 });

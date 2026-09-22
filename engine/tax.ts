@@ -24,21 +24,31 @@ function onNet(net: bigint, components: readonly RateComponent[], currencyCode: 
   return parts;
 }
 
-/** gross ÷ net for these components, as an exact fraction. */
-export function grossFactor(components: readonly RateComponent[]): Fraction {
+/**
+ * Each component's exact share tᵢ of the net amount (compounding on the
+ * shares before it), and the factor F = 1 + Σ tᵢ, gross ÷ net.
+ */
+function shares(components: readonly RateComponent[]): { parts: Fraction[]; factor: Fraction } {
   let taxes: Fraction = { n: 0n, d: 1n };
+  const parts: Fraction[] = [];
   for (const { rate, compound } of components) {
     const base: Fraction = compound ? { n: taxes.d + taxes.n, d: taxes.d } : { n: 1n, d: 1n };
     const share: Fraction = { n: rate * base.n, d: RATE_SCALE * base.d };
+    parts.push(share);
     taxes = { n: taxes.n * share.d + share.n * taxes.d, d: taxes.d * share.d };
   }
-  return { n: taxes.d + taxes.n, d: taxes.d };
+  return { parts, factor: { n: taxes.d + taxes.n, d: taxes.d } };
+}
+
+/** gross ÷ net for these components, as an exact fraction. */
+export function grossFactor(components: readonly RateComponent[]): Fraction {
+  return shares(components).factor;
 }
 
 /**
- * The taxes of one tax code on one amount: a line's total, or the total of the
- * code's lines. On gross prices the tax is taken out of the amount, and the
- * last component takes the rounding remainder, so net + taxes = amount.
+ * The taxes of one tax code on one amount: a line's total, or the total of
+ * the code's lines. On gross prices each component takes its exact share of
+ * the amount, rounded, and the net takes the remainder, so net + taxes = amount.
  */
 export function taxOn(
   amount: bigint,
@@ -47,10 +57,15 @@ export function taxOn(
   currencyCode: string,
 ): { net: bigint; parts: ComponentTax[] } {
   if (!pricesIncludeTax) return { net: amount, parts: onNet(amount, components, currencyCode) };
-  const factor = grossFactor(components);
-  const net = roundToMinor(amount * factor.d, factor.n, currencyCode);
-  const parts = onNet(net, components, currencyCode);
-  const last = parts.at(-1);
-  if (last) last.tax = amount - net - parts.slice(0, -1).reduce((sum, part) => sum + part.tax, 0n);
+  const { parts: componentShares, factor } = shares(components);
+  const taxes = componentShares.map((share) => roundToMinor(amount * share.n * factor.d, share.d * factor.n, currencyCode));
+  const net = amount - taxes.reduce((total, tax) => total + tax, 0n);
+  const parts: ComponentTax[] = [];
+  let before = 0n;
+  components.forEach((component, i) => {
+    const tax = taxes[i]!;
+    parts.push({ base: net + (component.compound ? before : 0n), tax });
+    before += tax;
+  });
   return { net, parts };
 }
