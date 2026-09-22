@@ -78,6 +78,36 @@ test('computing a document with problems throws them', () => {
   assert.throws(() => computeDocument(doc([])), (error: unknown) => error instanceof EngineError && error.problems[0]?.code === 'NO_LINES');
 });
 
+test('two tax codes that share a code but not their rates are refused', () => {
+  assert.deepEqual(
+    checkDocument(doc([at('a', 1, 100, tax('', ['VAT', 20])), at('b', 1, 100, tax('', ['VAT', 10]))])),
+    [{ code: 'TAX_CODE_CONFLICT', line: 'b', value: '' }],
+  );
+});
+
+test('a unit price that is missing, text or fractional micros is refused as invalid, not too large', () => {
+  for (const value of [null, '19990000', 19990000.5]) {
+    assert.deepEqual(
+      checkDocument(doc([at('a', 1, 10, VAT20, { unitPrice: { amountMicros: value as never, currencyCode: 'EUR' } })])),
+      [{ code: 'INVALID_AMOUNT', line: 'a', value }],
+    );
+  }
+});
+
+test('a standard or reduced tax code without a rate is refused, never read as 0 %', () => {
+  const noRate: TaxCodeInput = { code: 'x', name: 'x', category: 'STANDARD', components: [] };
+  assert.deepEqual(checkDocument(doc([at('a', 1, 10, noRate)])), [{ code: 'MISSING_TAX_RATE', line: 'a', value: 'x' }]);
+  assert.deepEqual(checkDocument(doc([at('a', 1, 10, { ...noRate, category: 'REDUCED' })])), [{ code: 'MISSING_TAX_RATE', line: 'a', value: 'x' }]);
+  assert.deepEqual(checkDocument(doc([at('a', 1, 10, EXEMPT)])), []);
+});
+
+test('problems from different lines are all reported', () => {
+  assert.deepEqual(checkDocument(doc([at('a', 1, 10, VAT20, {}, 'USD'), at('b', 1, 10, null)])), [
+    { code: 'CURRENCY_MISMATCH', line: 'a', value: 'USD' },
+    { code: 'MISSING_TAX_CODE', line: 'b' },
+  ]);
+});
+
 // Worked cases
 
 test('France, 20 % on net prices', () => {

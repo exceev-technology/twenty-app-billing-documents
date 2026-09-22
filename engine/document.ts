@@ -5,10 +5,13 @@ import { taxOn, type RateComponent } from './tax.ts';
 export type RoundingMode = 'PER_RATE_ON_TOTAL' | 'PER_LINE';
 export type TaxCategory = 'STANDARD' | 'REDUCED' | 'ZERO' | 'EXEMPT' | 'REVERSE_CHARGE' | 'OUT_OF_SCOPE';
 
+/** A component's `sortOrder` is required and decides both print order and compound order. */
 export type TaxComponentInput = { name: string; rate: number; compound: boolean; sortOrder: number };
+/** `code` is the tax code's unique identity: Lifecycle passes the record id. */
 export type TaxCodeInput = { code: string; name: string; category: TaxCategory; components: readonly TaxComponentInput[] };
 
 export type LineInput = {
+  /** Echoed back on the matching LineResult, unchanged. */
   key: string;
   quantity: number;
   unitPrice: { amountMicros: number; currencyCode: string };
@@ -23,12 +26,14 @@ export type DocumentInput = {
   lines: readonly LineInput[];
 };
 
+/** `lineTotalMicros` is in the document's price basis: net when prices exclude tax, gross when they include it. */
 export type LineResult = { key: string; amountMicros: number; discountMicros: number; lineTotalMicros: number };
 export type RecapRow = { taxCode: string; component: string | null; rate: number; baseMicros: number; taxMicros: number };
 
 export type DocumentResult = {
   lines: LineResult[];
   recap: RecapRow[];
+  /** In recap order, for Rendering to print their notes. */
   taxCodesUsed: string[];
   subtotalMicros: number;
   discountTotalMicros: number;
@@ -38,18 +43,36 @@ export type DocumentResult = {
 
 const sum = (values: readonly bigint[]): bigint => values.reduce((total, value) => total + value, 0n);
 
+/** Same components once sorted by `sortOrder`, field by field; different lengths differ. */
+function sameComponents(a: readonly TaxComponentInput[], b: readonly TaxComponentInput[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((component, i) => {
+    const other = b[i]!;
+    return (
+      component.name === other.name &&
+      component.rate === other.rate &&
+      component.compound === other.compound &&
+      component.sortOrder === other.sortOrder
+    );
+  });
+}
+
 function validate(input: DocumentInput): Problem[] {
   const problems: Problem[] = [];
   if (!isCurrencyCode(input.currencyCode)) problems.push({ code: 'INVALID_CURRENCY', value: input.currencyCode });
   if (input.lines.length === 0) problems.push({ code: 'NO_LINES' });
+  // The first tax definition seen for a `code`; later lines with the same code must match it.
+  const definitions = new Map<string, readonly TaxComponentInput[]>();
   for (const line of input.lines) {
     const at = { line: line.key };
     if (line.unitPrice.currencyCode !== input.currencyCode) {
       problems.push({ code: 'CURRENCY_MISMATCH', ...at, value: line.unitPrice.currencyCode });
     }
-    // Twenty's amountMicros is always a safe integer; anything else cannot be computed exactly.
-    if (!Number.isSafeInteger(line.unitPrice.amountMicros)) {
-      problems.push({ code: 'AMOUNT_TOO_LARGE', ...at, value: line.unitPrice.amountMicros });
+    const amountMicros = line.unitPrice.amountMicros;
+    if (typeof amountMicros !== 'number' || !Number.isInteger(amountMicros)) {
+      problems.push({ code: 'INVALID_AMOUNT', ...at, value: amountMicros });
+    } else if (!Number.isSafeInteger(amountMicros)) {
+      problems.push({ code: 'AMOUNT_TOO_LARGE', ...at, value: amountMicros });
     }
     if (toScaled(line.quantity, 3) === null) problems.push({ code: 'INVALID_QUANTITY', ...at, value: line.quantity });
     const discount = line.discountPercent;
@@ -59,6 +82,16 @@ function validate(input: DocumentInput): Problem[] {
     if (line.tax === null) {
       problems.push({ code: 'MISSING_TAX_CODE', ...at });
       continue;
+    }
+    if ((line.tax.category === 'STANDARD' || line.tax.category === 'REDUCED') && line.tax.components.length === 0) {
+      problems.push({ code: 'MISSING_TAX_RATE', ...at, value: line.tax.code });
+    }
+    const sorted = [...line.tax.components].sort((a, b) => a.sortOrder - b.sortOrder);
+    const seen = definitions.get(line.tax.code);
+    if (seen === undefined) {
+      definitions.set(line.tax.code, sorted);
+    } else if (!sameComponents(seen, sorted)) {
+      problems.push({ code: 'TAX_CODE_CONFLICT', ...at, value: line.tax.code });
     }
     for (const component of line.tax.components) {
       if (toScaled(component.rate, 4) === null || component.rate < 0) {
@@ -148,10 +181,12 @@ function evaluate(input: DocumentInput): { problems: Problem[]; result?: Documen
   };
 }
 
+/** The document's problems, if any; empty when it can be computed. */
 export function checkDocument(input: DocumentInput): Problem[] {
   return evaluate(input).problems;
 }
 
+/** The document's figures; throws EngineError(problems) if checkDocument would find any. */
 export function computeDocument(input: DocumentInput): DocumentResult {
   const { problems, result } = evaluate(input);
   if (!result) throw new EngineError(problems);

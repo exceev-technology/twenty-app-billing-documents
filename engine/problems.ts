@@ -6,12 +6,15 @@ export type ProblemCode =
   | 'INVALID_QUANTITY'
   | 'INVALID_RATE'
   | 'INVALID_DISCOUNT'
+  | 'INVALID_AMOUNT'
   | 'AMOUNT_TOO_LARGE'
+  | 'MISSING_TAX_RATE'
+  | 'TAX_CODE_CONFLICT'
   | 'INVALID_PATTERN'
   | 'PATTERN_REPEATS_NUMBERS';
 
 /** A problem is data: Rendering's language packs word it in the document's language. */
-export type Problem = { code: ProblemCode; line?: string; value?: string | number };
+export type Problem = { code: ProblemCode; line?: string; value?: string | number | null };
 
 export class EngineError extends Error {
   readonly problems: readonly Problem[];
