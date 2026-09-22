@@ -2,10 +2,17 @@ import { EngineError, type Problem } from './problems.ts';
 
 export type NumberingReset = 'NEVER' | 'YEARLY' | 'MONTHLY';
 
-const ISSUE_DATE = /^(\d{4})-(\d{2})-\d{2}$/;
+const ISSUE_DATE = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const TOKEN = /\{([^{}]*)\}/g;
 const SEQ = /^SEQ:([1-9])$/;
 const DATE_TOKENS = ['YYYY', 'YY', 'MM'];
+
+/** Refuses any reset other than NEVER, YEARLY or MONTHLY: never silently read as monthly. */
+function checkReset(reset: NumberingReset): void {
+  if (reset !== 'NEVER' && reset !== 'YEARLY' && reset !== 'MONTHLY') {
+    throw new Error(`A numbering reset is NEVER, YEARLY or MONTHLY, not "${reset}"`);
+  }
+}
 
 /** The year and month of a YYYY-MM-DD string, read from its digits: no time zone can move them. */
 function yearMonth(issueDate: string): { year: string; month: string } {
@@ -15,6 +22,7 @@ function yearMonth(issueDate: string): { year: string; month: string } {
 }
 
 export function validatePattern(pattern: string, reset: NumberingReset): Problem[] {
+  checkReset(reset);
   const problems: Problem[] = [];
   const tokens = [...pattern.matchAll(TOKEN)].map((match) => match[1]!);
   for (const token of tokens) {
@@ -44,7 +52,8 @@ export function formatNumber(pattern: string, sequence: number, issueDate: strin
 }
 
 export function periodKey(reset: NumberingReset, issueDate: string): string {
-  if (reset === 'NEVER') return 'ALL';
+  checkReset(reset);
   const { year, month } = yearMonth(issueDate);
+  if (reset === 'NEVER') return 'ALL';
   return reset === 'YEARLY' ? year : `${year}-${month}`;
 }

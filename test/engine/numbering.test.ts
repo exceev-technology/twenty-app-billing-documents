@@ -61,3 +61,15 @@ test('formatting refuses a broken pattern, a bad sequence or a bad date', () => 
   assert.throws(() => formatNumber('{SEQ:4}', 1.5, '2026-09-22'), /positive integer/);
   assert.throws(() => formatNumber('{SEQ:4}', 1, '22/09/2026'), /YYYY-MM-DD/);
 });
+
+test('a reset other than never, yearly or monthly is refused, never read as monthly', () => {
+  for (const reset of [null, '', 'yearly'] as const) {
+    assert.throws(() => validatePattern('INV-{YYYY}-{SEQ:4}', reset as never), /NEVER, YEARLY or MONTHLY/);
+    assert.throws(() => periodKey(reset as never, '2026-09-22'), /NEVER, YEARLY or MONTHLY/);
+  }
+});
+
+test('an impossible date is refused, whatever the reset', () => {
+  assert.throws(() => formatNumber('{YYYY}{MM}-{SEQ:3}', 1, '2026-13-40'), /YYYY-MM-DD/);
+  assert.throws(() => periodKey('NEVER', 'not a date'), /YYYY-MM-DD/);
+});
