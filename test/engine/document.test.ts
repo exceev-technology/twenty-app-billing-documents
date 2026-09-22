@@ -203,3 +203,28 @@ test('components print in sortOrder, whatever order they arrive in', () => {
   const result = computeDocument(doc([at('a', 1, 100, reversed, {}, 'CAD')], { currencyCode: 'CAD' }));
   assert.deepEqual(result.recap.map((row) => row.component), ['GST', 'QST']);
 });
+
+test('gross prices with a compound component: 115.50 including A 10 % then B 5 % on A', () => {
+  const result = computeDocument(doc([at('a', 1, 115.5, tax('test.compound', ['A', 10], ['B', 5, true]))], { pricesIncludeTax: true }));
+  assert.deepEqual(result.recap.map((row) => [row.component, row.baseMicros, row.taxMicros]), [
+    ['A', 100_000_000, 10_000_000],
+    ['B', 110_000_000, 5_500_000],
+  ]);
+  assert.deepEqual([result.subtotalMicros, result.taxTotalMicros, result.totalMicros], [100_000_000, 15_500_000, 115_500_000]);
+});
+
+test('gross yen change with the rounding mode: three lines of ¥105 including 10 %', () => {
+  const ct = tax('jp.ct.10', ['CT', 10]);
+  const lines = ['a', 'b', 'c'].map((key) => at(key, 1, 105, ct, {}, 'JPY'));
+  const perLine = computeDocument(doc(lines, { currencyCode: 'JPY', pricesIncludeTax: true, roundingMode: 'PER_LINE' }));
+  assert.deepEqual([perLine.taxTotalMicros, perLine.subtotalMicros, perLine.totalMicros], [30_000_000, 285_000_000, 315_000_000]);
+  const perRate = computeDocument(doc(lines, { currencyCode: 'JPY', pricesIncludeTax: true, roundingMode: 'PER_RATE_ON_TOTAL' }));
+  assert.deepEqual([perRate.taxTotalMicros, perRate.subtotalMicros, perRate.totalMicros], [29_000_000, 286_000_000, 315_000_000]);
+});
+
+test('India on gross prices: CGST and SGST at equal rates print equal amounts', () => {
+  const result = computeDocument(doc([at('a', 1, 1, GST_IN, {}, 'INR')], { currencyCode: 'INR', pricesIncludeTax: true }));
+  assert.deepEqual(result.recap.map((row) => row.taxMicros), [80_000, 80_000]);
+  assert.deepEqual(result.recap.map((row) => row.baseMicros), [840_000, 840_000]);
+  assert.deepEqual([result.subtotalMicros, result.totalMicros], [840_000, 1_000_000]);
+});
