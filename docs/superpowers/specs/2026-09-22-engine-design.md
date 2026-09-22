@@ -34,6 +34,7 @@ type TaxCategory = 'STANDARD' | 'REDUCED' | 'ZERO' | 'EXEMPT' | 'REVERSE_CHARGE'
 
 type TaxComponentInput = { name: string; rate: number; compound: boolean; sortOrder: number };
 type TaxCodeInput = { code: string; name: string; category: TaxCategory; components: TaxComponentInput[] };
+// `code` is the tax code's unique identity: Lifecycle passes the record id.
 
 type LineInput = {
   key: string;                                     // the line's record id, echoed back
@@ -63,8 +64,9 @@ type DocumentResult = {
 };
 
 type ProblemCode = 'NO_LINES' | 'INVALID_CURRENCY' | 'CURRENCY_MISMATCH' | 'MISSING_TAX_CODE' | 'INVALID_QUANTITY'
-  | 'INVALID_RATE' | 'INVALID_DISCOUNT' | 'AMOUNT_TOO_LARGE' | 'INVALID_PATTERN' | 'PATTERN_REPEATS_NUMBERS';
-type Problem = { code: ProblemCode; line?: string; value?: string | number };   // section 6
+  | 'INVALID_RATE' | 'INVALID_DISCOUNT' | 'INVALID_AMOUNT' | 'AMOUNT_TOO_LARGE' | 'MISSING_TAX_RATE'
+  | 'TAX_CODE_CONFLICT' | 'INVALID_PATTERN' | 'PATTERN_REPEATS_NUMBERS';
+type Problem = { code: ProblemCode; line?: string; value?: string | number | null };   // section 6
 
 checkDocument(input: DocumentInput): Problem[];
 computeDocument(input: DocumentInput): DocumentResult;   // throws EngineError(problems) if checkDocument finds any
@@ -149,10 +151,10 @@ When `pricesIncludeTax` is set, `lineTotal` is gross and the tax is taken out:
 
 1. The code's factor `F = 1 + t₁ + … + tₖ`, where `tᵢ = rateᵢ × (1 + (compoundᵢ ? t₁ + … + tᵢ₋₁ : 0))`,
    is kept as an exact fraction in `BigInt`.
-2. `net = G ÷ F`, rounded, where `G` is a line's `lineTotal` (`PER_LINE`) or the
-   sum of the code's `lineTotal`s (`PER_RATE_ON_TOTAL`).
-3. The components are computed on `net` as for net prices, and the last one
-   takes the remainder, so `net + taxes = G` exactly.
+2. Each component's tax is `G × tᵢ ÷ F`, rounded, and the net is `G` minus the
+   taxes, so net + taxes = G exactly, components at equal rates always get
+   equal taxes, and a 0 % component always gets 0. `G` is a line's `lineTotal`
+   (`PER_LINE`) or the sum of the code's `lineTotal`s (`PER_RATE_ON_TOTAL`).
 
 Example: 19.99 including 20 % gives net 16.66 and tax 3.33.
 
@@ -207,6 +209,8 @@ invoice issued late on 31 December into the next year.
   the ledger's `periodKey`.
 - `validatePattern` refuses a pattern that would repeat numbers: a yearly reset
   needs `{YYYY}` or `{YY}`, a monthly reset needs a year and `{MM}`.
+- Any other reset, and a date that is not a real YYYY-MM-DD, is refused with
+  an error.
 
 | Pattern | Reset | Sequence, date | Result |
 |---|---|---|---|
@@ -229,7 +233,10 @@ Rendering's language packs turn it into a sentence in the document's language.
 | `INVALID_QUANTITY` | Not finite, or more than 3 decimals. |
 | `INVALID_RATE` | Below 0, or more than 4 decimals. |
 | `INVALID_DISCOUNT` | Outside 0 to 100, or more than 2 decimals. |
+| `INVALID_AMOUNT` | A unit price is missing, not a number, or not a whole number of micros. |
 | `AMOUNT_TOO_LARGE` | A figure would pass the largest safe integer in micros. |
+| `MISSING_TAX_RATE` | A standard or reduced tax code has no component. It is never read as 0 %. |
+| `TAX_CODE_CONFLICT` | Two lines use the same tax code `code` with different components. |
 | `INVALID_PATTERN` | Unknown token, or `{SEQ:n}` missing, repeated or out of range. |
 | `PATTERN_REPEATS_NUMBERS` | The pattern lacks the year or month its reset needs. |
 
