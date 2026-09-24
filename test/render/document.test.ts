@@ -1,0 +1,107 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { checkRender, definitionFor, renderDocument } from '../../render/document.ts';
+import { mockInvoice, mockLongInvoice } from '../../render/samples/mock.ts';
+import { countPages } from '../../render/pdf.ts';
+import type { RenderLine } from '../../render/types.ts';
+import { printed } from './helpers/printed.ts';
+
+test('the classic layout prints everything the law needs', () => {
+  const input = mockInvoice();
+  const text = printed(definitionFor(input));
+  for (const needed of [
+    input.number!, input.seller.name, input.buyer.name, input.subject!,
+    ...input.identifiers.map((identifier) => identifier.value),
+    ...input.lines.map((line) => line.description),
+    input.mentions!, input.brand.footerNote!, input.taxNotes[0]!,
+  ]) {
+    assert.ok(text.includes(needed), `missing from the page: ${needed}`);
+  }
+  for (const row of input.totals.recap) assert.match(text, new RegExp(String(row.rate).replace('.', '[.,]')));
+});
+
+test('a document with no number prints the draft marker instead', () => {
+  const text = printed(definitionFor({ ...mockInvoice(), number: null }));
+  assert.match(text, /DRAFT/);
+});
+
+test('the lines table repeats its header and the footer counts the pages', () => {
+  const definition = definitionFor(mockLongInvoice()) as Record<string, any>;
+  assert.ok(JSON.stringify(definition.content).includes('"headerRows":1'), 'the lines table does not repeat its header');
+  assert.equal(typeof definition.footer, 'function');
+  assert.match(printed(definition.footer(2, 3)), /Page 2 \/ 3/);
+});
+
+test('a long document really does run to more than one page', async () => {
+  const { bytes, pages } = await renderDocument(mockLongInvoice());
+  assert.ok(pages > 1, `only ${pages} page(s)`);
+  assert.equal(countPages(bytes), pages);
+});
+
+test('columns that are empty on every line are dropped', () => {
+  const withDiscounts = printed(definitionFor(mockLongInvoice()));
+  assert.ok(withDiscounts.includes('Discount'), 'the discount column is missing when lines have discounts');
+  const plain = mockInvoice();
+  const text = printed(definitionFor({ ...plain, lines: plain.lines.map((line) => ({ ...line, discountPercent: null })) }));
+  assert.ok(!text.includes('Discount'), 'the discount column is printed with nothing in it');
+});
+
+test('text far longer than its box wraps instead of being dropped', () => {
+  const long = 'x'.repeat(300);
+  const input = mockInvoice();
+  const text = printed(definitionFor({
+    ...input,
+    buyer: { ...input.buyer, name: 'y'.repeat(120) },
+    lines: [{ ...input.lines[0]!, description: long }],
+  }));
+  assert.ok(text.includes(long), 'the long description was dropped');
+  assert.ok(text.includes('y'.repeat(120)), 'the long buyer name was dropped');
+});
+
+test('a logo far larger than its slot is scaled, never drawn at full size', () => {
+  const input = mockInvoice();
+  const huge = { bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), type: 'image/png' as const };
+  const definition = JSON.stringify(definitionFor({ ...input, brand: { ...input.brand, logo: huge } }));
+  assert.match(definition, /"fit":\[\d+,\d+\]/, 'the logo has no fit box');
+});
+
+test('an accent colour that is not a hex triplet falls back to the default ink', () => {
+  const input = mockInvoice();
+  for (const accentColor of ['red', '#GGG', '', null]) {
+    const definition = JSON.stringify(definitionFor({ ...input, brand: { ...input.brand, accentColor } }));
+    assert.ok(!definition.includes('"color":"red"'), `${accentColor} reached the page`);
+    assert.ok(definition.includes('#1f2933'), `${accentColor} did not fall back`);
+  }
+});
+
+test('a template, a language, a logo type and a QR payload are all checked', () => {
+  const input = mockInvoice();
+  assert.deepEqual(checkRender(input), []);
+  assert.deepEqual(checkRender({ ...input, template: 'fancy' as never }), [{ code: 'UNKNOWN_TEMPLATE', field: 'template', value: 'fancy' }]);
+  assert.deepEqual(checkRender({ ...input, language: 'ES' as never }), [{ code: 'UNKNOWN_LANGUAGE', field: 'language', value: 'ES' }]);
+  assert.deepEqual(
+    checkRender({ ...input, brand: { ...input.brand, logo: { bytes: new Uint8Array([1]), type: 'image/svg+xml' as never } } }),
+    [{ code: 'UNSUPPORTED_IMAGE', field: 'brand.logo', value: 'image/svg+xml' }],
+  );
+  assert.deepEqual(
+    checkRender({ ...input, qr: { mode: 'PAYLOAD', payload: 'x'.repeat(301) } }),
+    [{ code: 'QR_PAYLOAD_TOO_LONG', field: 'qr.payload', value: '301 characters' }],
+  );
+});
+
+test('text the font cannot draw is refused, naming the field, wherever it hides', () => {
+  const input = mockInvoice();
+  const first = (patch: Partial<typeof input>) => checkRender({ ...input, ...patch })[0];
+  assert.deepEqual(first({ buyer: { ...input.buyer, name: 'مؤسسة الشرق' } })?.field, 'buyer.name');
+  assert.deepEqual(first({ lines: [{ ...input.lines[0]!, description: 'Conseil 相談' } as RenderLine] })?.field, 'lines[0].description');
+  assert.deepEqual(first({ mentions: 'Paiement à 30 jours ☕' })?.field, 'mentions');
+  assert.deepEqual(first({ brand: { ...input.brand, footerNote: 'शुक्रिया' } })?.field, 'brand.footerNote');
+  assert.equal(first({ mentions: 'Paiement ☕' })?.code, 'UNSUPPORTED_SCRIPT');
+});
+
+test('rendering refuses a document with problems, and says all of them', async () => {
+  await assert.rejects(
+    renderDocument({ ...mockInvoice(), template: 'fancy' as never }),
+    (error: unknown) => error instanceof Error && error.name === 'RenderError',
+  );
+});
