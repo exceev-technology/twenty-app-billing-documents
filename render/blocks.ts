@@ -1,5 +1,6 @@
 import { amountInWords, formatDate, formatMoney, formatPercent, formatQuantity, formatUnitPrice } from './format.ts';
 import type { LabelKey, LanguagePack } from './lang/pack.ts';
+import { textWidth } from './glyphs.ts';
 import { qrBox, qrText } from './qr.ts';
 import type { Party, RenderInput, RenderLine } from './types.ts';
 
@@ -46,25 +47,60 @@ const lines = (values: (string | null | undefined)[]): string =>
 /** An absent block. pdfmake gives an empty text a full line of height, and an empty stack none. */
 const NOTHING: Node = { stack: [] };
 
-/**
- * pdfmake widens a column to its longest unbreakable word, pushing the columns
- * beside it off the page. A run longer than `longest` characters (an IBAN, a URL,
- * a very long compound) gets a zero-width break opportunity between every
- * character, so it wraps like any text; shorter words are left whole.
- */
-function breakRuns(text: string, longest: number): string {
-  return text.replace(new RegExp(`[^\\s\\u200b]{${longest + 1},}`, 'gu'), (run) => [...run].join('\u200b'));
+/** Where a long run may break first: after a separator of a URL, an e-mail address or a reference. */
+const SEPARATOR = /(?<=[/.\-@_?&=,;:+#])/u;
+
+/** A run cut into the widest pieces that fit `limit` points, for a run with no separator left in it. */
+function chunks(run: string, size: number, limit: number): string[] {
+  const found = [''];
+  let width = 0;
+  for (const character of run) {
+    const advance = textWidth(character, size);
+    if (found.at(-1) !== '' && width + advance > limit) {
+      found.push('');
+      width = 0;
+    }
+    found[found.length - 1] += character;
+    width += advance;
+  }
+  return found;
 }
 
-/** Every printed string of a block, made breakable. The QR payload and the logo are data, not text. */
-function breakable(node: unknown, longest: number): unknown {
-  if (Array.isArray(node)) return node.map((child) => breakable(child, longest));
+/**
+ * pdfmake sizes a column to its widest unbreakable run, so one very long word (a
+ * URL, an unspaced IBAN, a pasted hash) widens it and pushes the columns beside
+ * it off the page. A run wider than `limit` points becomes adjacent pieces,
+ * cut after a separator where there is one: they set and copy as one word, and
+ * a line may break between them. Nothing is inserted into the text, and a run
+ * that fits is left whole.
+ */
+function pieces(text: string, size: number, limit: number): string | string[] {
+  const found = [''];
+  let split = false;
+  for (const token of text.split(/(\s+)/u)) {
+    if (textWidth(token, size) <= limit) {
+      found[found.length - 1] += token;
+      continue;
+    }
+    split = true;
+    const parts = token.split(SEPARATOR).flatMap((part) => (textWidth(part, size) <= limit ? [part] : chunks(part, size, limit)));
+    found[found.length - 1] += parts[0]!;
+    found.push(...parts.slice(1));
+  }
+  return split ? found : text;
+}
+
+/** Every printed string of a block, at its own font size, made to fit `limit`. The QR payload and the logo are data, not text. */
+function breakable(node: unknown, limit: number, size: number): unknown {
+  if (Array.isArray(node)) return node.map((child) => breakable(child, limit, size));
   if (!node || typeof node !== 'object') return node;
-  return Object.fromEntries(Object.entries(node).map(([key, value]) => [
+  const record = node as Record<string, unknown>;
+  const own = typeof record.fontSize === 'number' ? record.fontSize : size;
+  return Object.fromEntries(Object.entries(record).map(([key, value]) => [
     key,
-    key === 'text' && typeof value === 'string' ? breakRuns(value, longest)
+    key === 'text' && typeof value === 'string' ? pieces(value, own, limit)
       : key === 'qr' || key === 'image' || typeof value === 'function' ? value
-      : breakable(value, longest),
+      : breakable(value, limit, own),
   ]));
 }
 
@@ -79,6 +115,14 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   const label = (key: LabelKey): string => pack.labels[key];
   const identifiers = (side: 'SELLER' | 'BUYER'): string =>
     lines(input.identifiers.filter((identifier) => identifier.side === side).map((identifier) => `${identifier.label}${pack.colon}${identifier.value}`));
+
+  /**
+   * The space user text lands in, in points: a cell of the lines table or the tax
+   * recap, or a block of its own (half the page on A4, the whole roll on the
+   * receipt). A run wider than its space is cut into pieces (see pieces()).
+   */
+  const cell = style.narrow ? 60 : 150;
+  const block = style.narrow ? 190 : 240;
 
   const hasDiscount = input.lines.some((line) => (line.discountPercent ?? 0) > 0);
   // Keyed on the codes, not their names: two codes may share a name and still differ.
@@ -171,9 +215,13 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     ];
     const widths = ['*', 'auto', 'auto', ...(hasDiscount ? ['auto'] : []), ...(hasManyTaxes ? ['auto'] : []), 'auto'];
     const pad = style.dense ? 2 : 5;
-    // Rows may break across pages: pdfmake drops a row taller than a page when it may not.
-    return {
-      table: { headerRows: 1, widths, body: [head, ...input.lines.map(lineRow)] },
+    // A row stays whole, so a line never parts from its service period, unless one could outgrow a page:
+    // pdfmake silently drops a row taller than a page when it may not break.
+    const rowHeight = (line: RenderLine): number =>
+      `${line.description}\nperiod`.split('\n').reduce((count, part) => count + Math.max(1, Math.ceil(textWidth(part, style.base) / cell)), 0) * style.base * 1.2;
+    const tallRow = input.lines.some((line) => rowHeight(line) > 500);
+    return breakable({
+      table: { headerRows: 1, widths, body: [head, ...input.lines.map(lineRow)], dontBreakRows: !tallRow },
       layout: {
         // pdfmake hands a layout callback the table node, so the rows are node.table.body.
         hLineWidth: (index: number, node: { table: { body: unknown[] } }) => (style.rules || index === 1 || index === node.table.body.length ? 0.5 : 0),
@@ -183,7 +231,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
         paddingBottom: () => pad,
       },
       margin: [0, 0, 0, 10],
-    };
+    }, cell, style.base) as Node;
   };
 
   /** A code's name, and the component's when the code has several: `taxCode` is a record id, never printed. */
@@ -193,7 +241,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     return several && row.component ? `${name} - ${row.component}` : name;
   };
 
-  const recap = (): Node => ({
+  const recap = (): Node => breakable({
     fontSize: style.base - 1,
     margin: [0, 0, 0, 10],
     table: {
@@ -214,7 +262,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
       ],
     },
     layout: { hLineWidth: (index: number) => (index === 1 ? 0.5 : 0), vLineWidth: () => 0, hLineColor: () => '#c7ccd1' },
-  });
+  }, cell, style.base - 1) as Node;
 
   type TableNode = { table: { body: unknown[]; widths: unknown[] } };
   /** Always a rule in the accent above the total; classic adds a light box, modern a tinted panel. */
@@ -314,9 +362,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     ],
   });
 
-  // Past this many characters without a break, a run could not fit its column anyway.
-  const longest = style.narrow ? 16 : 30;
-  const wrapped = (build: () => Node) => (): Node => breakable(build(), longest) as Node;
+  const wrapped = (build: () => Node) => (): Node => breakable(build(), block, style.base) as Node;
   return {
     header: wrapped(header), parties: wrapped(parties), subjectAndNotes: wrapped(subjectAndNotes),
     lines: wrapped(linesTable), tail: wrapped(tail), footer,

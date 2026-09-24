@@ -4,7 +4,7 @@ import { definitionFor, renderDocument } from '../../render/document.ts';
 import { mockCreditNote, mockInvoice, mockLongInvoice, mockQuote, mockReceipt } from '../../render/samples/mock.ts';
 import type { RenderInput, TemplateKey } from '../../render/types.ts';
 import { formatMoney } from '../../render/format.ts';
-import { placed, shown } from './helpers/pdf-text.ts';
+import { pdfText, placed, shown } from './helpers/pdf-text.ts';
 import { printed } from './helpers/printed.ts';
 
 const TEMPLATES: TemplateKey[] = ['classic', 'modern', 'compact', 'letterhead', 'receipt'];
@@ -77,6 +77,31 @@ test('a word longer than its column wraps, and pushes no column off the page', a
       assert.deepEqual(await amounts({ ...input, lines: [{ ...first!, description }, ...rest] }), normal, `${template}: a ${description.length}-character word moved the amounts`);
     }
     assert.deepEqual(await amounts({ ...input, buyer: { ...input.buyer, name: 'y'.repeat(200) }, mentions: 'z'.repeat(400) }), normal, `${template}: a long name or mention moved the amounts`);
+  }
+});
+
+test('an e-mail, an IBAN and a URL copy out of the PDF whole, on every layout', async () => {
+  const url = 'https://verdal.example/terms/2026/receipts';
+  const iban = 'FR7630006000011234567890189';
+  for (const template of TEMPLATES) {
+    const input = on(template, mockInvoice());
+    const text = await shown({ ...input, notes: url, brand: { ...input.brand, paymentDetails: `IBAN ${iban} BIC BNPAFRPPXXX` } });
+    for (const whole of [input.seller.email!, iban, url]) {
+      assert.ok(text.split('\n').some((line) => line.includes(whole)), `${template}: ${whole} is cut or spaced out`);
+    }
+  }
+});
+
+test('a line stays on one page with its service period, however the pages fall', async () => {
+  for (const template of TEMPLATES.filter((key) => key !== 'receipt')) {
+    const pages = pdfText((await renderDocument(on(template, mockLongInvoice()))).bytes);
+    assert.ok(pages.length > 1, `${template}: the long invoice should run to several pages`);
+    for (const [index, page] of pages.entries()) {
+      const lines = page.split('\n');
+      const starts = lines.filter((line) => /^Sprint \d+:/.test(line)).length;
+      const periods = lines.filter((line) => line.startsWith('Period:')).length;
+      assert.equal(starts, periods, `${template}, page ${index + 1}: a line and its service period were parted`);
+    }
   }
 });
 

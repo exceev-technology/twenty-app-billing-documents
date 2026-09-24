@@ -1,5 +1,6 @@
 import { inflateSync } from 'node:zlib';
 import { renderDocument } from '../../../render/document.ts';
+import { textWidth } from '../../../render/glyphs.ts';
 import type { RenderInput } from '../../../render/types.ts';
 
 type PdfObject = { dict: string; stream?: Buffer };
@@ -54,7 +55,8 @@ function toUnicode(cmap: string): Map<string, string> {
   return map;
 }
 
-type Piece = { x: number; y: number; text: string };
+/** A text object: where it starts, its baseline, how far it reaches (glyph advances, kerning ignored), what it says. */
+type Piece = { x: number; y: number; end: number; text: string };
 
 /** Every text object of every page, with where it starts. The page width comes from its MediaBox. */
 export function placed(bytes: Uint8Array): { width: number; pieces: Piece[] }[] {
@@ -75,16 +77,20 @@ export function placed(bytes: Uint8Array): { width: number; pieces: Piece[] }[] 
     const content = all.get(ref(page.dict, 'Contents')!)!.stream!.toString('latin1');
     const pieces: Piece[] = [];
     let font = new Map<string, string>();
+    let size = 0;
     for (const [, block] of content.matchAll(/BT([\s\S]*?)ET/g)) {
       const [, x, y] = /1 0 0 1 (-?[\d.]+) (-?[\d.]+) Tm/.exec(block!) ?? [, '0', '0'];
       let text = '';
-      for (const [, name, drawn] of block!.matchAll(/\/(\w+) [\d.]+ Tf|(\[[^\]]*\]\s*TJ|<[0-9a-fA-F]*>\s*Tj)/g)) {
-        if (name) font = fonts.get(name) ?? new Map();
+      for (const [, name, points, drawn] of block!.matchAll(/\/(\w+) ([\d.]+) Tf|(\[[^\]]*\]\s*TJ|<[0-9a-fA-F]*>\s*Tj)/g)) {
+        if (name) {
+          font = fonts.get(name) ?? new Map();
+          size = Number(points);
+        }
         for (const [, glyphs] of (drawn ?? '').matchAll(/<([0-9a-fA-F]*)>/g)) {
           for (const code of glyphs!.match(/.{4}/g) ?? []) text += font.get(code.toLowerCase()) ?? '\uFFFD';
         }
       }
-      pieces.push({ x: Number(x), y: Math.round(Number(y) * 2) / 2, text: text.replace(/\u200b/g, '') });
+      pieces.push({ x: Number(x), y: Math.round(Number(y) * 2) / 2, end: Number(x) + textWidth(text, size), text });
     }
     return { width, pieces };
   });
@@ -92,18 +98,22 @@ export function placed(bytes: Uint8Array): { width: number; pieces: Piece[] }[] 
 
 /**
  * The text each page of a pdfkit file shows, line by line from the top: text
- * objects on one baseline are joined, left to right. It reads only what pdfkit
- * writes (Type0 fonts, Identity-H, a ToUnicode map, one Tm per text object),
- * which is all this renderer produces. Zero-width breaks are invisible, so dropped.
+ * objects on one baseline are joined left to right, with no space where one
+ * starts where the other ends (the pieces of one word), as a PDF viewer copies
+ * them. It reads only what pdfkit writes (Type0 fonts, Identity-H, a ToUnicode
+ * map, one Tm per text object), which is all this renderer produces.
  */
 export function pdfText(bytes: Uint8Array): string[] {
   return placed(bytes).map(({ pieces }) => {
     const baselines = [...new Set(pieces.map((piece) => piece.y))].sort((a, b) => b - a);
-    return baselines.map((y) => pieces
-      .filter((piece) => piece.y === y)
-      .sort((a, b) => a.x - b.x)
-      .reduce((line, piece) => (line === '' || /\s$/.test(line) ? line + piece.text : `${line} ${piece.text}`), '')
-      .trimEnd()).join('\n');
+    return baselines.map((y) => {
+      const row = pieces.filter((piece) => piece.y === y).sort((a, b) => a.x - b.x);
+      return row.map((piece, index) => {
+        const before = row[index - 1];
+        const touching = before !== undefined && piece.x - before.end < 1;
+        return before === undefined || touching || /\s$/.test(before.text) ? piece.text : ` ${piece.text}`;
+      }).join('').trimEnd();
+    }).join('\n');
   });
 }
 
