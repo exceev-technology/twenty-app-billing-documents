@@ -15,6 +15,18 @@ export function formatMoney(micros: number, currencyCode: string, locale: string
   return wide(format.format(micros / 1_000_000));
 }
 
+/** A unit price may carry more decimals than the currency (0.0125 €): all of them print, and never fewer than the currency's. */
+export function formatUnitPrice(micros: number, currencyCode: string, locale: string): string {
+  const digits = minorDigits(currencyCode);
+  const format = new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currencyCode,
+    minimumFractionDigits: digits,
+    maximumFractionDigits: Math.max(digits, 6),
+  });
+  return wide(format.format(micros / 1_000_000));
+}
+
 export const formatQuantity = (value: number, locale: string): string =>
   wide(new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(value));
 
@@ -40,6 +52,10 @@ const WORDS: Record<string, Record<'EN' | 'FR', CurrencyWords>> = {
   AED: { EN: { one: 'dirham', many: 'dirhams', minorOne: 'fils', minorMany: 'fils' }, FR: { one: 'dirham', many: 'dirhams', minorOne: 'fils', minorMany: 'fils' } },
   INR: { EN: { one: 'rupee', many: 'rupees', minorOne: 'paisa', minorMany: 'paise' }, FR: { one: 'roupie', many: 'roupies', minorOne: 'paisa', minorMany: 'paise' } },
   JPY: { EN: { one: 'yen', many: 'yen', minorOne: '', minorMany: '' }, FR: { one: 'yen', many: 'yens', minorOne: '', minorMany: '' } },
+  CHF: { EN: { one: 'franc', many: 'francs', minorOne: 'centime', minorMany: 'centimes' }, FR: { one: 'franc', many: 'francs', minorOne: 'centime', minorMany: 'centimes' } },
+  TND: { EN: { one: 'dinar', many: 'dinars', minorOne: 'millime', minorMany: 'millimes' }, FR: { one: 'dinar', many: 'dinars', minorOne: 'millime', minorMany: 'millimes' } },
+  XOF: { EN: { one: 'CFA franc', many: 'CFA francs', minorOne: '', minorMany: '' }, FR: { one: 'franc CFA', many: 'francs CFA', minorOne: '', minorMany: '' } },
+  XAF: { EN: { one: 'CFA franc', many: 'CFA francs', minorOne: '', minorMany: '' }, FR: { one: 'franc CFA', many: 'francs CFA', minorOne: '', minorMany: '' } },
 };
 
 const EN_UNITS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
@@ -99,12 +115,18 @@ function frenchWords(value: number): string {
     if (value >= scale) {
       const count = Math.floor(value / scale);
       const rest = value % scale;
-      const head = scale === 1000 && count === 1 ? 'mille' : `${frenchWords(count)} ${count === 1 ? singular : plural}`;
+      // Mille is not a noun, so vingt and cent before it stay singular; million and milliard are.
+      const counted = scale === 1000 ? frenchWords(count).replace(/(vingt|cent)s$/, '$1') : frenchWords(count);
+      const head = scale === 1000 && count === 1 ? 'mille' : `${counted} ${count === 1 ? singular : plural}`;
       return rest === 0 ? head : `${head} ${frenchWords(rest)}`;
     }
   }
   return String(value);
 }
+
+/** After a round million or milliard, French puts de between the number and the currency: un million d’euros. */
+const frenchCurrency = (units: number, noun: string): string =>
+  units >= 1_000_000 && units % 1_000_000 === 0 ? (/^[aeiouyéh]/i.test(noun) ? `d’${noun}` : `de ${noun}`) : noun;
 
 /** The total, spelled out, for the countries whose invoices require it. */
 export function amountInWords(micros: number, currencyCode: string, language: 'EN' | 'FR'): string {
@@ -115,9 +137,13 @@ export function amountInWords(micros: number, currencyCode: string, language: 'E
   const spell = language === 'FR' ? frenchWords : englishWords;
   const words = WORDS[currencyCode]?.[language];
   const sign = micros < 0 ? (language === 'FR' ? 'moins ' : 'minus ') : '';
-  if (!words) return `${sign}${spell(units)} ${currencyCode}`;
-  const main = `${spell(units)} ${units === 1 ? words.one : words.many}`;
-  if (minor === 0 || digits === 0) return `${sign}${main}`;
   const joiner = language === 'FR' ? ' et ' : ' and ';
+  // With no words for the currency, the minor amount prints as a fraction, as on a cheque: never dropped.
+  if (!words) return `${sign}${spell(units)} ${currencyCode}${minor === 0 || digits === 0 ? '' : `${joiner}${minor}/${10 ** digits}`}`;
+  // French counts zero as singular: zéro euro.
+  const singular = language === 'FR' ? units <= 1 : units === 1;
+  const noun = singular ? words.one : words.many;
+  const main = `${spell(units)} ${language === 'FR' ? frenchCurrency(units, noun) : noun}`;
+  if (minor === 0 || digits === 0) return `${sign}${main}`;
   return `${sign}${main}${joiner}${spell(minor)} ${minor === 1 ? words.minorOne : words.minorMany}`;
 }

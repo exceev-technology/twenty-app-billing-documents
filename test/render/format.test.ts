@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { amountInWords, formatDate, formatMoney, formatPercent, formatQuantity } from '../../render/format.ts';
+import { amountInWords, formatDate, formatMoney, formatPercent, formatQuantity, formatUnitPrice } from '../../render/format.ts';
 
 test('money is formatted with the currency’s own decimals', () => {
   assert.match(formatMoney(1_234_560_000, 'EUR', 'fr-FR'), /^1 234,56 €$/);
@@ -44,6 +44,31 @@ test('amounts in words, in French', () => {
   assert.equal(amountInWords(91_000_000, 'EUR', 'FR'), 'quatre-vingt-onze euros');
 });
 
-test('a currency the packs have no words for falls back to its code', () => {
+test('French grammar: vingt and cent before mille, de before a currency after million, zero is singular', () => {
+  assert.equal(amountInWords(80_000_000_000, 'EUR', 'FR'), 'quatre-vingt mille euros');
+  assert.equal(amountInWords(200_000_000_000, 'EUR', 'FR'), 'deux cent mille euros');
+  assert.equal(amountInWords(80_000_000_000_000, 'EUR', 'FR'), 'quatre-vingts millions d’euros');
+  assert.equal(amountInWords(1_000_000_000_000, 'EUR', 'FR'), 'un million d’euros');
+  assert.equal(amountInWords(2_000_000_000_000, 'USD', 'FR'), 'deux millions de dollars');
+  assert.equal(amountInWords(1_500_000_000_000, 'EUR', 'FR'), 'un million cinq cent mille euros');
+  assert.equal(amountInWords(0, 'EUR', 'FR'), 'zéro euro');
+  assert.equal(amountInWords(0, 'EUR', 'EN'), 'zero euros');
+});
+
+test('a currency the packs have no words for falls back to its code, and keeps its minor amount', () => {
   assert.equal(amountInWords(5_000_000, 'XTS', 'EN'), 'five XTS');
+  assert.equal(amountInWords(1_234_560_000, 'SEK', 'EN'), 'one thousand two hundred and thirty-four SEK and 56/100');
+  assert.equal(amountInWords(1_235_000, 'KWD', 'FR'), 'un KWD et 235/1000');
+});
+
+test('the francophone currencies have their own words', () => {
+  assert.equal(amountInWords(12_345_000, 'TND', 'FR'), 'douze dinars et trois cent quarante-cinq millimes');
+  assert.equal(amountInWords(1_234_560_000, 'CHF', 'FR'), 'mille deux cent trente-quatre francs et cinquante-six centimes');
+  assert.equal(amountInWords(5_000_000_000, 'XOF', 'FR'), 'cinq mille francs CFA');
+});
+
+test('a unit price keeps the decimals it was priced with, and never fewer than the currency’s', () => {
+  assert.equal(formatUnitPrice(12_500, 'EUR', 'en-GB'), '€0.0125');
+  assert.equal(formatUnitPrice(640_000_000, 'EUR', 'en-GB'), '€640.00');
+  assert.equal(formatUnitPrice(1_000_001, 'EUR', 'en-GB'), '€1.000001');
 });

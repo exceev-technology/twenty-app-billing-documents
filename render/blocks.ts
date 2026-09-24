@@ -1,4 +1,4 @@
-import { amountInWords, formatDate, formatMoney, formatPercent, formatQuantity } from './format.ts';
+import { amountInWords, formatDate, formatMoney, formatPercent, formatQuantity, formatUnitPrice } from './format.ts';
 import type { LabelKey, LanguagePack } from './lang/pack.ts';
 import type { Party, RenderInput, RenderLine } from './types.ts';
 
@@ -103,7 +103,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     return [
       { text: `${line.description}${period}`, fontSize: style.base },
       { text: `${formatQuantity(line.quantity, input.locale)} ${line.unit}`.trim(), alignment: 'right', fontSize: style.base },
-      { text: money(line.unitPriceMicros), alignment: 'right', fontSize: style.base },
+      { text: formatUnitPrice(line.unitPriceMicros, input.currencyCode, input.locale), alignment: 'right', fontSize: style.base },
       ...(hasDiscount ? [{ text: line.discountPercent ? formatPercent(line.discountPercent, input.locale) : '', alignment: 'right', fontSize: style.base }] : []),
       ...(hasManyTaxes ? [{ text: line.taxLabel, alignment: 'right', fontSize: style.base }] : []),
       { text: money(line.lineTotalMicros), alignment: 'right', fontSize: style.base },
