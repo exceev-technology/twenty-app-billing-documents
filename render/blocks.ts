@@ -69,13 +69,13 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     };
   };
 
-  const facts = (who: Party): string => lines([who.name, who.legalName, who.legalForm, ...who.addressLines, who.email, who.phone, who.website]);
+  const partyFacts = (who: Party): string => lines([who.name, who.legalName, who.legalForm, ...who.addressLines, who.email, who.phone, who.website]);
 
   const party = (heading: string, who: Party, side: 'SELLER' | 'BUYER'): Node => ({
     width: '*',
     stack: [
       { text: heading, bold: true, color: accent, fontSize: style.base },
-      { text: lines([facts(who), identifiers(side)]), fontSize: style.base },
+      { text: lines([partyFacts(who), identifiers(side)]), fontSize: style.base },
     ],
   });
 
@@ -214,7 +214,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     stack: [
       // Everything the seller block prints elsewhere: the legal form is a legal mention in several countries.
       ...(style.sellerInFooter
-        ? [{ text: lines([facts(input.seller), identifiers('SELLER')]), fontSize: style.base - 2, margin: [0, 0, 0, 6] }]
+        ? [{ text: lines([partyFacts(input.seller), identifiers('SELLER')]), fontSize: style.base - 2, margin: [0, 0, 0, 6] }]
         : []),
       { text: lines(input.taxNotes), fontSize: style.base - 1 },
       input.mentions ? { text: input.mentions, fontSize: style.base - 1, margin: [0, 4, 0, 0] } : { text: '' },
