@@ -78,7 +78,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   const date = (iso: string): string => formatDate(iso, input.locale);
   const label = (key: LabelKey): string => pack.labels[key];
   const identifiers = (side: 'SELLER' | 'BUYER'): string =>
-    lines(input.identifiers.filter((identifier) => identifier.side === side).map((identifier) => `${identifier.label}: ${identifier.value}`));
+    lines(input.identifiers.filter((identifier) => identifier.side === side).map((identifier) => `${identifier.label}${pack.colon}${identifier.value}`));
 
   const hasDiscount = input.lines.some((line) => (line.discountPercent ?? 0) > 0);
   // Keyed on the codes, not their names: two codes may share a name and still differ.
@@ -93,12 +93,12 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
 
   const header = (): Node => {
     const facts = lines([
-      `${label('number')}: ${input.number ?? pack.draft}`,
-      `${label('issueDate')}: ${date(input.issueDate)}`,
-      input.corrects ? `${label('correctsInvoice')}: ${input.corrects.number} (${date(input.corrects.issueDate)})` : null,
-      input.dueDate ? `${label('dueDate')}: ${date(input.dueDate)}` : null,
-      input.validUntil ? `${label('validUntil')}: ${date(input.validUntil)}` : null,
-      input.version ? `${label('version')}: v${input.version}` : null,
+      `${label('number')}${pack.colon}${input.number ?? pack.draft}`,
+      `${label('issueDate')}${pack.colon}${date(input.issueDate)}`,
+      input.corrects ? `${label('correctsInvoice')}${pack.colon}${input.corrects.number} (${date(input.corrects.issueDate)})` : null,
+      input.dueDate ? `${label('dueDate')}${pack.colon}${date(input.dueDate)}` : null,
+      input.validUntil ? `${label('validUntil')}${pack.colon}${date(input.validUntil)}` : null,
+      input.version ? `${label('version')}${pack.colon}v${input.version}` : null,
     ]);
     const title = {
       text: input.title?.trim() || pack.titles[input.kind],
@@ -139,8 +139,8 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
 
   const subjectAndNotes = (): Node => {
     const present = [
-      input.subject ? { text: `${label('subject')}: ${input.subject}`, bold: true, fontSize: style.base } : null,
-      input.buyerReference ? { text: `${label('reference')}: ${input.buyerReference}`, fontSize: style.base } : null,
+      input.subject ? { text: `${label('subject')}${pack.colon}${input.subject}`, bold: true, fontSize: style.base } : null,
+      input.buyerReference ? { text: `${label('reference')}${pack.colon}${input.buyerReference}`, fontSize: style.base } : null,
       input.notes ? { text: input.notes, fontSize: style.base, margin: [0, 4, 0, 0] } : null,
     ].filter((node) => node !== null);
     return present.length === 0 ? NOTHING : { margin: [0, 0, 0, 10], stack: present };
@@ -148,7 +148,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
 
   const lineRow = (line: RenderLine): Node[] => {
     const period = line.periodStart || line.periodEnd
-      ? `\n${label('period')}: ${[line.periodStart, line.periodEnd].filter(Boolean).map((iso) => date(iso as string)).join(' - ')}`
+      ? `\n${label('period')}${pack.colon}${[line.periodStart, line.periodEnd].filter(Boolean).map((iso) => date(iso as string)).join(' - ')}`
       : '';
     return [
       { text: `${line.description}${period}`, fontSize: style.base },
@@ -259,11 +259,11 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     };
     const extras = [
       input.totals.discountTotalMicros !== 0
-        ? { text: `${label('discountTotal')}: ${money(input.totals.discountTotalMicros)}`, fontSize: style.base - 1, margin: [0, 4, 0, 0] }
+        ? { text: `${label('discountTotal')}${pack.colon}${money(input.totals.discountTotalMicros)}`, fontSize: style.base - 1, margin: [0, 4, 0, 0] }
         : NOTHING,
       input.pricesIncludeTax ? { text: label('pricesIncludeTax'), italics: true, fontSize: style.base - 1, margin: [0, 4, 0, 0] } : NOTHING,
       input.amountInWords
-        ? { text: `${label('amountInWords')}: ${amountInWords(input.totals.totalMicros, input.currencyCode, pack.code)}`, fontSize: style.base - 1, margin: [0, 4, 0, 0] }
+        ? { text: `${label('amountInWords')}${pack.colon}${amountInWords(input.totals.totalMicros, input.currencyCode, pack.code)}`, fontSize: style.base - 1, margin: [0, 4, 0, 0] }
         : NOTHING,
     ];
     if (style.narrow) return { stack: [table, ...extras], margin: [0, 0, 0, 10] };
@@ -271,7 +271,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   };
 
   const paymentDetails = (): Node =>
-    input.brand.paymentDetails ? { text: `${label('paymentDetails')}: ${input.brand.paymentDetails}`, fontSize: style.base, margin: [0, 0, 0, 8] } : NOTHING;
+    input.brand.paymentDetails ? { text: `${label('paymentDetails')}${pack.colon}${input.brand.paymentDetails}`, fontSize: style.base, margin: [0, 0, 0, 8] } : NOTHING;
 
   /** The QR sized by qrBox, with four modules of white above and below it, the quiet zone a scanner needs. */
   const qrCode = (): Node => {

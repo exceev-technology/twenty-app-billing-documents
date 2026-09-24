@@ -17,6 +17,8 @@ export type LanguagePack = {
   code: Language;
   titles: Record<DocumentKind, string>;
   draft: string;
+  /** What joins a label to its value: French sets a no-break space before the colon. */
+  colon: string;
   labels: Record<LabelKey, string>;
   problems: Record<ProblemCode, string>;
 };

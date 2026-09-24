@@ -4,6 +4,7 @@ export const en: LanguagePack = {
   code: 'EN',
   titles: { QUOTE: 'Quote', INVOICE: 'Invoice', CREDIT_NOTE: 'Credit note' },
   draft: 'DRAFT',
+  colon: ': ',
   labels: {
     number: 'Number', issueDate: 'Issue date', dueDate: 'Due date', validUntil: 'Valid until',
     version: 'Version', subject: 'Subject', notes: 'Notes', correctsInvoice: 'Original invoice',
