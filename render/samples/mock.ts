@@ -149,6 +149,20 @@ export const mockQuote = (): RenderInput => computed(
   [line('l1', 'Discovery and research', 5, 720_000_000), line('l2', 'Concepts, three routes', 8, 680_000_000)],
 );
 
+/** A credit note cancelling the workshop of the three-line invoice. */
+export const mockCreditNote = (): RenderInput => computed(
+  {
+    ...base(),
+    kind: 'CREDIT_NOTE',
+    number: 'CN-2026-0003',
+    corrects: { number: 'INV-2026-0042', issueDate: '2026-09-24' },
+    issueDate: '2026-09-30',
+    dueDate: null,
+    subject: 'Workshop cancelled',
+  },
+  [line('l1', 'Workshop facilitation, cancelled', 1, 1_200_000_000)],
+);
+
 export const mockReceipt = (): RenderInput => computed(
   {
     ...base(),

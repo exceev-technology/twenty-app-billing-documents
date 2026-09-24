@@ -6,7 +6,7 @@ export const en: LanguagePack = {
   draft: 'DRAFT',
   labels: {
     number: 'Number', issueDate: 'Issue date', dueDate: 'Due date', validUntil: 'Valid until',
-    version: 'Version', subject: 'Subject', notes: 'Notes',
+    version: 'Version', subject: 'Subject', notes: 'Notes', correctsInvoice: 'Original invoice',
     from: 'From', billTo: 'Bill to', reference: 'Your reference',
     description: 'Description', quantity: 'Qty', unit: 'Unit', unitPrice: 'Unit price',
     discount: 'Discount', tax: 'Tax', lineTotal: 'Amount', period: 'Period',

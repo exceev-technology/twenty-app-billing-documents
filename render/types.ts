@@ -40,6 +40,8 @@ export type RenderInput = {
   number: string | null;
   version?: number | null;
   issueDate: string;
+  /** A credit note: the invoice it corrects, which the law in several countries requires it to name. */
+  corrects?: { number: string; issueDate: string } | null;
   dueDate?: string | null;
   validUntil?: string | null;
   subject?: string | null;

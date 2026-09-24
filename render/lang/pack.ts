@@ -6,7 +6,7 @@ export type Language = 'EN' | 'FR';
 export type DocumentKind = 'QUOTE' | 'INVOICE' | 'CREDIT_NOTE';
 
 export type LabelKey =
-  | 'number' | 'issueDate' | 'dueDate' | 'validUntil' | 'version' | 'subject' | 'notes'
+  | 'number' | 'issueDate' | 'dueDate' | 'validUntil' | 'version' | 'subject' | 'notes' | 'correctsInvoice'
   | 'from' | 'billTo' | 'reference'
   | 'description' | 'quantity' | 'unit' | 'unitPrice' | 'discount' | 'tax' | 'lineTotal' | 'period'
   | 'taxRecap' | 'rate' | 'taxableBase' | 'taxAmount'

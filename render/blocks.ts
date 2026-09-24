@@ -69,6 +69,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     const facts = lines([
       `${label('number')}: ${input.number ?? pack.draft}`,
       `${label('issueDate')}: ${date(input.issueDate)}`,
+      input.corrects ? `${label('correctsInvoice')}: ${input.corrects.number} (${date(input.corrects.issueDate)})` : null,
       input.dueDate ? `${label('dueDate')}: ${date(input.dueDate)}` : null,
       input.validUntil ? `${label('validUntil')}: ${date(input.validUntil)}` : null,
       input.version ? `${label('version')}: v${input.version}` : null,

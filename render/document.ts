@@ -41,6 +41,7 @@ function printableFields(input: RenderInput): [string, string][] {
   return [
     ['title', input.title ?? ''],
     ['number', input.number ?? ''],
+    ['corrects.number', input.corrects?.number ?? ''],
     ['subject', input.subject ?? ''],
     ['notes', input.notes ?? ''],
     ['buyerReference', input.buyerReference ?? ''],
@@ -85,6 +86,7 @@ function isCalendarDate(value: string): boolean {
 function dateFields(input: RenderInput): [string, string | null | undefined][] {
   return [
     ['issueDate', input.issueDate],
+    ['corrects.issueDate', input.corrects?.issueDate],
     ['dueDate', input.dueDate],
     ['validUntil', input.validUntil],
     ...input.lines.flatMap((line, index): [string, string | null | undefined][] => [

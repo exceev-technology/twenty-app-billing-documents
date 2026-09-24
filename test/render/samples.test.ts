@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderDocument } from '../../render/document.ts';
-import { mockInvoice, mockLogo, mockLongInvoice, mockQuote, mockReceipt } from '../../render/samples/mock.ts';
+import { mockCreditNote, mockInvoice, mockLogo, mockLongInvoice, mockQuote, mockReceipt } from '../../render/samples/mock.ts';
 
 const LOGO = fileURLToPath(new URL('../../render/samples/logo.png', import.meta.url));
 
@@ -22,7 +22,7 @@ test('the mock company carries the logo into a rendered invoice', async () => {
 });
 
 test('every sample prints totals that agree with its lines, with or without tax in the prices', () => {
-  for (const make of [mockInvoice, mockLongInvoice, mockQuote, mockReceipt]) {
+  for (const make of [mockInvoice, mockLongInvoice, mockQuote, mockReceipt, mockCreditNote]) {
     const input = make();
     const lines = input.lines.reduce((total, line) => total + line.lineTotalMicros, 0);
     const { subtotalMicros, taxTotalMicros, totalMicros } = input.totals;

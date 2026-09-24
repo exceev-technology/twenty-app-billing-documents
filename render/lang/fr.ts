@@ -6,7 +6,7 @@ export const fr: LanguagePack = {
   draft: 'BROUILLON',
   labels: {
     number: 'Numéro', issueDate: 'Date', dueDate: 'Échéance', validUntil: 'Valable jusqu’au',
-    version: 'Version', subject: 'Objet', notes: 'Notes',
+    version: 'Version', subject: 'Objet', notes: 'Notes', correctsInvoice: 'Facture d’origine',
     from: 'Émetteur', billTo: 'Client', reference: 'Votre référence',
     description: 'Désignation', quantity: 'Qté', unit: 'Unité', unitPrice: 'Prix unitaire',
     discount: 'Remise', tax: 'TVA', lineTotal: 'Montant', period: 'Période',

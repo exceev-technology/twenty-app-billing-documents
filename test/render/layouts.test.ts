@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { definitionFor, renderDocument } from '../../render/document.ts';
-import { mockInvoice, mockLongInvoice, mockQuote, mockReceipt } from '../../render/samples/mock.ts';
+import { mockCreditNote, mockInvoice, mockLongInvoice, mockQuote, mockReceipt } from '../../render/samples/mock.ts';
 import type { RenderInput, TemplateKey } from '../../render/types.ts';
 import { formatMoney } from '../../render/format.ts';
 import { placed, shown } from './helpers/pdf-text.ts';
@@ -12,7 +12,7 @@ const on = (template: TemplateKey, input: RenderInput): RenderInput => ({ ...inp
 
 test('every layout prints the content the law needs, on every document', () => {
   for (const template of TEMPLATES) {
-    for (const make of [mockInvoice, mockQuote, mockLongInvoice, mockReceipt]) {
+    for (const make of [mockInvoice, mockQuote, mockLongInvoice, mockReceipt, mockCreditNote]) {
       const input = on(template, make());
       const text = printed(definitionFor(input));
       const { seller, buyer } = input;
@@ -24,6 +24,7 @@ test('every layout prints the content the law needs, on every document', () => {
         ...input.totals.taxCodesUsed.map((code) => input.taxNames[code]!),
         formatMoney(input.totals.subtotalMicros, 'EUR', 'en-GB'), formatMoney(input.totals.totalMicros, 'EUR', 'en-GB'),
         input.mentions!, ...input.taxNotes, input.brand.footerNote!,
+        ...(input.corrects ? [input.corrects.number] : []),
       ];
       if (template !== 'receipt') {
         needed.push(buyer.name, ...buyer.addressLines, ...input.identifiers.filter((identifier) => identifier.side === 'BUYER').map((identifier) => identifier.value));

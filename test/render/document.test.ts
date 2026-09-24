@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkRender, definitionFor, renderDocument } from '../../render/document.ts';
-import { mockInvoice, mockLongInvoice, mockReceipt } from '../../render/samples/mock.ts';
+import { mockCreditNote, mockInvoice, mockLongInvoice, mockReceipt } from '../../render/samples/mock.ts';
 import { countPages } from '../../render/pdf.ts';
 import { RenderError, type RenderLine } from '../../render/types.ts';
 import { formatMoney } from '../../render/format.ts';
@@ -59,6 +59,19 @@ test('a discount is shown as already deducted, never as a step between subtotal 
   const text = await shown(input);
   assert.ok(text.includes(`Subtotal ${money(subtotalMicros)}\nTax ${money(taxTotalMicros)}\nTotal ${money(totalMicros)}`), 'the totals do not read as a sum');
   assert.ok(text.includes(`Discounts applied: ${money(discountTotalMicros)}`), 'the discount is not shown');
+});
+
+test('a credit note names the invoice it corrects, in either language', () => {
+  const input = mockCreditNote();
+  const text = printed(definitionFor(input));
+  assert.ok(text.includes('Credit note'), 'the title is not a credit note');
+  assert.ok(text.includes('Original invoice: INV-2026-0042 (24/09/2026)'), 'the corrected invoice is not named');
+  assert.ok(printed(definitionFor({ ...input, language: 'FR', locale: 'fr-FR' })).includes('Facture d’origine'), 'the French label is missing');
+  assert.deepEqual(
+    checkRender({ ...input, corrects: { number: 'INV-2026-0042', issueDate: '24/09/2026' } }),
+    [{ code: 'INVALID_DATE', field: 'corrects.issueDate', value: '24/09/2026' }],
+  );
+  assert.deepEqual(checkRender({ ...input, corrects: { number: 'INV-٤٢', issueDate: '2026-09-24' } })[0]?.field, 'corrects.number');
 });
 
 test('a document with no number prints the draft marker instead', () => {
