@@ -24,6 +24,28 @@ export const accentOf = (input: RenderInput): string =>
 const lines = (values: (string | null | undefined)[]): string =>
   values.filter((value) => typeof value === 'string' && value.trim().length > 0).join('\n');
 
+/**
+ * pdfmake widens a column to its longest unbreakable word, pushing the columns
+ * beside it off the page. A run longer than `longest` characters (an IBAN, a URL,
+ * a very long compound) gets a zero-width break opportunity between every
+ * character, so it wraps like any text; shorter words are left whole.
+ */
+function breakRuns(text: string, longest: number): string {
+  return text.replace(new RegExp(`[^\\s\\u200b]{${longest + 1},}`, 'gu'), (run) => [...run].join('\u200b'));
+}
+
+/** Every printed string of a block, made breakable. The QR payload and the logo are data, not text. */
+function breakable(node: unknown, longest: number): unknown {
+  if (Array.isArray(node)) return node.map((child) => breakable(child, longest));
+  if (!node || typeof node !== 'object') return node;
+  return Object.fromEntries(Object.entries(node).map(([key, value]) => [
+    key,
+    key === 'text' && typeof value === 'string' ? breakRuns(value, longest)
+      : key === 'qr' || key === 'image' || typeof value === 'function' ? value
+      : breakable(value, longest),
+  ]));
+}
+
 export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   const accent = accentOf(input);
   const money = (micros: number): string => formatMoney(micros, input.currencyCode, input.locale);
@@ -237,5 +259,11 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     ],
   });
 
-  return { header, parties, subjectAndNotes, lines: linesTable, tail, footer };
+  // Past this many characters without a break, a run could not fit its column anyway.
+  const longest = style.narrow ? 16 : 30;
+  const wrapped = (build: () => Node) => (): Node => breakable(build(), longest) as Node;
+  return {
+    header: wrapped(header), parties: wrapped(parties), subjectAndNotes: wrapped(subjectAndNotes),
+    lines: wrapped(linesTable), tail: wrapped(tail), footer,
+  };
 }

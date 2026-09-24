@@ -4,7 +4,7 @@ import { definitionFor, renderDocument } from '../../render/document.ts';
 import { mockInvoice, mockLongInvoice, mockQuote, mockReceipt } from '../../render/samples/mock.ts';
 import type { RenderInput, TemplateKey } from '../../render/types.ts';
 import { formatMoney } from '../../render/format.ts';
-import { shown } from './helpers/pdf-text.ts';
+import { placed, shown } from './helpers/pdf-text.ts';
 import { printed } from './helpers/printed.ts';
 
 const TEMPLATES: TemplateKey[] = ['classic', 'modern', 'compact', 'letterhead', 'receipt'];
@@ -54,6 +54,28 @@ test('a line taller than a page breaks across pages instead of vanishing', async
     for (const needed of ['ENDOFSCOPE', formatMoney(first!.lineTotalMicros, 'EUR', 'en-GB'), formatMoney(rest[0]!.lineTotalMicros, 'EUR', 'en-GB')]) {
       assert.ok(text.includes(needed), `${template}: ${needed} vanished`);
     }
+  }
+});
+
+test('a word longer than its column wraps, and pushes no column off the page', async () => {
+  // Where each amount starts: a column pushed sideways moves them, and nothing may start past the page's edge.
+  const amounts = async (input: RenderInput): Promise<number[]> => {
+    const pages = placed((await renderDocument(input)).bytes);
+    for (const { width, pieces } of pages) {
+      for (const piece of pieces) assert.ok(piece.x < width, `${input.template}: "${piece.text}" starts past the page's edge`);
+    }
+    const wanted = input.lines.map((line) => formatMoney(line.lineTotalMicros, 'EUR', 'en-GB'));
+    return pages.flatMap(({ pieces }) => pieces.filter((piece) => wanted.includes(piece.text.trim())).map((piece) => Math.round(piece.x)));
+  };
+  for (const template of TEMPLATES) {
+    const input = on(template, mockInvoice());
+    const [first, ...rest] = input.lines;
+    const normal = await amounts(input);
+    assert.ok(normal.length >= input.lines.length, `${template}: the amounts were not found`);
+    for (const description of ['Rechnungsstellungsdienstleistungspaket', 'x'.repeat(300)]) {
+      assert.deepEqual(await amounts({ ...input, lines: [{ ...first!, description }, ...rest] }), normal, `${template}: a ${description.length}-character word moved the amounts`);
+    }
+    assert.deepEqual(await amounts({ ...input, buyer: { ...input.buyer, name: 'y'.repeat(200) }, mentions: 'z'.repeat(400) }), normal, `${template}: a long name or mention moved the amounts`);
   }
 });
 

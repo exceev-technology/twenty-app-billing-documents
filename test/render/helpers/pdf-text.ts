@@ -54,19 +54,17 @@ function toUnicode(cmap: string): Map<string, string> {
   return map;
 }
 
-/**
- * The text each page of a pdfkit file shows, line by line from the top: text
- * objects on one baseline are joined, left to right. It reads only what pdfkit
- * writes (Type0 fonts, Identity-H, a ToUnicode map, one Tm per text object),
- * which is all this renderer produces.
- */
-export function pdfText(bytes: Uint8Array): string[] {
+type Piece = { x: number; y: number; text: string };
+
+/** Every text object of every page, with where it starts. The page width comes from its MediaBox. */
+export function placed(bytes: Uint8Array): { width: number; pieces: Piece[] }[] {
   const file = Buffer.from(bytes).toString('latin1');
   const all = objects(file);
   const tree = [...all.values()].find((object) => /\/Type \/Pages\b/.test(object.dict))!;
   const kids = [.../\/Kids \[([^\]]*)\]/.exec(tree.dict)![1]!.matchAll(/(\d+) 0 R/g)].map((kid) => Number(kid[1]));
   return kids.map((id) => {
     const page = all.get(id)!;
+    const width = Number(/\/MediaBox \[\s*[\d.-]+ [\d.-]+ ([\d.]+)/.exec(page.dict)?.[1] ?? /\/MediaBox \[\s*[\d.-]+ [\d.-]+ ([\d.]+)/.exec(tree.dict)![1]);
     const resourcesId = ref(page.dict, 'Resources');
     const resources = resourcesId === null ? page.dict : all.get(resourcesId)!.dict;
     const fonts = new Map<string, Map<string, string>>();
@@ -75,7 +73,7 @@ export function pdfText(bytes: Uint8Array): string[] {
       fonts.set(name!, cmapId === null ? new Map() : toUnicode(all.get(cmapId)!.stream!.toString('latin1')));
     }
     const content = all.get(ref(page.dict, 'Contents')!)!.stream!.toString('latin1');
-    const pieces: { x: number; y: number; text: string }[] = [];
+    const pieces: Piece[] = [];
     let font = new Map<string, string>();
     for (const [, block] of content.matchAll(/BT([\s\S]*?)ET/g)) {
       const [, x, y] = /1 0 0 1 (-?[\d.]+) (-?[\d.]+) Tm/.exec(block!) ?? [, '0', '0'];
@@ -83,11 +81,23 @@ export function pdfText(bytes: Uint8Array): string[] {
       for (const [, name, drawn] of block!.matchAll(/\/(\w+) [\d.]+ Tf|(\[[^\]]*\]\s*TJ|<[0-9a-fA-F]*>\s*Tj)/g)) {
         if (name) font = fonts.get(name) ?? new Map();
         for (const [, glyphs] of (drawn ?? '').matchAll(/<([0-9a-fA-F]*)>/g)) {
-          for (const code of glyphs!.match(/.{4}/g) ?? []) text += font.get(code.toLowerCase()) ?? '�';
+          for (const code of glyphs!.match(/.{4}/g) ?? []) text += font.get(code.toLowerCase()) ?? '\uFFFD';
         }
       }
-      pieces.push({ x: Number(x), y: Math.round(Number(y) * 2) / 2, text });
+      pieces.push({ x: Number(x), y: Math.round(Number(y) * 2) / 2, text: text.replace(/\u200b/g, '') });
     }
+    return { width, pieces };
+  });
+}
+
+/**
+ * The text each page of a pdfkit file shows, line by line from the top: text
+ * objects on one baseline are joined, left to right. It reads only what pdfkit
+ * writes (Type0 fonts, Identity-H, a ToUnicode map, one Tm per text object),
+ * which is all this renderer produces. Zero-width breaks are invisible, so dropped.
+ */
+export function pdfText(bytes: Uint8Array): string[] {
+  return placed(bytes).map(({ pieces }) => {
     const baselines = [...new Set(pieces.map((piece) => piece.y))].sort((a, b) => b - a);
     return baselines.map((y) => pieces
       .filter((piece) => piece.y === y)

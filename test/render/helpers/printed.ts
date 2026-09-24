@@ -12,4 +12,5 @@ export function printedText(node: unknown): string[] {
   return [];
 }
 
-export const printed = (definition: unknown): string => printedText(definition).join('\n');
+/** The zero-width breaks the renderer adds to very long words are invisible, so they are not part of what prints. */
+export const printed = (definition: unknown): string => printedText(definition).join('\n').replace(/\u200b/g, '');
