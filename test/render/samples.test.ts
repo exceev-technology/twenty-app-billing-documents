@@ -45,3 +45,12 @@ test('the mock company is fictitious', () => {
   assert.match(input.buyer.email ?? '', /\.example$/);
   assert.ok(!JSON.stringify(input).toLowerCase().includes('exceev'), 'the mock names a real company');
 });
+
+test('the committed sample PDFs are what the renderer draws today: run npm run render:samples', async () => {
+  for (const template of ['classic', 'modern', 'compact', 'letterhead', 'receipt'] as const) {
+    const source = template === 'receipt' ? mockReceipt() : mockInvoice();
+    const { bytes } = await renderDocument({ ...source, template });
+    const committed = readFileSync(fileURLToPath(new URL(`../../docs/templates/${template}.pdf`, import.meta.url)));
+    assert.ok(Buffer.from(bytes).equals(committed), `docs/templates/${template}.pdf is stale`);
+  }
+});
