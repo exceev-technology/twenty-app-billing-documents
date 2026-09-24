@@ -31,6 +31,9 @@
     "ids:sync": "node scripts/sync-ids.mjs",
     "ids:lock": "node scripts/lock-ids.mjs",
     "presets:docs": "node scripts/preset-docs.mjs",
+    "mock:logo": "node scripts/mock-logo.mjs",
+    "glyphs": "node scripts/glyphs.mjs",
+    "render:samples": "node scripts/render-samples.mjs",
     "status": "twenty remote:status",
     "plan": "twenty plan",
     "apply": "twenty apply",
@@ -38,8 +41,13 @@
   },
   "devDependencies": {
     "@types/node": "24.13.6",
+    "esbuild": "0.28.2",
+    "fontkit": "2.0.4",
     "twenty-client-sdk": "2.41.0",
     "twenty-sdk": "2.41.0",
     "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "pdfmake": "0.3.11"
   }
 }

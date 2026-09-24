@@ -1,4 +1,5 @@
 export { checkDocument, computeDocument } from './document.ts';
+export { minorDigits } from './money.ts';
 export type {
   DocumentInput,
   DocumentResult,

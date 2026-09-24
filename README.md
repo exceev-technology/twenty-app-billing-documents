@@ -23,6 +23,10 @@ Your clients are already in Twenty, so your documents can be too.
 Where a country requires structured e-invoicing, the PDF is a courtesy copy,
 and the country preset says so.
 
+PDFs print in English or French, in [five layouts](docs/templates.md). The
+embedded font draws Latin, Greek and Cyrillic; a document with Arabic, Hebrew,
+Devanagari, Thai or CJK text is refused rather than printed with empty boxes.
+
 ## Requirements
 
 - A Twenty server at version 2.40 or later.
@@ -68,8 +72,11 @@ npm run typecheck
 
 - [Product overview](docs/superpowers/specs/2026-09-21-product-overview.md)
 - [Foundation design](docs/superpowers/specs/2026-09-21-foundation-design.md)
-- [Foundation plan](docs/superpowers/plans/2026-09-21-foundation.md)
 - [Engine design](docs/superpowers/specs/2026-09-22-engine-design.md)
+- [Rendering design](docs/superpowers/specs/2026-09-24-rendering-design.md)
+- [The five templates](docs/templates.md)
+- [Foundation plan](docs/superpowers/plans/2026-09-21-foundation.md)
+- [Engine plan](docs/superpowers/plans/2026-09-22-engine.md)
 
 ## Author
 
