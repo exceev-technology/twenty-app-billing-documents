@@ -23,6 +23,10 @@ Your clients are already in Twenty, so your documents can be too.
 Where a country requires structured e-invoicing, the PDF is a courtesy copy,
 and the country preset says so.
 
+PDFs print in English or French, in [five layouts](docs/templates.md). The
+embedded font draws Latin, Greek and Cyrillic; a document with Arabic, Hebrew,
+Devanagari, Thai or CJK text is refused rather than printed with empty boxes.
+
 ## Requirements
 
 - A Twenty server at version 2.40 or later.

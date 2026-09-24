@@ -1,44 +1,54 @@
 import { minorDigits } from '../engine/index.ts';
+import { undrawable } from './glyphs.ts';
 
 /** Roboto has no glyph for a narrow no-break space or a thin space. */
-const NARROW = /[  ]/g;
-const wide = (text: string): string => text.replace(NARROW, ' ');
+const NARROW = /[\u202f\u2009]/g;
+/** Direction marks Intl adds around numbers in right-to-left locales: invisible, and Roboto has no glyph for them. */
+const BIDI = /[\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/g;
+/** Arabic-script signs some locales keep even with Western digits: percent, decimal and thousands separators. */
+const ARABIC_SIGNS: Record<string, string> = { '\u066a': '%', '\u066b': '.', '\u066c': ',' };
+const drawn = (text: string): string =>
+  text.replace(NARROW, '\u00a0').replace(BIDI, '').replace(/[\u066a-\u066c]/g, (sign) => ARABIC_SIGNS[sign]!);
+
+/**
+ * Western digits and the Gregorian calendar in every locale: an Arabic or Bengali
+ * locale would otherwise print digits Roboto cannot draw, and fa-IR a Persian year.
+ */
+const LATIN = { numberingSystem: 'latn' } as const;
+
+/** A currency amount; a sign the font lacks (the hryvnia's) prints as the ISO code instead. */
+function currency(micros: number, currencyCode: string, locale: string, fewest: number, most: number): string {
+  const options = { ...LATIN, style: 'currency', currency: currencyCode, minimumFractionDigits: fewest, maximumFractionDigits: most } as const;
+  const text = drawn(new Intl.NumberFormat(locale, options).format(micros / 1_000_000));
+  if (undrawable(text) === '') return text;
+  return drawn(new Intl.NumberFormat(locale, { ...options, currencyDisplay: 'code' }).format(micros / 1_000_000));
+}
 
 export function formatMoney(micros: number, currencyCode: string, locale: string): string {
   const digits = minorDigits(currencyCode);
-  const format = new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: currencyCode,
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-  return wide(format.format(micros / 1_000_000));
+  return currency(micros, currencyCode, locale, digits, digits);
 }
 
-/** A unit price may carry more decimals than the currency (0.0125 €): all of them print, and never fewer than the currency's. */
+/** A unit price may carry more decimals than the currency (0.0125 EUR): all of them print, and never fewer than the currency's. */
 export function formatUnitPrice(micros: number, currencyCode: string, locale: string): string {
   const digits = minorDigits(currencyCode);
-  const format = new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: currencyCode,
-    minimumFractionDigits: digits,
-    maximumFractionDigits: Math.max(digits, 6),
-  });
-  return wide(format.format(micros / 1_000_000));
+  return currency(micros, currencyCode, locale, digits, Math.max(digits, 6));
 }
 
 export const formatQuantity = (value: number, locale: string): string =>
-  wide(new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(value));
+  drawn(new Intl.NumberFormat(locale, { ...LATIN, maximumFractionDigits: 3 }).format(value));
 
 export const formatPercent = (value: number, locale: string): string =>
-  wide(new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 4 }).format(value / 100));
+  drawn(new Intl.NumberFormat(locale, { ...LATIN, style: 'percent', maximumFractionDigits: 4 }).format(value / 100));
 
 /** The date is read from its digits: no time zone can move it by a day. */
 export function formatDate(isoDate: string, locale: string): string {
   const [year, month, day] = isoDate.split('-').map(Number);
   const stamp = Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1);
-  const format = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
-  return wide(format.format(stamp));
+  const format = new Intl.DateTimeFormat(locale, {
+    ...LATIN, calendar: 'gregory', day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC',
+  });
+  return drawn(format.format(stamp));
 }
 
 type CurrencyWords = { one: string; many: string; minorOne: string; minorMany: string };

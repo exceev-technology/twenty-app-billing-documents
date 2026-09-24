@@ -72,7 +72,7 @@ export type RenderResult = { bytes: Uint8Array; pages: number };
 export type RenderProblemCode =
   | 'UNSUPPORTED_SCRIPT' | 'UNSUPPORTED_IMAGE' | 'UNKNOWN_TEMPLATE'
   | 'UNKNOWN_LANGUAGE' | 'QR_PAYLOAD_TOO_LONG' | 'MISSING_TAX_NAME'
-  | 'INVALID_LOCALE' | 'INVALID_DATE';
+  | 'INVALID_LOCALE' | 'INVALID_DATE' | 'INVALID_CURRENCY';
 
 export type RenderProblem = { code: RenderProblemCode; field?: string; value?: string };
 

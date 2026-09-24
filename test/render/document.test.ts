@@ -138,6 +138,7 @@ test('a malformed locale, date or logo is refused with its field, never thrown r
   const one = (patch: Partial<typeof input>) => checkRender({ ...input, ...patch });
   assert.deepEqual(one({ locale: 'fr_FR' }), [{ code: 'INVALID_LOCALE', field: 'locale', value: 'fr_FR' }]);
   assert.deepEqual(one({ locale: '' }), [{ code: 'INVALID_LOCALE', field: 'locale', value: '' }]);
+  assert.deepEqual(one({ currencyCode: 'EURO' }), [{ code: 'INVALID_CURRENCY', field: 'currencyCode', value: 'EURO' }]);
   assert.deepEqual(one({ dueDate: '24/10/2026' }), [{ code: 'INVALID_DATE', field: 'dueDate', value: '24/10/2026' }]);
   assert.deepEqual(one({ issueDate: '2026-02-30' }), [{ code: 'INVALID_DATE', field: 'issueDate', value: '2026-02-30' }]);
   assert.deepEqual(
@@ -162,6 +163,24 @@ test('text the font cannot draw is refused, naming the field, wherever it hides'
   const code = input.totals.taxCodesUsed[0]!;
   assert.deepEqual(first({ taxNames: { [code]: 'ضريبة القيمة المضافة' } })?.field, `taxNames.${code}`);
   assert.equal(first({ mentions: 'Paiement ☕' })?.code, 'UNSUPPORTED_SCRIPT');
+});
+
+test('the guard follows the font: it refuses what Roboto lacks, and accepts what it draws', () => {
+  const input = mockInvoice();
+  const check = (patch: Partial<typeof input>) => checkRender({ ...input, ...patch });
+  assert.deepEqual(check({ notes: 'Delivery → Bordeaux' }), [{ code: 'UNSUPPORTED_SCRIPT', field: 'notes', value: '→' }]);
+  assert.deepEqual(check({ buyer: { ...input.buyer, name: 'ООО «Ромашка»' } }), []);
+  assert.deepEqual(check({ notes: 'Line one\r\nLine two\ttabbed' }), [], 'pasted Windows text is refused');
+  assert.deepEqual(check({ buyer: { ...input.buyer, name: 'Societé' } }), [], 'a decomposed accent is refused');
+  assert.deepEqual(check({ locale: 'ar-EG' }), [], 'an Arabic locale still prints Latin digits');
+});
+
+test('pasted text is tidied before it is drawn: composed accents, Unix line breaks, no tabs', () => {
+  const input = mockInvoice();
+  const text = printed(definitionFor({ ...input, notes: 'Line one\r\nLine two\tend', buyer: { ...input.buyer, name: 'Societé' } }));
+  assert.ok(text.includes('Line one\nLine two end'), 'the notes were not tidied');
+  assert.ok(text.includes('Societé'), 'the accent was not composed');
+  assert.ok(!text.includes('\r'), 'a carriage return reached the page');
 });
 
 test('rendering refuses a document with problems, and says all of them', async () => {

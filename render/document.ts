@@ -1,3 +1,5 @@
+import { formatDate, formatMoney, formatPercent, formatQuantity, formatUnitPrice } from './format.ts';
+import { undrawable } from './glyphs.ts';
 import { PACKS } from './lang/pack.ts';
 import { classic } from './layouts/classic.ts';
 import { compact } from './layouts/compact.ts';
@@ -12,8 +14,17 @@ import {
 
 const LAYOUTS: Record<TemplateKey, Layout> = { classic, modern, compact, letterhead, receipt };
 
-/** What Roboto can draw: Latin, its extensions, the punctuation and currency we emit. */
-const DRAWABLE = /^[\u0009\u000a -~ -ɏʰ-˿‐-‧‰-⁞₠-₿™←-⇿−]*$/;
+/**
+ * Pasted text, made drawable without changing what it says: accents composed
+ * (e + U+0301 becomes one glyph), Windows line breaks made Unix, tabs made
+ * spaces. The QR payload and the logo's bytes are left exactly as given.
+ */
+function tidy<T>(value: T): T {
+  if (typeof value === 'string') return value.normalize('NFC').replace(/\r\n?/g, '\n').replace(/\t/g, ' ') as T;
+  if (Array.isArray(value)) return value.map(tidy) as T;
+  if (value instanceof Uint8Array || value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, key === 'qr' || key === 'logo' ? inner : tidy(inner)])) as T;
+}
 
 const MAX_QR_CHARACTERS = 300;
 
@@ -90,12 +101,26 @@ const SIGNATURES: Record<'image/png' | 'image/jpeg', number[]> = {
   'image/jpeg': [0xff, 0xd8, 0xff],
 };
 
+/**
+ * What the locale prints for a number, a price, a percentage and a date. Intl is
+ * asked for Western digits, but a locale can still carry a sign Roboto lacks.
+ */
+const localeSamples = (input: RenderInput): string =>
+  [
+    formatMoney(-1_234_567_890, input.currencyCode, input.locale), formatUnitPrice(12_500, input.currencyCode, input.locale),
+    formatQuantity(1234.5, input.locale), formatPercent(12.5, input.locale), formatDate('2026-12-31', input.locale),
+  ].join('');
+
 /** The problems that stop a render. Nothing is drawn while any remains. */
-export function checkRender(input: RenderInput): RenderProblem[] {
+export function checkRender(raw: RenderInput): RenderProblem[] {
+  const input = tidy(raw);
   const problems: RenderProblem[] = [];
   if (!LAYOUTS[input.template]) problems.push({ code: 'UNKNOWN_TEMPLATE', field: 'template', value: String(input.template) });
   if (!PACKS[input.language]) problems.push({ code: 'UNKNOWN_LANGUAGE', field: 'language', value: String(input.language) });
   if (!isLocale(input.locale)) problems.push({ code: 'INVALID_LOCALE', field: 'locale', value: String(input.locale) });
+  // Intl throws on a malformed code; the Engine refuses one too, but this field is the renderer's own.
+  const currencyIsCode = /^[A-Z]{3}$/.test(input.currencyCode);
+  if (!currencyIsCode) problems.push({ code: 'INVALID_CURRENCY', field: 'currencyCode', value: String(input.currencyCode) });
   for (const [field, value] of dateFields(input)) {
     if (value !== null && value !== undefined && !isCalendarDate(value)) problems.push({ code: 'INVALID_DATE', field, value: String(value) });
   }
@@ -110,10 +135,12 @@ export function checkRender(input: RenderInput): RenderProblem[] {
     if (!input.taxNames[code]?.trim()) problems.push({ code: 'MISSING_TAX_NAME', field: 'taxNames', value: code });
   }
   for (const [field, value] of printableFields(input)) {
-    if (!DRAWABLE.test(value)) {
-      const offending = [...value].filter((character) => !DRAWABLE.test(character)).join('');
-      problems.push({ code: 'UNSUPPORTED_SCRIPT', field, value: offending });
-    }
+    const offending = undrawable(value);
+    if (offending) problems.push({ code: 'UNSUPPORTED_SCRIPT', field, value: offending });
+  }
+  if (isLocale(input.locale) && currencyIsCode) {
+    const offending = undrawable(localeSamples(input));
+    if (offending) problems.push({ code: 'UNSUPPORTED_SCRIPT', field: 'locale', value: offending });
   }
   if (input.qr && input.qr.payload.length > MAX_QR_CHARACTERS) {
     problems.push({ code: 'QR_PAYLOAD_TOO_LONG', field: 'qr.payload', value: `${input.qr.payload.length} characters` });
@@ -125,7 +152,7 @@ export function checkRender(input: RenderInput): RenderProblem[] {
 export function definitionFor(input: RenderInput): PdfDefinition {
   const problems = checkRender(input);
   if (problems.length > 0) throw new RenderError(problems);
-  return LAYOUTS[input.template](input, PACKS[input.language]);
+  return LAYOUTS[input.template](tidy(input), PACKS[input.language]);
 }
 
 /** A document, rendered. Asynchronous because pdfmake delivers its bytes that way. */

@@ -15,6 +15,7 @@ The samples below are rendered from a fictitious company by
 | `letterhead` | Pre-printed stationery (the top 45 mm stay empty) | [letterhead.pdf](templates/letterhead.pdf) |
 | `receipt` | Retail and B2C, on an 80 mm roll | [receipt.pdf](templates/receipt.pdf) |
 
-Documents print in English or French today. Text the embedded font cannot draw —
-Arabic, Devanagari, CJK — is refused rather than printed as empty boxes; font
-packs for those scripts are later work.
+Documents print in English or French today. The embedded font draws Latin, Greek
+and Cyrillic; text it cannot draw (Arabic, Hebrew, Devanagari, Thai, CJK) is
+refused rather than printed as empty boxes. Font packs for those scripts are
+later work.

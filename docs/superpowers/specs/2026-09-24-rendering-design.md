@@ -100,7 +100,7 @@ renderDocument(input: RenderInput): RenderResult;   // throws RenderError(proble
 type RenderProblemCode =
   | 'UNSUPPORTED_SCRIPT' | 'UNSUPPORTED_IMAGE' | 'UNKNOWN_TEMPLATE'
   | 'UNKNOWN_LANGUAGE' | 'QR_PAYLOAD_TOO_LONG' | 'MISSING_TAX_NAME'
-  | 'INVALID_LOCALE' | 'INVALID_DATE';
+  | 'INVALID_LOCALE' | 'INVALID_DATE' | 'INVALID_CURRENCY';
 type RenderProblem = { code: RenderProblemCode; field?: string; value?: string };
 class RenderError extends Error { readonly problems: readonly RenderProblem[] }
 
@@ -177,21 +177,31 @@ and cents, dirhams and centimes, pounds and pence, rupees and paise, yen with no
 minor unit). A currency the pack has no words for falls back to the number in
 words followed by the ISO code.
 
-## 5. Fonts, and the Latin-only rule
+## 5. Fonts, and what they can draw
 
 Rendering embeds the Roboto family pdfmake already ships (Apache-2.0): regular,
-bold, italic. No font binary is committed to this repository.
+medium for bold, and their italics. No font binary is committed to this
+repository.
 
-Before anything is drawn, every string that would be printed is checked against
-the Unicode ranges Roboto covers (Basic Latin, Latin-1 Supplement, Latin
-Extended-A, the punctuation and currency symbols we emit). Anything else raises
-`UNSUPPORTED_SCRIPT`, naming the field and the offending characters. A PDF never
-prints empty boxes in place of a buyer's name.
+Before anything is drawn, every string that would be printed is tidied (accents
+composed to NFC, Windows line breaks made Unix, tabs made spaces) and checked
+against the characters all four faces draw. That list, `render/glyphs.ts`, is
+generated from the fonts' own character maps by `npm run glyphs`, and a test
+fails when it and the fonts disagree: a hand-written list drifts. Anything else
+raises `UNSUPPORTED_SCRIPT`, naming the field and the offending characters. A
+PDF never prints empty boxes in place of a buyer's name.
 
-This is a stated limitation, not an oversight: Arabic, Devanagari and CJK need
-letter-joining and bidirectional ordering that a plain PDF text layer does not
-do. The README says so, and a later sub-project can add font packs with proper
-shaping.
+Formatted output is held to the same rule. Every `Intl` formatter asks for
+Western digits and the Gregorian calendar, direction marks are removed, and a
+currency sign the font lacks (the hryvnia's, the lari's) prints as the ISO code.
+The locale's formatted output is checked too, and refused as
+`UNSUPPORTED_SCRIPT` on `locale` if it still carries a character the font lacks.
+
+Roboto draws Latin, Greek and Cyrillic, Vietnamese included. Arabic, Hebrew,
+Devanagari, Thai and CJK are refused: they need glyphs Roboto lacks, and most
+need letter-joining and bidirectional ordering that a plain PDF text layer does
+not do. This is a stated limitation, not an oversight. The README says so, and
+a later sub-project can add font packs with proper shaping.
 
 ## 6. QR codes
 
@@ -219,6 +229,7 @@ against a hash.
 | `UNSUPPORTED_IMAGE` | The logo is not PNG or JPEG (pdfmake cannot draw SVG), or its bytes do not start as its declared type does (field `brand.logo.bytes`). |
 | `INVALID_LOCALE` | `locale` is not a well-formed BCP 47 tag (`fr_FR`, an empty string), which `Intl` would throw on. |
 | `INVALID_DATE` | A date is not `YYYY-MM-DD`, or names a day that does not exist. |
+| `INVALID_CURRENCY` | `currencyCode` is not three capital letters, which `Intl` would throw on. |
 | `UNKNOWN_TEMPLATE` | `template` is not one of the five. |
 | `UNKNOWN_LANGUAGE` | `language` has no pack. |
 | `QR_PAYLOAD_TOO_LONG` | The payload cannot be drawn legibly in the layout's QR box. |

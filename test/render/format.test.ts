@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { amountInWords, formatDate, formatMoney, formatPercent, formatQuantity, formatUnitPrice } from '../../render/format.ts';
+import { undrawable } from '../../render/glyphs.ts';
 
 test('money is formatted with the currency’s own decimals', () => {
   assert.match(formatMoney(1_234_560_000, 'EUR', 'fr-FR'), /^1 234,56 €$/);
@@ -65,6 +66,29 @@ test('the francophone currencies have their own words', () => {
   assert.equal(amountInWords(12_345_000, 'TND', 'FR'), 'douze dinars et trois cent quarante-cinq millimes');
   assert.equal(amountInWords(1_234_560_000, 'CHF', 'FR'), 'mille deux cent trente-quatre francs et cinquante-six centimes');
   assert.equal(amountInWords(5_000_000_000, 'XOF', 'FR'), 'cinq mille francs CFA');
+});
+
+test('every locale prints Latin digits, Gregorian years and no bidi marks, so the font can draw them', () => {
+  const BIDI = /[\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/;
+  for (const locale of ['ar-EG', 'ar-SA', 'fa-IR', 'bn-BD', 'mr-IN', 'th-TH']) {
+    const printed = [
+      formatMoney(1_234_500_000, 'EUR', locale), formatUnitPrice(12_500, 'EUR', locale),
+      formatQuantity(1234.5, locale), formatPercent(12.5, locale), formatDate('2026-09-24', locale),
+    ];
+    for (const text of printed) {
+      assert.equal(undrawable(text), '', `${locale}: ${text}`);
+      assert.doesNotMatch(text, BIDI, `${locale}: ${JSON.stringify(text)}`);
+    }
+    assert.match(formatDate('2026-09-24', locale), /2026/, `${locale} left the Gregorian calendar`);
+  }
+});
+
+test('a currency sign the font lacks prints as its ISO code instead', () => {
+  const hryvnia = formatMoney(1_234_500_000, 'UAH', 'uk-UA');
+  assert.match(hryvnia, /UAH/);
+  assert.equal(undrawable(hryvnia), '');
+  assert.match(formatUnitPrice(12_500, 'GEL', 'ka-GE'), /GEL/);
+  assert.match(formatMoney(1_000_000, 'EUR', 'fr-FR'), /€/);
 });
 
 test('a unit price keeps the decimals it was priced with, and never fewer than the currency’s', () => {
