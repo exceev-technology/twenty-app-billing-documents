@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkRender, definitionFor, renderDocument } from '../../render/document.ts';
-import { mockInvoice, mockLongInvoice } from '../../render/samples/mock.ts';
+import { mockInvoice, mockLongInvoice, mockReceipt } from '../../render/samples/mock.ts';
 import { countPages } from '../../render/pdf.ts';
 import { RenderError, type RenderLine } from '../../render/types.ts';
 import { formatMoney } from '../../render/format.ts';
@@ -128,9 +128,47 @@ test('a template, a language, a logo type, the tax names and a QR payload are al
     [{ code: 'UNSUPPORTED_IMAGE', field: 'brand.logo', value: 'image/svg+xml' }],
   );
   assert.deepEqual(
-    checkRender({ ...input, qr: { mode: 'PAYLOAD', payload: 'x'.repeat(301) } }),
-    [{ code: 'QR_PAYLOAD_TOO_LONG', field: 'qr.payload', value: '301 characters' }],
+    checkRender({ ...input, qr: { mode: 'PAYLOAD', payload: 'x'.repeat(400) } }),
+    [{ code: 'QR_PAYLOAD_TOO_LONG', field: 'qr.payload', value: '400 bytes' }],
   );
+});
+
+const EPC = 'BCD\n002\n1\nSCT\n\nVerdal Studio\nFR7630006000011234567890189\nEUR9792.00\n\n\nINV-2026-0042\n';
+
+test('a QR code is sized to scan: error correction M, whole modules of at least 2 pt, inside the layout', async () => {
+  for (const template of ['classic', 'receipt'] as const) {
+    const input = { ...mockInvoice(), template, qr: { mode: 'PAYLOAD' as const, payload: EPC } };
+    const qr = JSON.stringify(definitionFor(input)).match(/\{"qr":[^}]*\}/)?.[0];
+    assert.ok(qr, `${template}: no QR`);
+    const { eccLevel, version, fit } = JSON.parse(qr) as { eccLevel: string; version: number; fit: number };
+    const modules = 17 + 4 * version;
+    assert.equal(eccLevel, 'M');
+    assert.equal(fit % modules, 0, `${template}: ${fit} pt is not a whole number of modules`);
+    assert.ok(fit / modules >= 2, `${template}: ${fit / modules} pt modules are too small to scan`);
+    const { pages } = await renderDocument(input);
+    assert.equal(pages, 1);
+  }
+});
+
+test('a QR URL counts its base URL, joins its query properly, and needs its base URL', () => {
+  const input = mockInvoice();
+  const base = 'https://payments.verdal.example/invoice/';
+  assert.deepEqual(
+    checkRender({ ...input, qr: { mode: 'URL_WITH_PAYLOAD', payload: 'x'.repeat(300), baseUrl: base } }),
+    [{ code: 'QR_PAYLOAD_TOO_LONG', field: 'qr.payload', value: '341 bytes' }],
+  );
+  assert.deepEqual(
+    checkRender({ ...input, qr: { mode: 'URL_WITH_PAYLOAD', payload: 'id=42', baseUrl: null } }),
+    [{ code: 'QR_BASE_URL_MISSING', field: 'qr.baseUrl' }],
+  );
+  const joined = JSON.stringify(definitionFor({ ...input, qr: { mode: 'URL_WITH_PAYLOAD', payload: 'id=42', baseUrl: 'https://pay.example/?lang=fr' } }));
+  assert.ok(joined.includes('"qr":"https://pay.example/?lang=fr&id=42"'), 'a base URL with a query got a second ?');
+});
+
+test('the receipt ends with its QR code, after the legal text', async () => {
+  const input = { ...mockReceipt(), qr: { mode: 'PAYLOAD' as const, payload: EPC } };
+  const content = JSON.stringify((definitionFor(input) as { content: unknown }).content);
+  assert.ok(content.lastIndexOf('"qr"') > content.lastIndexOf(input.brand.footerNote!), 'the QR is not last on the receipt');
 });
 
 test('a malformed locale, date or logo is refused with its field, never thrown raw', async () => {

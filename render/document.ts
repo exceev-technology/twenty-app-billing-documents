@@ -1,6 +1,7 @@
 import { formatDate, formatMoney, formatPercent, formatQuantity, formatUnitPrice } from './format.ts';
 import { undrawable } from './glyphs.ts';
 import { PACKS } from './lang/pack.ts';
+import { qrBox, qrBytes, qrText } from './qr.ts';
 import { classic } from './layouts/classic.ts';
 import { compact } from './layouts/compact.ts';
 import { letterhead } from './layouts/letterhead.ts';
@@ -25,8 +26,6 @@ function tidy<T>(value: T): T {
   if (value instanceof Uint8Array || value === null || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, key === 'qr' || key === 'logo' ? inner : tidy(inner)])) as T;
 }
-
-const MAX_QR_CHARACTERS = 300;
 
 /** Every string that would be printed, with the field it came from. */
 function printableFields(input: RenderInput): [string, string][] {
@@ -142,8 +141,10 @@ export function checkRender(raw: RenderInput): RenderProblem[] {
     const offending = undrawable(localeSamples(input));
     if (offending) problems.push({ code: 'UNSUPPORTED_SCRIPT', field: 'locale', value: offending });
   }
-  if (input.qr && input.qr.payload.length > MAX_QR_CHARACTERS) {
-    problems.push({ code: 'QR_PAYLOAD_TOO_LONG', field: 'qr.payload', value: `${input.qr.payload.length} characters` });
+  const qr = input.qr ? qrText(input.qr) : undefined;
+  if (qr === null) problems.push({ code: 'QR_BASE_URL_MISSING', field: 'qr.baseUrl' });
+  else if (qr !== undefined && LAYOUTS[input.template] && !qrBox(qr, input.template)) {
+    problems.push({ code: 'QR_PAYLOAD_TOO_LONG', field: 'qr.payload', value: `${qrBytes(qr)} bytes` });
   }
   return problems;
 }

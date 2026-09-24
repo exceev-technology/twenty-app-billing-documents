@@ -100,7 +100,7 @@ renderDocument(input: RenderInput): RenderResult;   // throws RenderError(proble
 type RenderProblemCode =
   | 'UNSUPPORTED_SCRIPT' | 'UNSUPPORTED_IMAGE' | 'UNKNOWN_TEMPLATE'
   | 'UNKNOWN_LANGUAGE' | 'QR_PAYLOAD_TOO_LONG' | 'MISSING_TAX_NAME'
-  | 'INVALID_LOCALE' | 'INVALID_DATE' | 'INVALID_CURRENCY';
+  | 'INVALID_LOCALE' | 'INVALID_DATE' | 'INVALID_CURRENCY' | 'QR_BASE_URL_MISSING';
 type RenderProblem = { code: RenderProblemCode; field?: string; value?: string };
 class RenderError extends Error { readonly problems: readonly RenderProblem[] }
 
@@ -206,13 +206,18 @@ a later sub-project can add font packs with proper shaping.
 ## 6. QR codes
 
 `PAYLOAD` encodes the payload Lifecycle built. `URL_WITH_PAYLOAD` encodes
-`baseUrl` with the payload as its query. `NONE` (represented by `qr: null`)
-prints nothing.
+`baseUrl` with the payload as its query (joined with `&` when the base already
+has one); without a base URL it is refused as `QR_BASE_URL_MISSING`. `NONE`
+(represented by `qr: null`) prints nothing.
 
-pdfmake silently draws nothing when a QR's box is smaller than its module
-count, so the box is computed from the payload's length and the layout's
-allowance. A payload that cannot fit legibly raises `QR_PAYLOAD_TOO_LONG`
-rather than printing a QR nobody can scan.
+pdfmake rounds a QR module down to whole points and silently draws what no
+phone can scan once modules shrink to 1 pt, so `render/qr.ts` sizes every code
+itself: error correction M (what the EPC payment QR specifies), the version the
+text's bytes need, modules of at least 2 pt (0.7 mm), about 32 mm across when
+the payload allows, four modules of white above and below, and no larger than
+the layout allows (140 pt on A4, 190 pt on the receipt). A payload that cannot
+fit legibly raises `QR_PAYLOAD_TOO_LONG`, counting the base URL as well,
+rather than printing a QR nobody can scan. On `receipt` the QR comes last.
 
 ## 7. Determinism
 
@@ -232,7 +237,8 @@ against a hash.
 | `INVALID_CURRENCY` | `currencyCode` is not three capital letters, which `Intl` would throw on. |
 | `UNKNOWN_TEMPLATE` | `template` is not one of the five. |
 | `UNKNOWN_LANGUAGE` | `language` has no pack. |
-| `QR_PAYLOAD_TOO_LONG` | The payload cannot be drawn legibly in the layout's QR box. |
+| `QR_PAYLOAD_TOO_LONG` | The encoded text (base URL included) cannot be drawn legibly in the layout's QR box. |
+| `QR_BASE_URL_MISSING` | `URL_WITH_PAYLOAD` was asked for with no `baseUrl`. |
 | `MISSING_TAX_NAME` | A code in the recap has no name in `taxNames`; the recap would otherwise print a record id. |
 
 `renderDocument` throws `RenderError` with every problem it found, in the order

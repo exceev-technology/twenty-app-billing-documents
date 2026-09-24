@@ -1,5 +1,6 @@
 import { amountInWords, formatDate, formatMoney, formatPercent, formatQuantity, formatUnitPrice } from './format.ts';
 import type { LabelKey, LanguagePack } from './lang/pack.ts';
+import { qrBox, qrText } from './qr.ts';
 import type { Party, RenderInput, RenderLine } from './types.ts';
 
 type Node = Record<string, unknown>;
@@ -222,15 +223,16 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     return { columns: [{ text: '', width: '*' }, { stack: [table, ...extras], width: 240 }], margin: [0, 0, 0, 10] };
   };
 
-  const payment = (): Node => ({
-    margin: [0, 0, 0, 8],
-    stack: [
-      input.brand.paymentDetails ? { text: `${label('paymentDetails')}: ${input.brand.paymentDetails}`, fontSize: style.base } : { text: '' },
-      input.qr
-        ? { qr: input.qr.mode === 'URL_WITH_PAYLOAD' && input.qr.baseUrl ? `${input.qr.baseUrl}?${input.qr.payload}` : input.qr.payload, fit: 96, margin: [0, 6, 0, 0] }
-        : { text: '' },
-    ],
-  });
+  const paymentDetails = (): Node =>
+    input.brand.paymentDetails ? { text: `${label('paymentDetails')}: ${input.brand.paymentDetails}`, fontSize: style.base, margin: [0, 0, 0, 8] } : { text: '' };
+
+  /** The QR sized by qrBox, with four modules of white above and below it, the quiet zone a scanner needs. */
+  const qrCode = (): Node => {
+    const text = input.qr ? qrText(input.qr) : null;
+    const box = text === null ? null : qrBox(text, input.template);
+    if (text === null || !box) return { text: '' };
+    return { qr: text, eccLevel: 'M', version: box.version, fit: box.fit, margin: [0, 4 * box.module, 0, 4 * box.module] };
+  };
 
   const legal = (): Node => ({
     stack: [
@@ -249,7 +251,13 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
    * may run on: pdfmake silently drops an unbreakable block taller than a page,
    * and pasted terms of sale easily are.
    */
-  const tail = (): Node => ({ stack: [{ unbreakable: true, stack: [recap(), totals()] }, payment(), legal()] });
+  const tail = (): Node => ({
+    stack: [
+      { unbreakable: true, stack: [recap(), totals()] },
+      // A receipt ends with its QR code, where a till slip puts it.
+      ...(style.narrow ? [paymentDetails(), legal(), qrCode()] : [paymentDetails(), qrCode(), legal()]),
+    ],
+  });
 
   const footer = (currentPage: number, pageCount: number): Node => ({
     margin: [40, 10, 40, 0],
