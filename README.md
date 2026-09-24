@@ -70,6 +70,7 @@ npm run typecheck
 - [Foundation design](docs/superpowers/specs/2026-09-21-foundation-design.md)
 - [Engine design](docs/superpowers/specs/2026-09-22-engine-design.md)
 - [Rendering design](docs/superpowers/specs/2026-09-24-rendering-design.md)
+- [The five templates](docs/templates.md)
 - [Foundation plan](docs/superpowers/plans/2026-09-21-foundation.md)
 - [Engine plan](docs/superpowers/plans/2026-09-22-engine.md)
 
