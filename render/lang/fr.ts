@@ -11,7 +11,7 @@ export const fr: LanguagePack = {
     description: 'Désignation', quantity: 'Qté', unit: 'Unité', unitPrice: 'Prix unitaire',
     discount: 'Remise', tax: 'TVA', lineTotal: 'Montant', period: 'Période',
     taxRecap: 'Récapitulatif de TVA', rate: 'Taux', taxableBase: 'Base', taxAmount: 'TVA',
-    subtotal: 'Total HT', discountTotal: 'Remise', taxTotal: 'TVA', total: 'Total TTC',
+    subtotal: 'Total HT', discountTotal: 'Remises appliquées', taxTotal: 'TVA', total: 'Total TTC',
     amountInWords: 'Montant en lettres', pricesIncludeTax: 'Prix taxe comprise',
     paymentDetails: 'Coordonnées bancaires', page: 'Page', line: 'ligne',
   },

@@ -11,7 +11,7 @@ export const en: LanguagePack = {
     description: 'Description', quantity: 'Qty', unit: 'Unit', unitPrice: 'Unit price',
     discount: 'Discount', tax: 'Tax', lineTotal: 'Amount', period: 'Period',
     taxRecap: 'Tax summary', rate: 'Rate', taxableBase: 'Taxable amount', taxAmount: 'Tax',
-    subtotal: 'Subtotal', discountTotal: 'Discount', taxTotal: 'Tax', total: 'Total',
+    subtotal: 'Subtotal', discountTotal: 'Discounts applied', taxTotal: 'Tax', total: 'Total',
     amountInWords: 'Amount in words', pricesIncludeTax: 'Prices include tax',
     paymentDetails: 'Payment details', page: 'Page', line: 'line',
   },

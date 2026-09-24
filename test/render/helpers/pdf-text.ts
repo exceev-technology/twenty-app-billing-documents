@@ -1,4 +1,6 @@
 import { inflateSync } from 'node:zlib';
+import { renderDocument } from '../../../render/document.ts';
+import type { RenderInput } from '../../../render/types.ts';
 
 type PdfObject = { dict: string; stream?: Buffer };
 
@@ -78,9 +80,9 @@ export function pdfText(bytes: Uint8Array): string[] {
     for (const [, block] of content.matchAll(/BT([\s\S]*?)ET/g)) {
       const [, x, y] = /1 0 0 1 (-?[\d.]+) (-?[\d.]+) Tm/.exec(block!) ?? [, '0', '0'];
       let text = '';
-      for (const [, name, shown] of block!.matchAll(/\/(\w+) [\d.]+ Tf|(\[[^\]]*\]\s*TJ|<[0-9a-fA-F]*>\s*Tj)/g)) {
+      for (const [, name, drawn] of block!.matchAll(/\/(\w+) [\d.]+ Tf|(\[[^\]]*\]\s*TJ|<[0-9a-fA-F]*>\s*Tj)/g)) {
         if (name) font = fonts.get(name) ?? new Map();
-        for (const [, glyphs] of (shown ?? '').matchAll(/<([0-9a-fA-F]*)>/g)) {
+        for (const [, glyphs] of (drawn ?? '').matchAll(/<([0-9a-fA-F]*)>/g)) {
           for (const code of glyphs!.match(/.{4}/g) ?? []) text += font.get(code.toLowerCase()) ?? '�';
         }
       }
@@ -94,3 +96,6 @@ export function pdfText(bytes: Uint8Array): string[] {
       .trimEnd()).join('\n');
   });
 }
+
+/** What a rendered document really shows, every page: a definition can hold text pdfmake then drops. */
+export const shown = async (input: RenderInput): Promise<string> => pdfText((await renderDocument(input)).bytes).join('\n');

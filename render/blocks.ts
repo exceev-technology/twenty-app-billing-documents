@@ -165,9 +165,9 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   });
 
   const totals = (): Node => {
+    // The subtotal already has the discounts deducted, so they are a note below the sum, never a row of it.
     const rows: [string, string][] = [
       [label('subtotal'), money(input.totals.subtotalMicros)],
-      ...(input.totals.discountTotalMicros !== 0 ? ([[label('discountTotal'), money(input.totals.discountTotalMicros)]] as [string, string][]) : []),
       [label('taxTotal'), money(input.totals.taxTotalMicros)],
       [label('total'), money(input.totals.totalMicros)],
     ];
@@ -186,6 +186,9 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
       },
     };
     const extras = [
+      input.totals.discountTotalMicros !== 0
+        ? { text: `${label('discountTotal')}: ${money(input.totals.discountTotalMicros)}`, fontSize: style.base - 1, margin: [0, 4, 0, 0] }
+        : { text: '' },
       input.pricesIncludeTax ? { text: label('pricesIncludeTax'), italics: true, fontSize: style.base - 1, margin: [0, 4, 0, 0] } : { text: '' },
       input.amountInWords
         ? { text: `${label('amountInWords')}: ${amountInWords(input.totals.totalMicros, input.currencyCode, pack.code)}`, fontSize: style.base - 1, margin: [0, 4, 0, 0] }

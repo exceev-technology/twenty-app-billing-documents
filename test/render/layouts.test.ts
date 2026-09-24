@@ -4,13 +4,11 @@ import { definitionFor, renderDocument } from '../../render/document.ts';
 import { mockInvoice, mockLongInvoice, mockQuote, mockReceipt } from '../../render/samples/mock.ts';
 import type { RenderInput, TemplateKey } from '../../render/types.ts';
 import { formatMoney } from '../../render/format.ts';
-import { pdfText } from './helpers/pdf-text.ts';
+import { shown } from './helpers/pdf-text.ts';
 import { printed } from './helpers/printed.ts';
 
 const TEMPLATES: TemplateKey[] = ['classic', 'modern', 'compact', 'letterhead', 'receipt'];
 const on = (template: TemplateKey, input: RenderInput): RenderInput => ({ ...input, template });
-/** What the rendered file really shows, every page: a definition can hold text pdfmake then drops. */
-const shown = async (input: RenderInput): Promise<string> => pdfText((await renderDocument(input)).bytes).join('\n');
 
 test('every layout prints the content the law needs, on every document', () => {
   for (const template of TEMPLATES) {

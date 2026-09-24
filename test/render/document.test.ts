@@ -4,6 +4,8 @@ import { checkRender, definitionFor, renderDocument } from '../../render/documen
 import { mockInvoice, mockLongInvoice } from '../../render/samples/mock.ts';
 import { countPages } from '../../render/pdf.ts';
 import type { RenderLine } from '../../render/types.ts';
+import { formatMoney } from '../../render/format.ts';
+import { shown } from './helpers/pdf-text.ts';
 import { printed } from './helpers/printed.ts';
 
 test('the classic layout prints everything the law needs', () => {
@@ -47,6 +49,16 @@ test('a code with several components names each of them in the recap', () => {
   }));
   assert.ok(text.includes('GST 5% + QST 9.975% - GST'), 'the GST row is not named');
   assert.ok(text.includes('GST 5% + QST 9.975% - QST'), 'the QST row is not named');
+});
+
+test('a discount is shown as already deducted, never as a step between subtotal and tax', async () => {
+  const input = mockLongInvoice();
+  const money = (micros: number): string => formatMoney(micros, 'EUR', 'en-GB');
+  const { subtotalMicros, discountTotalMicros, taxTotalMicros, totalMicros } = input.totals;
+  assert.ok(discountTotalMicros > 0, 'the long invoice should carry discounts');
+  const text = await shown(input);
+  assert.ok(text.includes(`Subtotal ${money(subtotalMicros)}\nTax ${money(taxTotalMicros)}\nTotal ${money(totalMicros)}`), 'the totals do not read as a sum');
+  assert.ok(text.includes(`Discounts applied: ${money(discountTotalMicros)}`), 'the discount is not shown');
 });
 
 test('a document with no number prints the draft marker instead', () => {

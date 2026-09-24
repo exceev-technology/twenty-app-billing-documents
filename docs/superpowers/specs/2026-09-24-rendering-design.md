@@ -123,7 +123,7 @@ a requirement.
 | 4 | Subject and notes | |
 | 5 | Lines | Description (service period beneath it when set), quantity and unit, unit price, discount, tax label, line total |
 | 6 | Tax recap | One row per code and component: the code's name (and the component's, when the code has several), rate, taxable base, tax. 0 % rows included. The code itself is a record id and is never printed |
-| 7 | Totals | Subtotal, discount, tax, total; the "prices include tax" sentence when they do; the total in words when the profile asks |
+| 7 | Totals | Subtotal, tax, total, which add up as printed; beneath them the discounts applied (already deducted from the subtotal, so never a row of the sum), the "prices include tax" sentence when they do, the total in words when the profile asks |
 | 8 | Payment | Due date, payment details, the QR when a mode is set |
 | 9 | Legal | The tax codes' printed notes, the profile's mentions, the seller's footer note |
 
