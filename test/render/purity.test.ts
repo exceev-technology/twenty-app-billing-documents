@@ -14,7 +14,11 @@ function sources(dir: string): string[] {
   });
 }
 
-const SPECIFIER = /(?:from\s*|import\s*\(?\s*)['"]([^'"]+)['"]/g;
+// Import and export statements only: a label whose value happens to be 'from'
+// is not an import.
+const FROM = /^\s*(?:import|export)\b[^'"\n]*\bfrom\s*['"]([^'"]+)['"]/gm;
+const SIDE_EFFECT = /^\s*import\s+['"]([^'"]+)['"]/gm;
+const DYNAMIC = /\bimport\s*\(\s*['"]([^'"]+)['"]/g;
 
 test('there is render code to check', () => {
   assert.ok(sources(RENDER).length > 0);
@@ -23,7 +27,7 @@ test('there is render code to check', () => {
 test('only render/pdf.ts knows pdfmake, and nothing knows Twenty', () => {
   for (const file of sources(RENDER)) {
     const source = readFileSync(file, 'utf8');
-    for (const [, specifier] of source.matchAll(SPECIFIER)) {
+    for (const [, specifier] of [...source.matchAll(FROM), ...source.matchAll(SIDE_EFFECT), ...source.matchAll(DYNAMIC)]) {
       const pdfmake = specifier === 'pdfmake' || specifier.startsWith('pdfmake/');
       const allowed = specifier.startsWith('./') || specifier.startsWith('../') || (pdfmake && file.endsWith('/pdf.ts'));
       assert.ok(allowed, `${file} imports ${specifier}`);
