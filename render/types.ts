@@ -53,6 +53,8 @@ export type RenderInput = {
   lines: RenderLine[];
   /** The engine's result, unchanged: rendering computes no figure of its own. */
   totals: DocumentResult;
+  /** The printed name of each code in totals.taxCodesUsed, keyed by that code: the code itself is a record id. */
+  taxNames: Record<string, string>;
   taxNotes: string[];
   mentions?: string | null;
   amountInWords: boolean;
@@ -69,7 +71,7 @@ export type RenderResult = { bytes: Uint8Array; pages: number };
 
 export type RenderProblemCode =
   | 'UNSUPPORTED_SCRIPT' | 'UNSUPPORTED_IMAGE' | 'UNKNOWN_TEMPLATE'
-  | 'UNKNOWN_LANGUAGE' | 'QR_PAYLOAD_TOO_LONG';
+  | 'UNKNOWN_LANGUAGE' | 'QR_PAYLOAD_TOO_LONG' | 'MISSING_TAX_NAME';
 
 export type RenderProblem = { code: RenderProblemCode; field?: string; value?: string };
 

@@ -133,15 +133,28 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     };
   };
 
+  /** A code's name, and the component's when the code has several: `taxCode` is a record id, never printed. */
+  const recapLabel = (row: RenderInput['totals']['recap'][number]): string => {
+    const name = input.taxNames[row.taxCode]!;
+    const several = input.totals.recap.filter((other) => other.taxCode === row.taxCode).length > 1;
+    return several && row.component ? `${name} - ${row.component}` : name;
+  };
+
   const recap = (): Node => ({
     fontSize: style.base - 1,
     margin: [0, 0, 0, 10],
     table: {
-      widths: ['*', 'auto', 'auto'],
+      widths: ['*', 'auto', 'auto', 'auto'],
       body: [
-        [{ text: label('taxRecap'), bold: true }, { text: label('taxableBase'), bold: true, alignment: 'right' }, { text: label('taxAmount'), bold: true, alignment: 'right' }],
+        [
+          { text: label('taxRecap'), bold: true },
+          { text: label('rate'), bold: true, alignment: 'right' },
+          { text: label('taxableBase'), bold: true, alignment: 'right' },
+          { text: label('taxAmount'), bold: true, alignment: 'right' },
+        ],
         ...input.totals.recap.map((row) => [
-          { text: `${row.taxCode}${row.component ? ` - ${row.component}` : ''} - ${formatPercent(row.rate, input.locale)}` },
+          { text: recapLabel(row) },
+          { text: formatPercent(row.rate, input.locale), alignment: 'right' },
           { text: money(row.baseMicros), alignment: 'right' },
           { text: money(row.taxMicros), alignment: 'right' },
         ]),

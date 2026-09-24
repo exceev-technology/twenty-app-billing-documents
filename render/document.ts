@@ -45,10 +45,8 @@ function printableFields(input: RenderInput): [string, string][] {
       [`lines[${index}].unit`, line.unit],
       [`lines[${index}].taxLabel`, line.taxLabel],
     ]),
-    ...input.totals.recap.flatMap((row, index): [string, string][] => [
-      [`totals.recap[${index}].taxCode`, row.taxCode],
-      [`totals.recap[${index}].component`, row.component ?? ''],
-    ]),
+    ...Object.entries(input.taxNames).map(([code, name]) => [`taxNames.${code}`, name] as [string, string]),
+    ...input.totals.recap.map((row, index) => [`totals.recap[${index}].component`, row.component ?? ''] as [string, string]),
     ...input.taxNotes.map((note, index) => [`taxNotes[${index}]`, note] as [string, string]),
     ['mentions', input.mentions ?? ''],
     ['brand.footerNote', input.brand.footerNote ?? ''],
@@ -64,6 +62,10 @@ export function checkRender(input: RenderInput): RenderProblem[] {
   const logo = input.brand.logo;
   if (logo && logo.type !== 'image/png' && logo.type !== 'image/jpeg') {
     problems.push({ code: 'UNSUPPORTED_IMAGE', field: 'brand.logo', value: String(logo.type) });
+  }
+  // The recap would otherwise print the code, which is a record id.
+  for (const code of new Set(input.totals.recap.map((row) => row.taxCode))) {
+    if (!input.taxNames[code]?.trim()) problems.push({ code: 'MISSING_TAX_NAME', field: 'taxNames', value: code });
   }
   for (const [field, value] of printableFields(input)) {
     if (!DRAWABLE.test(value)) {

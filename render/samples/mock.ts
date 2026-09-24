@@ -37,6 +37,9 @@ const IDENTIFIERS = [
   { label: 'VAT number', value: 'FR11111111111', side: 'BUYER' as const },
 ];
 
+/** A tax code's identity is its record id, as Lifecycle passes it; this one is made up. */
+const VAT_20 = '0000c0de-0000-4000-8000-000000000020';
+
 const line = (key: string, description: string, quantity: number, unitPriceMicros: number, over: Partial<RenderLine> = {}): RenderLine => ({
   key,
   description,
@@ -67,6 +70,7 @@ const base = (): RenderInput => ({
   identifiers: IDENTIFIERS,
   lines: [],
   totals: { lines: [], recap: [], taxCodesUsed: [], subtotalMicros: 0, discountTotalMicros: 0, taxTotalMicros: 0, totalMicros: 0 },
+  taxNames: { [VAT_20]: 'VAT 20%' },
   taxNotes: ['VAT on debits.'],
   mentions: 'Late payment carries interest at three times the legal rate, plus a 40 € recovery fee.',
   amountInWords: true,
@@ -93,8 +97,8 @@ function withTotals(input: RenderInput, rate = 20): RenderInput {
         discountMicros: Math.round((current.quantity * current.unitPriceMicros) - current.lineTotalMicros),
         lineTotalMicros: current.lineTotalMicros,
       })),
-      recap: [{ taxCode: 'fr.vat.20', component: 'VAT', rate, baseMicros: subtotal, taxMicros: tax }],
-      taxCodesUsed: ['fr.vat.20'],
+      recap: [{ taxCode: VAT_20, component: 'VAT', rate, baseMicros: subtotal, taxMicros: tax }],
+      taxCodesUsed: [VAT_20],
       subtotalMicros: subtotal,
       discountTotalMicros: discounts,
       taxTotalMicros: tax,

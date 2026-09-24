@@ -80,6 +80,7 @@ type RenderInput = {
   identifiers: PrintedIdentifier[];             // already filtered to those printed, in sortOrder
   lines: RenderLine[];
   totals: DocumentResult;                       // the Engine's result, verbatim
+  taxNames: Record<string, string>;             // each code in totals.taxCodesUsed -> its name; the code is a record id
   taxNotes: string[];                           // the printed notes of the codes used, in recap order
   mentions?: string | null;
   amountInWords: boolean;
@@ -98,7 +99,7 @@ renderDocument(input: RenderInput): RenderResult;   // throws RenderError(proble
 
 type RenderProblemCode =
   | 'UNSUPPORTED_SCRIPT' | 'UNSUPPORTED_IMAGE' | 'UNKNOWN_TEMPLATE'
-  | 'UNKNOWN_LANGUAGE' | 'QR_PAYLOAD_TOO_LONG';
+  | 'UNKNOWN_LANGUAGE' | 'QR_PAYLOAD_TOO_LONG' | 'MISSING_TAX_NAME';
 type RenderProblem = { code: RenderProblemCode; field?: string; value?: string };
 class RenderError extends Error { readonly problems: readonly RenderProblem[] }
 
@@ -121,7 +122,7 @@ a requirement.
 | 3 | Buyer | Name, address, their printed identifiers, their reference |
 | 4 | Subject and notes | |
 | 5 | Lines | Description (service period beneath it when set), quantity and unit, unit price, discount, tax label, line total |
-| 6 | Tax recap | One row per code and component: rate, taxable base, tax. 0 % rows included |
+| 6 | Tax recap | One row per code and component: the code's name (and the component's, when the code has several), rate, taxable base, tax. 0 % rows included. The code itself is a record id and is never printed |
 | 7 | Totals | Subtotal, discount, tax, total; the "prices include tax" sentence when they do; the total in words when the profile asks |
 | 8 | Payment | Due date, payment details, the QR when a mode is set |
 | 9 | Legal | The tax codes' printed notes, the profile's mentions, the seller's footer note |
@@ -214,6 +215,7 @@ against a hash.
 | `UNKNOWN_TEMPLATE` | `template` is not one of the five. |
 | `UNKNOWN_LANGUAGE` | `language` has no pack. |
 | `QR_PAYLOAD_TOO_LONG` | The payload cannot be drawn legibly in the layout's QR box. |
+| `MISSING_TAX_NAME` | A code in the recap has no name in `taxNames`; the recap would otherwise print a record id. |
 
 `renderDocument` throws `RenderError` with every problem it found, in the order
 found. Rendering does not word its own problems: Lifecycle decides what a person
@@ -242,7 +244,7 @@ goes to a git-ignored folder.
 - **Content completeness**, for every template and every mock document: collect
   every string the definition would print and assert that nothing required is
   missing — the number, both parties, each printed identifier, every recap row's
-  rate, the mentions, the totals, the footer note. A layout may rearrange the
+  name and rate, the mentions, the totals, the footer note. A layout may rearrange the
   page; it may not silently drop a legal requirement.
 - **Structure:** the lines table repeats its header; the footer carries the page
   numbers; `receipt`'s page is 80 mm wide; `letterhead` reserves its top band;
@@ -250,7 +252,8 @@ goes to a git-ignored folder.
 - **Real output:** the long invoice produces more than one page, counted in the
   bytes; the same input rendered twice gives identical bytes.
 - **Guards:** an Arabic buyer name, an SVG logo, an unknown template, an unknown
-  language and an over-long QR payload are each refused, naming the field.
+  language, an over-long QR payload and a recap code with no name are each
+  refused, naming the field.
 - **Language:** both packs carry every label and a message for all thirteen
   Engine problem codes; French labels appear when the language is French; money
   is formatted with each currency's decimals; no narrow no-break space survives
@@ -277,7 +280,8 @@ docs/templates/*.pdf      five committed samples, one per layout
 ## 12. Carried to other sub-projects
 
 - **Lifecycle** adds a `template` SELECT to `billingIssuer` (the five keys,
-  `classic` by default), maps records to `RenderInput`, fetches the logo's bytes
+  `classic` by default), maps records to `RenderInput` (each tax code's name
+  into `taxNames`, keyed by the record id the Engine used), fetches the logo's bytes
   and refuses an SVG, builds the QR payload, and stores the PDF in the
   document's own files field.
 - **The Engine** exports `minorDigits` (§4 above).

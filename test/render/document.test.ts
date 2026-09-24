@@ -20,6 +20,35 @@ test('the classic layout prints everything the law needs', () => {
   for (const row of input.totals.recap) assert.match(text, new RegExp(String(row.rate).replace('.', '[.,]')));
 });
 
+test('the tax recap names each code, and never prints its identity', () => {
+  const input = mockInvoice();
+  const text = printed(definitionFor(input));
+  for (const code of input.totals.taxCodesUsed) {
+    assert.ok(text.includes(input.taxNames[code]!), `the recap lacks the name of ${code}`);
+    assert.ok(!text.includes(code), `the recap prints the identity ${code}`);
+  }
+});
+
+test('a code with several components names each of them in the recap', () => {
+  const input = mockInvoice();
+  const code = 'c0de0000-0000-4000-8000-00000000c0de';
+  const row = { taxCode: code, baseMicros: 100_000_000 };
+  const text = printed(definitionFor({
+    ...input,
+    taxNames: { [code]: 'GST 5% + QST 9.975%' },
+    totals: {
+      ...input.totals,
+      taxCodesUsed: [code],
+      recap: [
+        { ...row, component: 'GST', rate: 5, taxMicros: 5_000_000 },
+        { ...row, component: 'QST', rate: 9.975, taxMicros: 9_980_000 },
+      ],
+    },
+  }));
+  assert.ok(text.includes('GST 5% + QST 9.975% - GST'), 'the GST row is not named');
+  assert.ok(text.includes('GST 5% + QST 9.975% - QST'), 'the QST row is not named');
+});
+
 test('a document with no number prints the draft marker instead', () => {
   const text = printed(definitionFor({ ...mockInvoice(), number: null }));
   assert.match(text, /DRAFT/);
@@ -74,9 +103,12 @@ test('an accent colour that is not a hex triplet falls back to the default ink',
   }
 });
 
-test('a template, a language, a logo type and a QR payload are all checked', () => {
+test('a template, a language, a logo type, the tax names and a QR payload are all checked', () => {
   const input = mockInvoice();
+  const code = input.totals.taxCodesUsed[0]!;
   assert.deepEqual(checkRender(input), []);
+  assert.deepEqual(checkRender({ ...input, taxNames: {} }), [{ code: 'MISSING_TAX_NAME', field: 'taxNames', value: code }]);
+  assert.deepEqual(checkRender({ ...input, taxNames: { [code]: '  ' } }), [{ code: 'MISSING_TAX_NAME', field: 'taxNames', value: code }]);
   assert.deepEqual(checkRender({ ...input, template: 'fancy' as never }), [{ code: 'UNKNOWN_TEMPLATE', field: 'template', value: 'fancy' }]);
   assert.deepEqual(checkRender({ ...input, language: 'ES' as never }), [{ code: 'UNKNOWN_LANGUAGE', field: 'language', value: 'ES' }]);
   assert.deepEqual(
@@ -96,6 +128,8 @@ test('text the font cannot draw is refused, naming the field, wherever it hides'
   assert.deepEqual(first({ lines: [{ ...input.lines[0]!, description: 'Conseil 相談' } as RenderLine] })?.field, 'lines[0].description');
   assert.deepEqual(first({ mentions: 'Paiement à 30 jours ☕' })?.field, 'mentions');
   assert.deepEqual(first({ brand: { ...input.brand, footerNote: 'शुक्रिया' } })?.field, 'brand.footerNote');
+  const code = input.totals.taxCodesUsed[0]!;
+  assert.deepEqual(first({ taxNames: { [code]: 'ضريبة القيمة المضافة' } })?.field, `taxNames.${code}`);
   assert.equal(first({ mentions: 'Paiement ☕' })?.code, 'UNSUPPORTED_SCRIPT');
 });
 

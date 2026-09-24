@@ -13,7 +13,10 @@ test('every layout prints the content the law needs, on every document', () => {
     for (const make of [mockInvoice, mockQuote, mockLongInvoice]) {
       const input = on(template, make());
       const text = printed(definitionFor(input));
-      const needed = [input.number!, input.seller.name, ...input.lines.map((line) => line.description), input.mentions!, input.taxNotes[0]!];
+      const needed = [
+        input.number!, input.seller.name, ...input.lines.map((line) => line.description), input.mentions!, input.taxNotes[0]!,
+        ...input.totals.taxCodesUsed.map((code) => input.taxNames[code]!),
+      ];
       if (template !== 'receipt') needed.push(input.buyer.name);
       for (const value of needed) assert.ok(text.includes(value), `${template}: missing ${value}`);
       for (const row of input.totals.recap) {
