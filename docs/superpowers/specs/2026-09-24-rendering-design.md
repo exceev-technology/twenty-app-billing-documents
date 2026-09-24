@@ -99,7 +99,8 @@ renderDocument(input: RenderInput): RenderResult;   // throws RenderError(proble
 
 type RenderProblemCode =
   | 'UNSUPPORTED_SCRIPT' | 'UNSUPPORTED_IMAGE' | 'UNKNOWN_TEMPLATE'
-  | 'UNKNOWN_LANGUAGE' | 'QR_PAYLOAD_TOO_LONG' | 'MISSING_TAX_NAME';
+  | 'UNKNOWN_LANGUAGE' | 'QR_PAYLOAD_TOO_LONG' | 'MISSING_TAX_NAME'
+  | 'INVALID_LOCALE' | 'INVALID_DATE';
 type RenderProblem = { code: RenderProblemCode; field?: string; value?: string };
 class RenderError extends Error { readonly problems: readonly RenderProblem[] }
 
@@ -215,7 +216,9 @@ against a hash.
 | Code | When |
 |---|---|
 | `UNSUPPORTED_SCRIPT` | A printed string uses characters the embedded font cannot draw. |
-| `UNSUPPORTED_IMAGE` | The logo is not PNG or JPEG (pdfmake cannot draw SVG). |
+| `UNSUPPORTED_IMAGE` | The logo is not PNG or JPEG (pdfmake cannot draw SVG), or its bytes do not start as its declared type does (field `brand.logo.bytes`). |
+| `INVALID_LOCALE` | `locale` is not a well-formed BCP 47 tag (`fr_FR`, an empty string), which `Intl` would throw on. |
+| `INVALID_DATE` | A date is not `YYYY-MM-DD`, or names a day that does not exist. |
 | `UNKNOWN_TEMPLATE` | `template` is not one of the five. |
 | `UNKNOWN_LANGUAGE` | `language` has no pack. |
 | `QR_PAYLOAD_TOO_LONG` | The payload cannot be drawn legibly in the layout's QR box. |

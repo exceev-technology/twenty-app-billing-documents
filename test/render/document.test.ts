@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { checkRender, definitionFor, renderDocument } from '../../render/document.ts';
 import { mockInvoice, mockLongInvoice } from '../../render/samples/mock.ts';
 import { countPages } from '../../render/pdf.ts';
-import type { RenderLine } from '../../render/types.ts';
+import { RenderError, type RenderLine } from '../../render/types.ts';
 import { formatMoney } from '../../render/format.ts';
 import { shown } from './helpers/pdf-text.ts';
 import { printed } from './helpers/printed.ts';
@@ -131,6 +131,25 @@ test('a template, a language, a logo type, the tax names and a QR payload are al
     checkRender({ ...input, qr: { mode: 'PAYLOAD', payload: 'x'.repeat(301) } }),
     [{ code: 'QR_PAYLOAD_TOO_LONG', field: 'qr.payload', value: '301 characters' }],
   );
+});
+
+test('a malformed locale, date or logo is refused with its field, never thrown raw', async () => {
+  const input = mockInvoice();
+  const one = (patch: Partial<typeof input>) => checkRender({ ...input, ...patch });
+  assert.deepEqual(one({ locale: 'fr_FR' }), [{ code: 'INVALID_LOCALE', field: 'locale', value: 'fr_FR' }]);
+  assert.deepEqual(one({ locale: '' }), [{ code: 'INVALID_LOCALE', field: 'locale', value: '' }]);
+  assert.deepEqual(one({ dueDate: '24/10/2026' }), [{ code: 'INVALID_DATE', field: 'dueDate', value: '24/10/2026' }]);
+  assert.deepEqual(one({ issueDate: '2026-02-30' }), [{ code: 'INVALID_DATE', field: 'issueDate', value: '2026-02-30' }]);
+  assert.deepEqual(
+    one({ lines: [{ ...input.lines[0]!, periodStart: '2026-13-01' }, ...input.lines.slice(1)] }),
+    [{ code: 'INVALID_DATE', field: 'lines[0].periodStart', value: '2026-13-01' }],
+  );
+  const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>');
+  assert.deepEqual(
+    one({ brand: { ...input.brand, logo: { bytes: svg, type: 'image/png' } } }),
+    [{ code: 'UNSUPPORTED_IMAGE', field: 'brand.logo.bytes', value: 'image/png' }],
+  );
+  await assert.rejects(renderDocument({ ...input, locale: 'fr_FR' }), (error: unknown) => error instanceof RenderError);
 });
 
 test('text the font cannot draw is refused, naming the field, wherever it hides', () => {

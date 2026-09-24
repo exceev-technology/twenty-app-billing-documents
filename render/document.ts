@@ -54,14 +54,56 @@ function printableFields(input: RenderInput): [string, string][] {
   ];
 }
 
+/** Intl throws a RangeError on a malformed tag (fr_FR, ''); the render must refuse it instead. */
+function isLocale(locale: string): boolean {
+  try {
+    return Intl.getCanonicalLocales(locale).length === 1;
+  } catch {
+    return false;
+  }
+}
+
+/** YYYY-MM-DD, and a day that exists: 2026-02-30 is not one. */
+function isCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day] = match.slice(1).map(Number) as [number, number, number];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function dateFields(input: RenderInput): [string, string | null | undefined][] {
+  return [
+    ['issueDate', input.issueDate],
+    ['dueDate', input.dueDate],
+    ['validUntil', input.validUntil],
+    ...input.lines.flatMap((line, index): [string, string | null | undefined][] => [
+      [`lines[${index}].periodStart`, line.periodStart],
+      [`lines[${index}].periodEnd`, line.periodEnd],
+    ]),
+  ];
+}
+
+/** The first bytes each image type must start with: a declared type is a claim, the bytes are the proof. */
+const SIGNATURES: Record<'image/png' | 'image/jpeg', number[]> = {
+  'image/png': [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  'image/jpeg': [0xff, 0xd8, 0xff],
+};
+
 /** The problems that stop a render. Nothing is drawn while any remains. */
 export function checkRender(input: RenderInput): RenderProblem[] {
   const problems: RenderProblem[] = [];
   if (!LAYOUTS[input.template]) problems.push({ code: 'UNKNOWN_TEMPLATE', field: 'template', value: String(input.template) });
   if (!PACKS[input.language]) problems.push({ code: 'UNKNOWN_LANGUAGE', field: 'language', value: String(input.language) });
+  if (!isLocale(input.locale)) problems.push({ code: 'INVALID_LOCALE', field: 'locale', value: String(input.locale) });
+  for (const [field, value] of dateFields(input)) {
+    if (value !== null && value !== undefined && !isCalendarDate(value)) problems.push({ code: 'INVALID_DATE', field, value: String(value) });
+  }
   const logo = input.brand.logo;
   if (logo && logo.type !== 'image/png' && logo.type !== 'image/jpeg') {
     problems.push({ code: 'UNSUPPORTED_IMAGE', field: 'brand.logo', value: String(logo.type) });
+  } else if (logo && !SIGNATURES[logo.type].every((byte, index) => logo.bytes[index] === byte)) {
+    problems.push({ code: 'UNSUPPORTED_IMAGE', field: 'brand.logo.bytes', value: logo.type });
   }
   // The recap would otherwise print the code, which is a record id.
   for (const code of new Set(input.totals.recap.map((row) => row.taxCode))) {
