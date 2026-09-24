@@ -17,8 +17,9 @@ test('the mock logo is a real PNG, generated into the repository', () => {
 test('the mock company carries the logo into a rendered invoice', async () => {
   const logo = mockLogo();
   assert.ok(logo, 'mockLogo() returned nothing');
-  const { pages } = await renderDocument({ ...mockInvoice(), brand: { ...mockInvoice().brand, logo } });
+  const { pages, bytes } = await renderDocument({ ...mockInvoice(), brand: { ...mockInvoice().brand, logo } });
   assert.equal(pages, 1);
+  assert.match(Buffer.from(bytes).toString('latin1'), /\/Subtype \/Image/, 'the logo is not in the file');
 });
 
 test('every sample prints totals that agree with its lines, with or without tax in the prices', () => {

@@ -1,11 +1,12 @@
 import { test } from 'node:test';
+import { crc32, deflateSync } from 'node:zlib';
 import assert from 'node:assert/strict';
 import { checkRender, definitionFor, renderDocument } from '../../render/document.ts';
 import { mockCreditNote, mockInvoice, mockLongInvoice, mockReceipt } from '../../render/samples/mock.ts';
 import { countPages } from '../../render/pdf.ts';
 import { RenderError, type RenderLine } from '../../render/types.ts';
 import { formatMoney } from '../../render/format.ts';
-import { shown } from './helpers/pdf-text.ts';
+import { pdfStreams, shown } from './helpers/pdf-text.ts';
 import { printed } from './helpers/printed.ts';
 
 test('the classic layout prints everything the law needs', () => {
@@ -125,11 +126,37 @@ test('text far longer than its box wraps instead of being dropped', () => {
   assert.ok(text.includes('y'.repeat(120)), 'the long buyer name was dropped');
 });
 
-test('a logo far larger than its slot is scaled, never drawn at full size', () => {
+/** A real PNG of the given size, one flat colour: big in pixels, small in bytes. */
+function flatPng(width: number, height: number): Uint8Array {
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(body) >>> 0);
+    return Buffer.concat([length, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 2;
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, 0x40)]);
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
+  return new Uint8Array(Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0)),
+  ]));
+}
+
+test('a logo far larger than its slot is drawn scaled into it, never at full size', async () => {
   const input = mockInvoice();
-  const huge = { bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), type: 'image/png' as const };
-  const definition = JSON.stringify(definitionFor({ ...input, brand: { ...input.brand, logo: huge } }));
-  assert.match(definition, /"fit":\[\d+,\d+\]/, 'the logo has no fit box');
+  const { bytes } = await renderDocument({ ...input, brand: { ...input.brand, logo: { bytes: flatPng(3000, 1200), type: 'image/png' } } });
+  const file = Buffer.from(bytes).toString('latin1');
+  assert.match(file, /\/Subtype \/Image[\s\S]*?\/Width 3000/, 'the logo was not embedded');
+  const drawn = [...pdfStreams(file).join('\n').matchAll(/([\d.]+) 0 0 (-?[\d.]+) -?[\d.]+ -?[\d.]+ cm\s*\/I\d+ Do/g)];
+  assert.equal(drawn.length, 1, 'the logo was not drawn exactly once');
+  const [, width, height] = drawn[0]!;
+  assert.ok(Number(width) <= 120 && Math.abs(Number(height)) <= 48, `drawn at ${width} x ${height} pt, outside its 120 x 48 slot`);
 });
 
 test('an accent colour that is not a hex triplet falls back to the default ink', () => {
@@ -248,8 +275,13 @@ test('pasted text is tidied before it is drawn: composed accents, Unix line brea
 });
 
 test('rendering refuses a document with problems, and says all of them', async () => {
+  const input = mockInvoice();
   await assert.rejects(
-    renderDocument({ ...mockInvoice(), template: 'fancy' as never }),
-    (error: unknown) => error instanceof Error && error.name === 'RenderError',
+    renderDocument({ ...input, template: 'fancy' as never, locale: 'fr_FR', notes: 'Delivery → Bordeaux' }),
+    (error: unknown) => {
+      assert.ok(error instanceof RenderError);
+      assert.deepEqual(error.problems.map((problem) => problem.code).sort(), ['INVALID_LOCALE', 'UNKNOWN_TEMPLATE', 'UNSUPPORTED_SCRIPT']);
+      return true;
+    },
   );
 });

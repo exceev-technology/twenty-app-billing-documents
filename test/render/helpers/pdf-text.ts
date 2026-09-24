@@ -109,3 +109,7 @@ export function pdfText(bytes: Uint8Array): string[] {
 
 /** What a rendered document really shows, every page: a definition can hold text pdfmake then drops. */
 export const shown = async (input: RenderInput): Promise<string> => pdfText((await renderDocument(input)).bytes).join('\n');
+
+/** Every stream of the file, inflated: page contents, fonts' maps, images' pixels. */
+export const pdfStreams = (file: string): string[] =>
+  [...objects(file).values()].flatMap((object) => (object.stream ? [object.stream.toString('latin1')] : []));
