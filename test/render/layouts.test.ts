@@ -119,6 +119,46 @@ test('the modern layout puts its header in an accent band, the classic one does 
   assert.ok(!classic.content[0].table, 'the classic header should not be a band');
 });
 
+/** The totals table: the one whose first row is the subtotal. Its layout callbacks are kept on the definition. */
+function totalsTable(template: TemplateKey): { layout: Record<string, (index: number, node: unknown) => unknown>; table: unknown } {
+  const find = (node: unknown): unknown => {
+    if (!node || typeof node !== 'object') return undefined;
+    const record = node as { table?: { body?: { text?: string }[][] } };
+    if (record.table?.body?.[0]?.[0]?.text === 'Subtotal') return record;
+    for (const child of Object.values(node)) {
+      const found = find(child);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  return find((definitionFor(on(template, mockInvoice())) as { content: unknown }).content) as ReturnType<typeof totalsTable>;
+}
+
+test('classic boxes its totals, modern sets them on a tinted panel, the others leave them plain', () => {
+  const classic = totalsTable('classic');
+  assert.equal(classic.layout.vLineWidth!(0, classic), 0.5, 'classic totals have no left border');
+  assert.equal(classic.layout.hLineWidth!(0, classic), 0.5, 'classic totals have no top border');
+  const modern = totalsTable('modern');
+  const fill = modern.layout.fillColor?.(0, modern);
+  assert.match(String(fill), /^#[0-9a-f]{6}$/, 'modern totals have no panel');
+  assert.notEqual(fill, '#ffffff');
+  const compact = totalsTable('compact');
+  assert.equal(compact.layout.fillColor, undefined);
+  assert.equal(compact.layout.vLineWidth!(0, compact), 0);
+});
+
+test('a light accent never leaves text that cannot be read', () => {
+  const yellow = '#f5d547';
+  for (const template of ['classic', 'modern'] as const) {
+    const input = on(template, mockInvoice());
+    const json = JSON.stringify(definitionFor({ ...input, brand: { ...input.brand, accentColor: yellow } }));
+    assert.ok(!json.includes(`"color":"${yellow}"`), `${template}: yellow text on white paper`);
+    assert.ok(!json.includes('"color":"#ffffff"'), `${template}: white text on a yellow band`);
+  }
+  assert.ok(JSON.stringify(definitionFor(on('modern', mockInvoice()))).includes('"color":"#ffffff"'), 'a dark band lost its white text');
+  assert.ok(JSON.stringify(definitionFor(on('classic', mockInvoice()))).includes('"color":"#2f6f4e"'), 'a dark accent no longer colours the headings');
+});
+
 test('the compact layout fits a long invoice in fewer pages than the classic one', async () => {
   const compact = await renderDocument(on('compact', mockLongInvoice()));
   const classic = await renderDocument(on('classic', mockLongInvoice()));

@@ -14,6 +14,8 @@ export type Style = {
   headerBand: boolean;
   sellerInFooter: boolean;
   narrow: boolean;
+  /** How the totals stand out: a ruled box, a panel tinted with the accent, or nothing. */
+  totalsPanel: 'box' | 'tint' | 'plain';
 };
 
 export const DEFAULT_ACCENT = '#1f2933';
@@ -21,6 +23,22 @@ export const DEFAULT_ACCENT = '#1f2933';
 /** The seller's colour when it is a hex triplet, the default ink otherwise. */
 export const accentOf = (input: RenderInput): string =>
   /^#[0-9a-fA-F]{6}$/.test(input.brand.accentColor ?? '') ? input.brand.accentColor! : DEFAULT_ACCENT;
+
+const channels = (hex: string): [number, number, number] => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)) as [number, number, number];
+
+/** WCAG contrast ratio between two #RRGGBB colours, from 1 to 21. */
+function contrast(first: string, second: string): number {
+  const luminance = (hex: string): number => {
+    const [r, g, b] = channels(hex).map((value) => value / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+  };
+  const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+  return (light! + 0.05) / (dark! + 0.05);
+}
+
+/** The colour mixed with white, `amount` of the way: a panel light enough for dark text. */
+const tint = (hex: string, amount: number): string =>
+  `#${channels(hex).map((value) => Math.round(value + (255 - value) * amount).toString(16).padStart(2, '0')).join('')}`;
 
 const lines = (values: (string | null | undefined)[]): string =>
   values.filter((value) => typeof value === 'string' && value.trim().length > 0).join('\n');
@@ -52,6 +70,10 @@ function breakable(node: unknown, longest: number): unknown {
 
 export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   const accent = accentOf(input);
+  /** Accent text on white paper only when it reads (4.5:1, WCAG AA); a pale brand colour falls back to the default ink. */
+  const accentInk = contrast(accent, '#ffffff') >= 4.5 ? accent : DEFAULT_ACCENT;
+  /** Text on the accent band: white or the default ink, whichever stands out more. */
+  const onAccent = contrast('#ffffff', accent) >= contrast(DEFAULT_ACCENT, accent) ? '#ffffff' : DEFAULT_ACCENT;
   const money = (micros: number): string => formatMoney(micros, input.currencyCode, input.locale);
   const date = (iso: string): string => formatDate(iso, input.locale);
   const label = (key: LabelKey): string => pack.labels[key];
@@ -82,11 +104,11 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
       text: input.title?.trim() || pack.titles[input.kind],
       fontSize: style.base + 9,
       bold: true,
-      color: style.headerBand ? '#ffffff' : accent,
+      color: style.headerBand ? onAccent : accentInk,
     };
     if (style.headerBand) {
       return {
-        table: { widths: ['*'], body: [[{ stack: [title, { text: facts, color: '#ffffff', fontSize: style.base }], margin: [12, 10, 12, 10] }]] },
+        table: { widths: ['*'], body: [[{ stack: [title, { text: facts, color: onAccent, fontSize: style.base }], margin: [12, 10, 12, 10] }]] },
         layout: { fillColor: () => accent, hLineWidth: () => 0, vLineWidth: () => 0 },
         margin: [0, 0, 0, 14],
       };
@@ -102,7 +124,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   const party = (heading: string, who: Party, side: 'SELLER' | 'BUYER'): Node => ({
     width: '*',
     stack: [
-      { text: heading, bold: true, color: accent, fontSize: style.base },
+      { text: heading, bold: true, color: accentInk, fontSize: style.base },
       { text: lines([partyFacts(who), identifiers(side)]), fontSize: style.base },
     ],
   });
@@ -194,6 +216,30 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     layout: { hLineWidth: (index: number) => (index === 1 ? 0.5 : 0), vLineWidth: () => 0, hLineColor: () => '#c7ccd1' },
   });
 
+  type TableNode = { table: { body: unknown[]; widths: unknown[] } };
+  /** Always a rule in the accent above the total; classic adds a light box, modern a tinted panel. */
+  const totalsLayout = (): Record<string, unknown> => {
+    const aboveTotal = (index: number, node: TableNode): boolean => index === node.table.body.length - 1;
+    if (style.totalsPanel === 'box') {
+      return {
+        hLineWidth: (index: number, node: TableNode) => (index === 0 || index === node.table.body.length || aboveTotal(index, node) ? 0.5 : 0),
+        vLineWidth: (index: number, node: TableNode) => (index === 0 || index === node.table.widths.length ? 0.5 : 0),
+        hLineColor: (index: number, node: TableNode) => (aboveTotal(index, node) ? accent : '#c7ccd1'),
+        vLineColor: () => '#c7ccd1',
+        paddingLeft: () => 8, paddingRight: () => 8, paddingTop: () => 3, paddingBottom: () => 3,
+      };
+    }
+    const rule = {
+      hLineWidth: (index: number, node: TableNode) => (aboveTotal(index, node) ? 0.5 : 0),
+      vLineWidth: () => 0,
+      hLineColor: () => accent,
+    };
+    if (style.totalsPanel === 'tint') {
+      return { ...rule, fillColor: () => tint(accent, 0.88), paddingLeft: () => 8, paddingRight: () => 8, paddingTop: () => 3, paddingBottom: () => 3 };
+    }
+    return rule;
+  };
+
   const totals = (): Node => {
     // The subtotal already has the discounts deducted, so they are a note below the sum, never a row of it.
     const rows: [string, string][] = [
@@ -209,11 +255,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
           { text: value, alignment: 'right', bold: index === rows.length - 1, fontSize: style.base },
         ]),
       },
-      layout: {
-        hLineWidth: (index: number, node: { table: { body: unknown[] } }) => (index === node.table.body.length - 1 ? 0.5 : 0),
-        vLineWidth: () => 0,
-        hLineColor: () => accent,
-      },
+      layout: totalsLayout(),
     };
     const extras = [
       input.totals.discountTotalMicros !== 0

@@ -140,6 +140,11 @@ when nobody discounted, no tax column when the document uses a single code.
 | `letterhead` | A4, top 45 mm reserved | Nothing printed in the reserved band; the seller block moves to the footer. |
 | `receipt` | 80 mm wide roll, height grows with content | Single column, no buyer block, totals stacked, QR at the end. |
 
+**Colour.** The seller's accent colours headings, rules and panels. Accent text
+on white paper needs a 4.5:1 contrast (WCAG AA), or it prints in the default
+ink; text on the modern accent band is white or the default ink, whichever
+stands out more. A pale brand colour never leaves a heading nobody can read.
+
 **Pagination.** The lines table repeats its header row on every page. The tax
 recap and the totals (blocks 6 and 7) stay together; payment and legal text
 follow and run on to another page when they must. A description too long for

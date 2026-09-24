@@ -5,7 +5,7 @@ import type { Layout } from '../types.ts';
 export const compact: Layout = (input, pack) => {
   const page = blocks(input, pack, {
     base: 8, rules: true, dense: true, showBuyer: true,
-    headerBand: false, sellerInFooter: false, narrow: false,
+    headerBand: false, sellerInFooter: false, narrow: false, totalsPanel: 'plain',
   });
   return {
     pageSize: 'A4',

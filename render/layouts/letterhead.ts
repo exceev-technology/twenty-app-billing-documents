@@ -5,7 +5,7 @@ import type { Layout } from '../types.ts';
 export const letterhead: Layout = (input, pack) => {
   const page = blocks(input, pack, {
     base: 9, rules: true, dense: false, showBuyer: true,
-    headerBand: false, sellerInFooter: true, narrow: false,
+    headerBand: false, sellerInFooter: true, narrow: false, totalsPanel: 'plain',
   });
   return {
     pageSize: 'A4',

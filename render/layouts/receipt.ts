@@ -5,7 +5,7 @@ import type { Layout } from '../types.ts';
 export const receipt: Layout = (input, pack) => {
   const page = blocks(input, pack, {
     base: 8, rules: false, dense: true, showBuyer: false,
-    headerBand: false, sellerInFooter: false, narrow: true,
+    headerBand: false, sellerInFooter: false, narrow: true, totalsPanel: 'plain',
   });
   return {
     pageSize: { width: 226.77, height: 'auto' }, // 80 mm

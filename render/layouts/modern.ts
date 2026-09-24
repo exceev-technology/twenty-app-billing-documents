@@ -5,7 +5,7 @@ import type { Layout } from '../types.ts';
 export const modern: Layout = (input, pack) => {
   const page = blocks(input, pack, {
     base: 9.5, rules: false, dense: false, showBuyer: true,
-    headerBand: true, sellerInFooter: false, narrow: false,
+    headerBand: true, sellerInFooter: false, narrow: false, totalsPanel: 'tint',
   });
   return {
     pageSize: 'A4',
