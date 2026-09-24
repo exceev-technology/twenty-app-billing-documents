@@ -96,7 +96,8 @@ type RenderInput = {
 
 type RenderResult = { bytes: Uint8Array; pages: number };
 
-renderDocument(input: RenderInput): RenderResult;   // throws RenderError(problems)
+renderDocument(input: RenderInput): Promise<RenderResult>;   // rejects with RenderError(problems);
+                                                             // async because pdfmake delivers its bytes that way
 
 type RenderProblemCode =
   | 'UNSUPPORTED_SCRIPT' | 'UNSUPPORTED_IMAGE' | 'UNKNOWN_TEMPLATE'

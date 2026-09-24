@@ -1,11 +1,14 @@
 # The five templates
 
 Every template prints the same content — the tax recap, the legal mentions, the
-identifiers each country requires — and arranges it differently. A seller picks
-one; their logo and accent colour fill it.
+identifiers each country requires — and arranges it differently; only the
+receipt leaves out the buyer, as a till slip does. A seller picks one; their
+logo and accent colour fill it.
 
 The samples below are rendered from a fictitious company by
-`npm run render:samples`.
+`npm run render:samples`, with figures computed by the Engine. The four A4
+samples are the same three-line invoice; the receipt is a tax-inclusive sale,
+as a till would print it.
 
 | Template | Best for | Sample |
 |---|---|---|
