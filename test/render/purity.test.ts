@@ -14,11 +14,18 @@ function sources(dir: string): string[] {
   });
 }
 
-// Import and export statements only: a label whose value happens to be 'from'
-// is not an import.
-const FROM = /^\s*(?:import|export)\b[^'"\n]*\bfrom\s*['"]([^'"]+)['"]/gm;
+// Import and export statements only, over as many lines as they take: the scan
+// stops at the first quote or semicolon, so a label whose value happens to be
+// 'from' is not an import.
+const FROM = /^\s*(?:import|export)\b[^'";]*?\bfrom\s*['"]([^'"]+)['"]/gm;
 const SIDE_EFFECT = /^\s*import\s+['"]([^'"]+)['"]/gm;
 const DYNAMIC = /\bimport\s*\(\s*['"]([^'"]+)['"]/g;
+
+test('the import pattern sees an import over several lines, and not a label called from', () => {
+  const specifiers = (source: string): string[] => [...source.matchAll(FROM)].map((match) => match[1]!);
+  assert.deepEqual(specifiers("import {\n  defineApp,\n  defineObject,\n} from 'twenty-sdk';"), ['twenty-sdk']);
+  assert.deepEqual(specifiers("export const en = {\n  from: 'From',\n};\nexport type Language = 'EN' | 'FR';"), []);
+});
 
 test('there is render code to check', () => {
   assert.ok(sources(RENDER).length > 0);
