@@ -68,8 +68,10 @@ npm run typecheck
 
 - [Product overview](docs/superpowers/specs/2026-09-21-product-overview.md)
 - [Foundation design](docs/superpowers/specs/2026-09-21-foundation-design.md)
-- [Foundation plan](docs/superpowers/plans/2026-09-21-foundation.md)
 - [Engine design](docs/superpowers/specs/2026-09-22-engine-design.md)
+- [Rendering design](docs/superpowers/specs/2026-09-24-rendering-design.md)
+- [Foundation plan](docs/superpowers/plans/2026-09-21-foundation.md)
+- [Engine plan](docs/superpowers/plans/2026-09-22-engine.md)
 
 ## Author
 
