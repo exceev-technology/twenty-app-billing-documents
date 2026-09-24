@@ -28,7 +28,8 @@ test('only render/pdf.ts knows pdfmake, and nothing knows Twenty', () => {
   for (const file of sources(RENDER)) {
     const source = readFileSync(file, 'utf8');
     for (const [, specifier] of [...source.matchAll(FROM), ...source.matchAll(SIDE_EFFECT), ...source.matchAll(DYNAMIC)]) {
-      const pdfmake = specifier === 'pdfmake' || specifier.startsWith('pdfmake/');
+      // The prebuilt bundle only: the package's Node entry breaks once bundled.
+      const pdfmake = specifier.startsWith('pdfmake/build/');
       // render/samples holds sample data, never part of a rendered document's code
       // path, so it may read its own logo from disk. The renderer itself may not.
       const sample = file.includes('/render/samples/') && specifier.startsWith('node:');

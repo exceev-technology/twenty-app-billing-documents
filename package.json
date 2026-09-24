@@ -40,7 +40,7 @@
   },
   "devDependencies": {
     "@types/node": "24.13.6",
-    "@types/pdfmake": "0.3.3",
+    "esbuild": "0.28.2",
     "twenty-client-sdk": "2.41.0",
     "twenty-sdk": "2.41.0",
     "typescript": "5.9.3"

@@ -2,33 +2,27 @@
  * The only module that knows pdfmake. Everything else builds a plain
  * definition object and hands it here.
  *
- * The fonts come from pdfmake's own Roboto container, a JavaScript module of
- * base64 data, and are written into pdfmake's in-memory file system. Nothing
- * is read from disk at import time, so a bundled logic function still renders.
+ * pdfmake is imported as its prebuilt bundle, with Roboto as a module of base64
+ * data. The package's Node entry reads __dirname when it renders, which a
+ * bundled logic function does not define (test/render/bundle.test.ts).
  */
-import pdfMake from 'pdfmake';
-import fontContainer from 'pdfmake/build/fonts/Roboto.js';
+import pdfMake from 'pdfmake/build/pdfmake.js';
+import vfs from 'pdfmake/build/vfs_fonts.js';
 import type { PdfDefinition } from './types.ts';
 
 export type { PdfDefinition };
-
-type FontEntry = string | { data: string; encoding?: string };
 
 let ready = false;
 
 /** Registers Roboto once, and refuses pdfmake any access to the network or the disk. */
 function prepare(): void {
   if (ready) return;
-  const container = fontContainer as { vfs: Record<string, FontEntry>; fonts: Record<string, unknown> };
-  for (const [name, entry] of Object.entries(container.vfs)) {
-    const data = typeof entry === 'string' ? entry : entry.data;
-    const encoding = typeof entry === 'string' ? 'base64' : entry.encoding ?? 'base64';
-    pdfMake.virtualfs.writeFileSync(name, data, encoding);
-  }
-  pdfMake.addFonts(container.fonts);
+  // The bundle's default fonts are Roboto; the files come from memory.
+  pdfMake.addVirtualFileSystem(vfs);
   // A document only ever draws what we pass it: no remote images, no local files.
+  // The bundle has no setter for the local policy, but reads this property.
   pdfMake.setUrlAccessPolicy(() => false);
-  pdfMake.setLocalAccessPolicy(() => false);
+  pdfMake.localAccessPolicy = () => false;
   ready = true;
 }
 
