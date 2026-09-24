@@ -89,7 +89,10 @@ test('a document with everything optional missing still renders cleanly', () => 
     qr: null,
   });
   for (const template of TEMPLATES) {
-    const text = printed(definitionFor(bare(template)));
+    const definition = definitionFor(bare(template)) as { content: unknown };
+    // pdfmake gives an empty text a full line: an absent block must leave nothing behind, not a gap.
+    assert.ok(!JSON.stringify(definition.content).includes('{"text":""'), `${template} leaves empty lines where absent blocks were`);
+    const text = printed(definition);
     for (const orphan of ['Due date:', 'Your reference:', 'Subject:', 'Payment details:']) {
       assert.ok(!text.includes(orphan), `${template} prints "${orphan}" with nothing after it`);
     }

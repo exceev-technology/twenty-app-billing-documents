@@ -83,7 +83,20 @@ test('the lines table repeats its header and the footer counts the pages', () =>
   const definition = definitionFor(mockLongInvoice()) as Record<string, any>;
   assert.ok(JSON.stringify(definition.content).includes('"headerRows":1'), 'the lines table does not repeat its header');
   assert.equal(typeof definition.footer, 'function');
-  assert.match(printed(definition.footer(2, 3)), /Page 2 \/ 3/);
+  assert.match(printed(definition.footer(2, 3)), /Page 2 of 3/);
+  assert.match(printed((definitionFor({ ...mockLongInvoice(), language: 'FR', locale: 'fr-FR' }) as Record<string, any>).footer(2, 3)), /Page 2 sur 3/);
+});
+
+test('the tax column shows whenever the lines use two codes, even two with the same name', () => {
+  const input = mockLongInvoice();
+  const sameName = {
+    ...input,
+    taxNames: Object.fromEntries(Object.keys(input.taxNames).map((code) => [code, 'VAT'])),
+    lines: input.lines.map((line) => ({ ...line, taxLabel: 'VAT' })),
+  };
+  const table = (definitionFor(sameName) as { content: { table?: { headerRows?: number; widths: unknown[] } }[] }).content
+    .find((node) => node.table?.headerRows === 1)!.table!;
+  assert.equal(table.widths.length, 6, 'description, quantity, unit price, discount, tax and amount');
 });
 
 test('a long document really does run to more than one page', async () => {

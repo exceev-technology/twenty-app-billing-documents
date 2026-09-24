@@ -11,7 +11,7 @@ export type LabelKey =
   | 'description' | 'quantity' | 'unit' | 'unitPrice' | 'discount' | 'tax' | 'lineTotal' | 'period'
   | 'taxRecap' | 'rate' | 'taxableBase' | 'taxAmount'
   | 'subtotal' | 'discountTotal' | 'taxTotal' | 'total' | 'amountInWords' | 'pricesIncludeTax'
-  | 'paymentDetails' | 'page' | 'line';
+  | 'paymentDetails' | 'page' | 'of' | 'line';
 
 export type LanguagePack = {
   code: Language;

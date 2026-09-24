@@ -25,6 +25,9 @@ export const accentOf = (input: RenderInput): string =>
 const lines = (values: (string | null | undefined)[]): string =>
   values.filter((value) => typeof value === 'string' && value.trim().length > 0).join('\n');
 
+/** An absent block. pdfmake gives an empty text a full line of height, and an empty stack none. */
+const NOTHING: Node = { stack: [] };
+
 /**
  * pdfmake widens a column to its longest unbreakable word, pushing the columns
  * beside it off the page. A run longer than `longest` characters (an IBAN, a URL,
@@ -56,7 +59,8 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     lines(input.identifiers.filter((identifier) => identifier.side === side).map((identifier) => `${identifier.label}: ${identifier.value}`));
 
   const hasDiscount = input.lines.some((line) => (line.discountPercent ?? 0) > 0);
-  const hasManyTaxes = new Set(input.lines.map((line) => line.taxLabel)).size > 1;
+  // Keyed on the codes, not their names: two codes may share a name and still differ.
+  const hasManyTaxes = input.totals.taxCodesUsed.length > 1;
 
   const logo = (): Node[] => {
     const image = input.brand.logo;
@@ -107,18 +111,18 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     const seller = style.sellerInFooter ? [] : [{ width: '*', stack: [...logo(), party(label('from'), input.seller, 'SELLER')] }];
     const buyer = style.showBuyer ? [party(label('billTo'), input.buyer, 'BUYER')] : [];
     const both = [...seller, ...buyer];
-    if (both.length === 0) return { text: '' };
+    if (both.length === 0) return NOTHING;
     return style.narrow ? { stack: both, margin: [0, 0, 0, 10] } : { columns: both, columnGap: 18, margin: [0, 0, 0, 14] };
   };
 
-  const subjectAndNotes = (): Node => ({
-    margin: [0, 0, 0, 10],
-    stack: [
-      input.subject ? { text: `${label('subject')}: ${input.subject}`, bold: true, fontSize: style.base } : { text: '' },
-      input.buyerReference ? { text: `${label('reference')}: ${input.buyerReference}`, fontSize: style.base } : { text: '' },
-      input.notes ? { text: input.notes, fontSize: style.base, margin: [0, 4, 0, 0] } : { text: '' },
-    ],
-  });
+  const subjectAndNotes = (): Node => {
+    const present = [
+      input.subject ? { text: `${label('subject')}: ${input.subject}`, bold: true, fontSize: style.base } : null,
+      input.buyerReference ? { text: `${label('reference')}: ${input.buyerReference}`, fontSize: style.base } : null,
+      input.notes ? { text: input.notes, fontSize: style.base, margin: [0, 4, 0, 0] } : null,
+    ].filter((node) => node !== null);
+    return present.length === 0 ? NOTHING : { margin: [0, 0, 0, 10], stack: present };
+  };
 
   const lineRow = (line: RenderLine): Node[] => {
     const period = line.periodStart || line.periodEnd
@@ -214,24 +218,24 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     const extras = [
       input.totals.discountTotalMicros !== 0
         ? { text: `${label('discountTotal')}: ${money(input.totals.discountTotalMicros)}`, fontSize: style.base - 1, margin: [0, 4, 0, 0] }
-        : { text: '' },
-      input.pricesIncludeTax ? { text: label('pricesIncludeTax'), italics: true, fontSize: style.base - 1, margin: [0, 4, 0, 0] } : { text: '' },
+        : NOTHING,
+      input.pricesIncludeTax ? { text: label('pricesIncludeTax'), italics: true, fontSize: style.base - 1, margin: [0, 4, 0, 0] } : NOTHING,
       input.amountInWords
         ? { text: `${label('amountInWords')}: ${amountInWords(input.totals.totalMicros, input.currencyCode, pack.code)}`, fontSize: style.base - 1, margin: [0, 4, 0, 0] }
-        : { text: '' },
+        : NOTHING,
     ];
     if (style.narrow) return { stack: [table, ...extras], margin: [0, 0, 0, 10] };
-    return { columns: [{ text: '', width: '*' }, { stack: [table, ...extras], width: 240 }], margin: [0, 0, 0, 10] };
+    return { columns: [{ ...NOTHING, width: '*' }, { stack: [table, ...extras], width: 240 }], margin: [0, 0, 0, 10] };
   };
 
   const paymentDetails = (): Node =>
-    input.brand.paymentDetails ? { text: `${label('paymentDetails')}: ${input.brand.paymentDetails}`, fontSize: style.base, margin: [0, 0, 0, 8] } : { text: '' };
+    input.brand.paymentDetails ? { text: `${label('paymentDetails')}: ${input.brand.paymentDetails}`, fontSize: style.base, margin: [0, 0, 0, 8] } : NOTHING;
 
   /** The QR sized by qrBox, with four modules of white above and below it, the quiet zone a scanner needs. */
   const qrCode = (): Node => {
     const text = input.qr ? qrText(input.qr) : null;
     const box = text === null ? null : qrBox(text, input.template);
-    if (text === null || !box) return { text: '' };
+    if (text === null || !box) return NOTHING;
     return { qr: text, eccLevel: 'M', version: box.version, fit: box.fit, margin: [0, 4 * box.module, 0, 4 * box.module] };
   };
 
@@ -241,9 +245,9 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
       ...(style.sellerInFooter
         ? [{ text: lines([partyFacts(input.seller), identifiers('SELLER')]), fontSize: style.base - 2, margin: [0, 0, 0, 6] }]
         : []),
-      { text: lines(input.taxNotes), fontSize: style.base - 1 },
-      input.mentions ? { text: input.mentions, fontSize: style.base - 1, margin: [0, 4, 0, 0] } : { text: '' },
-      input.brand.footerNote ? { text: input.brand.footerNote, fontSize: style.base - 2, color: '#6b7280', margin: [0, 6, 0, 0] } : { text: '' },
+      input.taxNotes.length > 0 ? { text: lines(input.taxNotes), fontSize: style.base - 1 } : NOTHING,
+      input.mentions ? { text: input.mentions, fontSize: style.base - 1, margin: [0, 4, 0, 0] } : NOTHING,
+      input.brand.footerNote ? { text: input.brand.footerNote, fontSize: style.base - 2, color: '#6b7280', margin: [0, 6, 0, 0] } : NOTHING,
     ],
   });
 
@@ -264,7 +268,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     margin: [40, 10, 40, 0],
     columns: [
       { text: input.number ?? pack.draft, fontSize: style.base - 2, color: '#6b7280' },
-      { text: `${pack.labels.page} ${currentPage} / ${pageCount}`, alignment: 'right', fontSize: style.base - 2, color: '#6b7280' },
+      { text: `${label('page')} ${currentPage} ${label('of')} ${pageCount}`, alignment: 'right', fontSize: style.base - 2, color: '#6b7280' },
     ],
   });
 

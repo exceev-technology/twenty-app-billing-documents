@@ -13,7 +13,7 @@ export const fr: LanguagePack = {
     taxRecap: 'Récapitulatif de TVA', rate: 'Taux', taxableBase: 'Base', taxAmount: 'TVA',
     subtotal: 'Total HT', discountTotal: 'Remises appliquées', taxTotal: 'TVA', total: 'Total TTC',
     amountInWords: 'Montant en lettres', pricesIncludeTax: 'Prix taxe comprise',
-    paymentDetails: 'Coordonnées bancaires', page: 'Page', line: 'ligne',
+    paymentDetails: 'Coordonnées bancaires', page: 'Page', of: 'sur', line: 'ligne',
   },
   problems: {
     NO_LINES: 'Ce document n’a aucune ligne.',

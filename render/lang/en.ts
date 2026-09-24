@@ -13,7 +13,7 @@ export const en: LanguagePack = {
     taxRecap: 'Tax summary', rate: 'Rate', taxableBase: 'Taxable amount', taxAmount: 'Tax',
     subtotal: 'Subtotal', discountTotal: 'Discounts applied', taxTotal: 'Tax', total: 'Total',
     amountInWords: 'Amount in words', pricesIncludeTax: 'Prices include tax',
-    paymentDetails: 'Payment details', page: 'Page', line: 'line',
+    paymentDetails: 'Payment details', page: 'Page', of: 'of', line: 'line',
   },
   problems: {
     NO_LINES: 'This document has no lines.',
