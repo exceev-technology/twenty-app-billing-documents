@@ -74,6 +74,7 @@ computeDocument(input: DocumentInput): DocumentResult;   // throws EngineError(p
 formatNumber(pattern: string, sequence: number, issueDate: string): string;
 periodKey(reset: 'NEVER' | 'YEARLY' | 'MONTHLY', issueDate: string): string;
 validatePattern(pattern: string, reset: 'NEVER' | 'YEARLY' | 'MONTHLY'): Problem[];
+minorDigits(currencyCode: string): number;               // Rendering formats with the same decimals
 ```
 
 `lineTotalMicros` is in the document's price basis: net when prices exclude
