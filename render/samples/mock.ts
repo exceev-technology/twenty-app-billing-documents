@@ -2,7 +2,17 @@
  * One fictitious business, for the samples and the tests. Nothing here names a
  * real company, person, address, bank or tax identifier.
  */
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { RenderInput, RenderLine } from '../types.ts';
+
+const LOGO = fileURLToPath(new URL('./logo.png', import.meta.url));
+
+/** The generated mock logo, or null when it has not been generated yet. */
+export function mockLogo(): { bytes: Uint8Array; type: 'image/png' } | null {
+  if (!existsSync(LOGO)) return null;
+  return { bytes: new Uint8Array(readFileSync(LOGO)), type: 'image/png' };
+}
 
 const SELLER = {
   name: 'Verdal Studio',
@@ -64,7 +74,7 @@ const base = (): RenderInput => ({
     accentColor: '#2f6f4e',
     footerNote: 'Verdal Studio SARL - SIREN 000 000 000 - Paris',
     paymentDetails: 'Bank: Banque Exemple - IBAN FR00 0000 0000 0000 0000 0000 000',
-    logo: null,
+    logo: mockLogo(),
   },
   qr: null,
 });

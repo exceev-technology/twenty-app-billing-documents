@@ -29,9 +29,22 @@ test('only render/pdf.ts knows pdfmake, and nothing knows Twenty', () => {
     const source = readFileSync(file, 'utf8');
     for (const [, specifier] of [...source.matchAll(FROM), ...source.matchAll(SIDE_EFFECT), ...source.matchAll(DYNAMIC)]) {
       const pdfmake = specifier === 'pdfmake' || specifier.startsWith('pdfmake/');
-      const allowed = specifier.startsWith('./') || specifier.startsWith('../') || (pdfmake && file.endsWith('/pdf.ts'));
+      // render/samples holds sample data, never part of a rendered document's code
+      // path, so it may read its own logo from disk. The renderer itself may not.
+      const sample = file.includes('/render/samples/') && specifier.startsWith('node:');
+      const allowed = specifier.startsWith('./') || specifier.startsWith('../') || (pdfmake && file.endsWith('/pdf.ts')) || sample;
       assert.ok(allowed, `${file} imports ${specifier}`);
       assert.doesNotMatch(specifier, /^twenty-/, `${file} imports Twenty`);
+    }
+  }
+});
+
+test('the renderer itself reads nothing from disk: only the samples may', () => {
+  for (const file of sources(RENDER)) {
+    if (file.includes('/render/samples/')) continue;
+    const source = readFileSync(file, 'utf8');
+    for (const [, specifier] of [...source.matchAll(FROM), ...source.matchAll(SIDE_EFFECT), ...source.matchAll(DYNAMIC)]) {
+      assert.ok(!specifier.startsWith('node:'), `${file} imports ${specifier}`);
     }
   }
 });
