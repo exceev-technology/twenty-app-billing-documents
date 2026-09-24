@@ -1,12 +1,16 @@
 import { PACKS } from './lang/pack.ts';
 import { classic } from './layouts/classic.ts';
+import { compact } from './layouts/compact.ts';
+import { letterhead } from './layouts/letterhead.ts';
+import { modern } from './layouts/modern.ts';
+import { receipt } from './layouts/receipt.ts';
 import { countPages, toPdf } from './pdf.ts';
 import {
   RenderError,
   type Layout, type PdfDefinition, type Party, type RenderInput, type RenderProblem, type RenderResult, type TemplateKey,
 } from './types.ts';
 
-const LAYOUTS: Partial<Record<TemplateKey, Layout>> = { classic };
+const LAYOUTS: Record<TemplateKey, Layout> = { classic, modern, compact, letterhead, receipt };
 
 /** What Roboto can draw: Latin, its extensions, the punctuation and currency we emit. */
 const DRAWABLE = /^[\u0009\u000a -~ -ɏʰ-˿‐-‧‰-⁞₠-₿™←-⇿−]*$/;
@@ -77,7 +81,7 @@ export function checkRender(input: RenderInput): RenderProblem[] {
 export function definitionFor(input: RenderInput): PdfDefinition {
   const problems = checkRender(input);
   if (problems.length > 0) throw new RenderError(problems);
-  return LAYOUTS[input.template]!(input, PACKS[input.language]);
+  return LAYOUTS[input.template](input, PACKS[input.language]);
 }
 
 /** A document, rendered. Asynchronous because pdfmake delivers its bytes that way. */
