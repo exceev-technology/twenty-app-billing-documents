@@ -1,8 +1,8 @@
 import { minorDigits } from '../engine/index.ts';
 import { undrawable } from './glyphs.ts';
 
-/** Roboto has no glyph for a narrow no-break space or a thin space. */
-const NARROW = /[\u202f\u2009]/g;
+/** Roboto has no glyph for the narrow no-break space Intl puts between French thousands (render/glyphs.ts). */
+const NARROW = /\u202f/g;
 /** Direction marks Intl adds around numbers in right-to-left locales: invisible, and Roboto has no glyph for them. */
 const BIDI = /[\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/g;
 /** Arabic-script signs some locales keep even with Western digits: percent, decimal and thousands separators. */

@@ -11,7 +11,7 @@ export const fr: LanguagePack = {
     from: 'Émetteur', billTo: 'Client', reference: 'Votre référence',
     description: 'Désignation', quantity: 'Qté', unit: 'Unité', unitPrice: 'Prix unitaire',
     discount: 'Remise', tax: 'Taxe', lineTotal: 'Montant', period: 'Période',
-    taxRecap: 'Récapitulatif des taxes', rate: 'Taux', taxableBase: 'Base', taxAmount: 'Montant',
+    taxRecap: 'Récapitulatif des taxes', rate: 'Taux', taxableBase: 'Base', taxAmount: 'Montant taxe',
     subtotal: 'Total HT', discountTotal: 'Remises appliquées', taxTotal: 'Taxes', total: 'Total TTC',
     amountInWords: 'Montant en lettres', pricesIncludeTax: 'Prix toutes taxes comprises',
     paymentDetails: 'Informations de paiement', page: 'Page', of: 'sur', line: 'ligne',

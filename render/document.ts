@@ -144,7 +144,8 @@ export function checkRender(raw: RenderInput): RenderProblem[] {
     if (offending) problems.push({ code: 'UNSUPPORTED_SCRIPT', field: 'locale', value: offending });
   }
   const qr = input.qr ? qrText(input.qr) : undefined;
-  if (qr === null) problems.push({ code: 'QR_BASE_URL_MISSING', field: 'qr.baseUrl' });
+  if (input.qr && input.qr.payload.trim() === '') problems.push({ code: 'QR_PAYLOAD_EMPTY', field: 'qr.payload' });
+  else if (qr === null) problems.push({ code: 'QR_BASE_URL_MISSING', field: 'qr.baseUrl' });
   else if (qr !== undefined && LAYOUTS[input.template] && !qrBox(qr, input.template)) {
     problems.push({ code: 'QR_PAYLOAD_TOO_LONG', field: 'qr.payload', value: `${qrBytes(qr)} bytes` });
   }
@@ -161,6 +162,18 @@ export function definitionFor(input: RenderInput): PdfDefinition {
 /** A document, rendered. Asynchronous because pdfmake delivers its bytes that way. */
 export async function renderDocument(input: RenderInput): Promise<RenderResult> {
   const definition = definitionFor(input);
-  const bytes = await toPdf(definition, input.issueDate);
+  let bytes: Uint8Array;
+  try {
+    bytes = await toPdf(definition, input.issueDate);
+  } catch (error) {
+    // A logo can start with the right bytes and be damaged further in: only drawing it tells.
+    // When the same document renders without it, the logo was at fault, and that is the problem to report.
+    const logo = input.brand.logo;
+    const withoutLogo = { ...input, brand: { ...input.brand, logo: null } };
+    if (logo && (await toPdf(definitionFor(withoutLogo), input.issueDate).then(() => true, () => false))) {
+      throw new RenderError([{ code: 'UNSUPPORTED_IMAGE', field: 'brand.logo.bytes', value: logo.type }]);
+    }
+    throw error;
+  }
   return { bytes, pages: countPages(bytes) };
 }

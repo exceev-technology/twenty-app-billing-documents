@@ -75,6 +75,24 @@ test('a credit note names the invoice it corrects, in either language', () => {
   assert.deepEqual(checkRender({ ...input, corrects: { number: 'INV-٤٢', issueDate: '2026-09-24' } })[0]?.field, 'corrects.number');
 });
 
+test('the recap gives the rate a column of its own, and the lines table prints unit prices in full', () => {
+  const input = mockInvoice();
+  const content = (definitionFor({ ...input, lines: [{ ...input.lines[0]!, unitPriceMicros: 12_500 }, ...input.lines.slice(1)] }) as { content: unknown }).content;
+  const find = (node: unknown, first: string): { body: { text: unknown }[][] } | undefined => {
+    if (!node || typeof node !== 'object') return undefined;
+    const table = (node as { table?: { body?: { text?: unknown }[][] } }).table;
+    if (table?.body?.[0]?.[0]?.text === first) return table as { body: { text: unknown }[][] };
+    for (const child of Object.values(node)) {
+      const found = find(child, first);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  const recap = find(content, 'Tax summary')!;
+  assert.deepEqual(recap.body.map((row) => row[1]!.text), ['Rate', '20%']);
+  assert.equal(find(content, 'Description')!.body[1]![2]!.text, '€0.0125');
+});
+
 test('a document with no number prints the draft marker instead', () => {
   const text = printed(definitionFor({ ...mockInvoice(), number: null }));
   assert.match(text, /DRAFT/);
@@ -159,6 +177,21 @@ test('a logo far larger than its slot is drawn scaled into it, never at full siz
   assert.ok(Number(width) <= 120 && Math.abs(Number(height)) <= 48, `drawn at ${width} x ${height} pt, outside its 120 x 48 slot`);
 });
 
+test('a logo that starts right but is damaged is refused, not thrown by the PDF library', async () => {
+  const input = mockInvoice();
+  const png = flatPng(200, 80);
+  for (const logo of [
+    { bytes: png.slice(0, png.length - 40), type: 'image/png' as const },
+    { bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 1, 2, 3, 4]), type: 'image/jpeg' as const },
+  ]) {
+    await assert.rejects(renderDocument({ ...input, brand: { ...input.brand, logo } }), (error: unknown) => {
+      assert.ok(error instanceof RenderError, `${logo.type}: ${String(error)}`);
+      assert.deepEqual(error.problems, [{ code: 'UNSUPPORTED_IMAGE', field: 'brand.logo.bytes', value: logo.type }]);
+      return true;
+    });
+  }
+});
+
 test('an accent colour that is not a hex triplet falls back to the default ink', () => {
   const input = mockInvoice();
   for (const accentColor of ['red', '#GGG', '', null]) {
@@ -236,6 +269,9 @@ test('a malformed locale, date or logo is refused with its field, never thrown r
     one({ lines: [{ ...input.lines[0]!, periodStart: '2026-13-01' }, ...input.lines.slice(1)] }),
     [{ code: 'INVALID_DATE', field: 'lines[0].periodStart', value: '2026-13-01' }],
   );
+  const kashmiri = one({ locale: 'ks' });
+  assert.deepEqual([kashmiri[0]?.code, kashmiri[0]?.field], ['UNSUPPORTED_SCRIPT', 'locale'], 'a locale whose numbers Roboto cannot draw');
+  assert.deepEqual(one({ qr: { mode: 'PAYLOAD', payload: '' } }), [{ code: 'QR_PAYLOAD_EMPTY', field: 'qr.payload' }]);
   const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>');
   assert.deepEqual(
     one({ brand: { ...input.brand, logo: { bytes: svg, type: 'image/png' } } }),

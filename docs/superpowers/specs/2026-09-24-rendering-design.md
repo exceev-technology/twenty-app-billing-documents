@@ -105,7 +105,7 @@ renderDocument(input: RenderInput): Promise<RenderResult>;   // rejects with Ren
 type RenderProblemCode =
   | 'UNSUPPORTED_SCRIPT' | 'UNSUPPORTED_IMAGE' | 'UNKNOWN_TEMPLATE'
   | 'UNKNOWN_LANGUAGE' | 'QR_PAYLOAD_TOO_LONG' | 'MISSING_TAX_NAME'
-  | 'INVALID_LOCALE' | 'INVALID_DATE' | 'INVALID_CURRENCY' | 'QR_BASE_URL_MISSING';
+  | 'INVALID_LOCALE' | 'INVALID_DATE' | 'INVALID_CURRENCY' | 'QR_BASE_URL_MISSING' | 'QR_PAYLOAD_EMPTY';
 type RenderProblem = { code: RenderProblemCode; field?: string; value?: string };
 class RenderError extends Error { readonly problems: readonly RenderProblem[] }
 
@@ -151,10 +151,19 @@ stands out more. A pale brand colour never leaves a heading nobody can read.
 
 **Pagination.** The lines table repeats its header row on every page. The tax
 recap and the totals (blocks 6 and 7) stay together; payment and legal text
-follow and run on to another page when they must. A description too long for
-its cell wraps, and a line taller than a page breaks across pages: pdfmake
-silently drops any block it was told not to break once that block outgrows a
-page, so nothing long is ever unbreakable.
+follow and run on to another page when they must. A line stays on one page with
+its service period, unless it is estimated taller than a page: pdfmake silently
+drops any block it was told not to break once that block outgrows a page, so
+nothing that long is ever unbreakable.
+
+**Long words.** pdfmake sizes a column to its widest unbreakable run, so one
+very long word (a URL, an unspaced IBAN) would push the columns beside it off
+the page. A run wider than the space it lands in (a cell of the lines table or
+the recap, 60 pt on the receipt and 150 pt on A4; any other block, 190 pt and
+240 pt) is handed to pdfmake as adjacent pieces, cut after a `/ . - @ _` where
+there is one, measured with Roboto's own advance widths. Nothing is inserted
+into the text, so it copies and searches whole, and a run that fits its space is
+never cut.
 Every page's footer carries the document number and "Page 1 of 3". `receipt`
 grows in height instead of paginating.
 
@@ -185,7 +194,9 @@ also exports `minorDigits(currencyCode: string): number`, and the Engine spec's
 **Amounts in words** for English and French, with each currency's words (euros
 and cents, dirhams and centimes, pounds and pence, rupees and paise, yen with no
 minor unit). A currency the pack has no words for falls back to the number in
-words followed by the ISO code.
+words followed by the ISO code and the minor amount as a fraction, as on a
+cheque: `one thousand two hundred and thirty-four SEK and 56/100`. French follows
+its grammar: `quatre-vingt mille`, `un million d’euros`, `zéro euro`.
 
 ## 5. Fonts, and what they can draw
 
@@ -241,7 +252,7 @@ against a hash.
 | Code | When |
 |---|---|
 | `UNSUPPORTED_SCRIPT` | A printed string uses characters the embedded font cannot draw. |
-| `UNSUPPORTED_IMAGE` | The logo is not PNG or JPEG (pdfmake cannot draw SVG), or its bytes do not start as its declared type does (field `brand.logo.bytes`). |
+| `UNSUPPORTED_IMAGE` | The logo is not PNG or JPEG (pdfmake cannot draw SVG), or its bytes are not its declared type or are damaged (field `brand.logo.bytes`): the first bytes are checked before drawing, and a logo the PDF library then fails on is reported once the same document renders without it. |
 | `INVALID_LOCALE` | `locale` is not a well-formed BCP 47 tag (`fr_FR`, an empty string), which `Intl` would throw on. |
 | `INVALID_DATE` | A date is not `YYYY-MM-DD`, or names a day that does not exist. |
 | `INVALID_CURRENCY` | `currencyCode` is not three capital letters, which `Intl` would throw on. |
@@ -249,9 +260,10 @@ against a hash.
 | `UNKNOWN_LANGUAGE` | `language` has no pack. |
 | `QR_PAYLOAD_TOO_LONG` | The encoded text (base URL included) cannot be drawn legibly in the layout's QR box. |
 | `QR_BASE_URL_MISSING` | `URL_WITH_PAYLOAD` was asked for with no `baseUrl`. |
+| `QR_PAYLOAD_EMPTY` | A QR mode is set with nothing to encode. |
 | `MISSING_TAX_NAME` | A code in the recap has no name in `taxNames`; the recap would otherwise print a record id. |
 
-`renderDocument` throws `RenderError` with every problem it found, in the order
+`renderDocument` rejects with a `RenderError` carrying every problem it found, in the order
 found. Rendering does not word its own problems: Lifecycle decides what a person
 sees, using the packs.
 
@@ -301,15 +313,20 @@ goes to a git-ignored folder.
 
 ```
 render/document.ts        renderDocument, the guards, the problems
+render/blocks.ts          the nine blocks every layout arranges, long-word pieces
 render/layouts/*.ts       classic, modern, compact, letterhead, receipt
 render/lang/en.ts, fr.ts  the packs
 render/lang/pack.ts       the LanguagePack type, describeProblem
 render/format.ts          dates, money, amounts in words
 render/pdf.ts             the only module that touches pdfmake
+render/qr.ts              what a QR code encodes, and its version and size
+render/glyphs.ts          what Roboto draws and how wide: generated, never edited
 render/samples/mock.ts    the fictitious company and its five documents
 render/samples/logo.png   generated by scripts/mock-logo.mjs
 scripts/mock-logo.mjs, scripts/render-samples.mjs
+scripts/glyphs.mjs        writes render/glyphs.ts from the fonts (npm run glyphs)
 test/render/*.test.ts
+test/render/helpers/      the definition's text, and the text read back out of a PDF
 docs/templates/*.pdf      five committed samples, one per layout
 ```
 
