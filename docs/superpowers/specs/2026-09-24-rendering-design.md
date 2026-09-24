@@ -138,8 +138,12 @@ when nobody discounted, no tax column when the document uses a single code.
 | `letterhead` | A4, top 45 mm reserved | Nothing printed in the reserved band; the seller block moves to the footer. |
 | `receipt` | 80 mm wide roll, height grows with content | Single column, no buyer block, totals stacked, QR at the end. |
 
-**Pagination.** The lines table repeats its header row on every page. Blocks 6
-to 9 stay together on the last page. A description too long for its cell wraps.
+**Pagination.** The lines table repeats its header row on every page. The tax
+recap and the totals (blocks 6 and 7) stay together; payment and legal text
+follow and run on to another page when they must. A description too long for
+its cell wraps, and a line taller than a page breaks across pages: pdfmake
+silently drops any block it was told not to break once that block outgrows a
+page, so nothing long is ever unbreakable.
 Every page's footer carries the document number and "Page 1 of 3". `receipt`
 grows in height instead of paginating.
 

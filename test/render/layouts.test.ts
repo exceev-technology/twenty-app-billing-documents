@@ -3,10 +3,14 @@ import assert from 'node:assert/strict';
 import { definitionFor, renderDocument } from '../../render/document.ts';
 import { mockInvoice, mockLongInvoice, mockQuote, mockReceipt } from '../../render/samples/mock.ts';
 import type { RenderInput, TemplateKey } from '../../render/types.ts';
+import { formatMoney } from '../../render/format.ts';
+import { pdfText } from './helpers/pdf-text.ts';
 import { printed } from './helpers/printed.ts';
 
 const TEMPLATES: TemplateKey[] = ['classic', 'modern', 'compact', 'letterhead', 'receipt'];
 const on = (template: TemplateKey, input: RenderInput): RenderInput => ({ ...input, template });
+/** What the rendered file really shows, every page: a definition can hold text pdfmake then drops. */
+const shown = async (input: RenderInput): Promise<string> => pdfText((await renderDocument(input)).bytes).join('\n');
 
 test('every layout prints the content the law needs, on every document', () => {
   for (const template of TEMPLATES) {
@@ -22,6 +26,27 @@ test('every layout prints the content the law needs, on every document', () => {
       for (const row of input.totals.recap) {
         assert.ok(text.includes(String(row.rate)) || text.includes(String(row.rate).replace('.', ',')), `${template}: missing the ${row.rate}% recap row`);
       }
+    }
+  }
+});
+
+test('legal text taller than a page flows on, and takes nothing with it', async () => {
+  for (const template of TEMPLATES) {
+    const input = { ...on(template, mockInvoice()), mentions: `${'General terms of sale apply to this invoice. '.repeat(600)}ENDOFTERMS` };
+    const text = await shown(input);
+    for (const needed of ['Tax summary', formatMoney(input.totals.totalMicros, 'EUR', 'en-GB'), 'Payment details:', 'VAT on debits.', 'ENDOFTERMS']) {
+      assert.ok(text.includes(needed), `${template}: ${needed} vanished`);
+    }
+  }
+});
+
+test('a line taller than a page breaks across pages instead of vanishing', async () => {
+  for (const template of TEMPLATES) {
+    const input = on(template, mockInvoice());
+    const [first, ...rest] = input.lines;
+    const text = await shown({ ...input, lines: [{ ...first!, description: `${'Scope item, as agreed. '.repeat(700)}ENDOFSCOPE` }, ...rest] });
+    for (const needed of ['ENDOFSCOPE', formatMoney(first!.lineTotalMicros, 'EUR', 'en-GB'), formatMoney(rest[0]!.lineTotalMicros, 'EUR', 'en-GB')]) {
+      assert.ok(text.includes(needed), `${template}: ${needed} vanished`);
     }
   }
 });

@@ -119,8 +119,9 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     ];
     const widths = ['*', 'auto', 'auto', ...(hasDiscount ? ['auto'] : []), ...(hasManyTaxes ? ['auto'] : []), 'auto'];
     const pad = style.dense ? 2 : 5;
+    // Rows may break across pages: pdfmake drops a row taller than a page when it may not.
     return {
-      table: { headerRows: 1, widths, body: [head, ...input.lines.map(lineRow)], dontBreakRows: true },
+      table: { headerRows: 1, widths, body: [head, ...input.lines.map(lineRow)] },
       layout: {
         // pdfmake hands a layout callback the table node, so the rows are node.table.body.
         hLineWidth: (index: number, node: { table: { body: unknown[] } }) => (style.rules || index === 1 || index === node.table.body.length ? 0.5 : 0),
@@ -215,8 +216,12 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     ],
   });
 
-  /** Blocks 6 to 9 travel together, so totals never land alone on a last page. */
-  const tail = (): Node => ({ unbreakable: true, stack: [recap(), totals(), payment(), legal()] });
+  /**
+   * The recap and the totals travel together. Payment and legal text follow and
+   * may run on: pdfmake silently drops an unbreakable block taller than a page,
+   * and pasted terms of sale easily are.
+   */
+  const tail = (): Node => ({ stack: [{ unbreakable: true, stack: [recap(), totals()] }, payment(), legal()] });
 
   const footer = (currentPage: number, pageCount: number): Node => ({
     margin: [40, 10, 40, 0],
