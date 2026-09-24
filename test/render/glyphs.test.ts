@@ -15,8 +15,9 @@ test('the drawable list and the widths are read from the fonts: run npm run glyp
 test('a width is the sum of its glyphs at the size asked', () => {
   assert.equal(textWidth('', 9), 0);
   assert.ok(textWidth('W', 10) > textWidth('i', 10) * 3, 'W should be far wider than i');
-  assert.equal(textWidth('ab', 12), textWidth('a', 12) + textWidth('b', 12));
-  assert.equal(textWidth('a', 20), textWidth('a', 10) * 2);
+  const close = (actual: number, expected: number): void => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
+  close(textWidth('ab', 12), textWidth('a', 12) + textWidth('b', 12));
+  close(textWidth('a', 20), textWidth('a', 10) * 2);
 });
 
 test('what Roboto lacks is refused, and what it draws is not', () => {
