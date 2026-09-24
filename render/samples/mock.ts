@@ -4,6 +4,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { computeDocument, type TaxCodeInput } from '../../engine/index.ts';
 import type { RenderInput, RenderLine } from '../types.ts';
 
 const LOGO = fileURLToPath(new URL('./logo.png', import.meta.url));
@@ -37,18 +38,31 @@ const IDENTIFIERS = [
   { label: 'VAT number', value: 'FR11111111111', side: 'BUYER' as const },
 ];
 
-/** A tax code's identity is its record id, as Lifecycle passes it; this one is made up. */
-const VAT_20 = '0000c0de-0000-4000-8000-000000000020';
+/** A tax code's identity is its record id, as Lifecycle passes it; these are made up. */
+const VAT_20: TaxCodeInput = {
+  code: '0000c0de-0000-4000-8000-000000000020',
+  name: 'VAT 20%',
+  category: 'STANDARD',
+  components: [{ name: 'VAT', rate: 20, compound: false, sortOrder: 0 }],
+};
+const VAT_10: TaxCodeInput = {
+  code: '0000c0de-0000-4000-8000-000000000010',
+  name: 'VAT 10%',
+  category: 'REDUCED',
+  components: [{ name: 'VAT', rate: 10, compound: false, sortOrder: 0 }],
+};
 
-const line = (key: string, description: string, quantity: number, unitPriceMicros: number, over: Partial<RenderLine> = {}): RenderLine => ({
+/** A line before the Engine has run: its tax code instead of its printed label and total. */
+type MockLine = Omit<RenderLine, 'taxLabel' | 'lineTotalMicros'> & { tax: TaxCodeInput };
+
+const line = (key: string, description: string, quantity: number, unitPriceMicros: number, over: Partial<MockLine> = {}): MockLine => ({
   key,
   description,
   quantity,
   unit: 'day',
   unitPriceMicros,
   discountPercent: null,
-  taxLabel: 'VAT 20%',
-  lineTotalMicros: Math.round(quantity * unitPriceMicros),
+  tax: VAT_20,
   ...over,
 });
 
@@ -70,7 +84,7 @@ const base = (): RenderInput => ({
   identifiers: IDENTIFIERS,
   lines: [],
   totals: { lines: [], recap: [], taxCodesUsed: [], subtotalMicros: 0, discountTotalMicros: 0, taxTotalMicros: 0, totalMicros: 0 },
-  taxNames: { [VAT_20]: 'VAT 20%' },
+  taxNames: {},
   taxNotes: ['VAT on debits.'],
   mentions: 'Late payment carries interest at three times the legal rate, plus a 40 € recovery fee.',
   amountInWords: true,
@@ -83,72 +97,69 @@ const base = (): RenderInput => ({
   qr: null,
 });
 
-/** Totals that match the lines, so a sample never shows figures that disagree. */
-function withTotals(input: RenderInput, rate = 20): RenderInput {
-  const subtotal = input.lines.reduce((total, current) => total + current.lineTotalMicros, 0);
-  const discounts = input.lines.reduce((total, current) => total + Math.round((current.quantity * current.unitPriceMicros) - current.lineTotalMicros), 0);
-  const tax = Math.round((subtotal * rate) / 100 / 10_000) * 10_000;
+/** The Engine computes every figure, so a sample prints exactly what a real document would. */
+function computed(input: RenderInput, lines: MockLine[]): RenderInput {
+  const totals = computeDocument({
+    currencyCode: input.currencyCode,
+    pricesIncludeTax: input.pricesIncludeTax,
+    roundingMode: 'PER_RATE_ON_TOTAL',
+    lines: lines.map((current) => ({
+      key: current.key,
+      quantity: current.quantity,
+      unitPrice: { amountMicros: current.unitPriceMicros, currencyCode: input.currencyCode },
+      discountPercent: current.discountPercent,
+      tax: current.tax,
+    })),
+  });
   return {
     ...input,
-    totals: {
-      lines: input.lines.map((current) => ({
-        key: current.key,
-        amountMicros: Math.round(current.quantity * current.unitPriceMicros),
-        discountMicros: Math.round((current.quantity * current.unitPriceMicros) - current.lineTotalMicros),
-        lineTotalMicros: current.lineTotalMicros,
-      })),
-      recap: [{ taxCode: VAT_20, component: 'VAT', rate, baseMicros: subtotal, taxMicros: tax }],
-      taxCodesUsed: [VAT_20],
-      subtotalMicros: subtotal,
-      discountTotalMicros: discounts,
-      taxTotalMicros: tax,
-      totalMicros: subtotal + tax,
-    },
+    lines: lines.map(({ tax, ...current }, index) => ({ ...current, taxLabel: tax.name, lineTotalMicros: totals.lines[index]!.lineTotalMicros })),
+    totals,
+    taxNames: Object.fromEntries(lines.map((current) => [current.tax.code, current.tax.name])),
   };
 }
 
-export const mockInvoice = (): RenderInput => withTotals({
-  ...base(),
-  lines: [
-    line('l1', 'Art direction', 4, 780_000_000),
-    line('l2', 'Design system, components', 6, 640_000_000),
-    line('l3', 'Workshop facilitation', 1, 1_200_000_000),
-  ],
-});
+export const mockInvoice = (): RenderInput => computed(base(), [
+  line('l1', 'Art direction', 4, 780_000_000),
+  line('l2', 'Design system, components', 6, 640_000_000),
+  line('l3', 'Workshop facilitation', 1, 1_200_000_000),
+]);
 
-export const mockLongInvoice = (): RenderInput => withTotals({
-  ...base(),
-  number: 'INV-2026-0043',
-  subject: 'Retainer, third quarter',
-  lines: Array.from({ length: 24 }, (_, index) =>
+export const mockLongInvoice = (): RenderInput => computed(
+  { ...base(), number: 'INV-2026-0043', subject: 'Retainer, third quarter' },
+  Array.from({ length: 24 }, (_, index) =>
     line(`l${index + 1}`, `Sprint ${index + 1}: design, review and handover of the agreed scope`, 2, 560_000_000, {
       discountPercent: index % 6 === 0 ? 10 : null,
+      tax: index % 4 === 3 ? VAT_10 : VAT_20,
       periodStart: '2026-07-01',
       periodEnd: '2026-09-30',
-      lineTotalMicros: index % 6 === 0 ? 1_008_000_000 : 1_120_000_000,
     })),
-});
+);
 
-export const mockQuote = (): RenderInput => withTotals({
-  ...base(),
-  kind: 'QUOTE',
-  number: 'Q-2026-0009',
-  version: 2,
-  dueDate: null,
-  validUntil: '2026-10-24',
-  subject: 'Brand identity, proposal',
-  lines: [line('l1', 'Discovery and research', 5, 720_000_000), line('l2', 'Concepts, three routes', 8, 680_000_000)],
-});
+export const mockQuote = (): RenderInput => computed(
+  {
+    ...base(),
+    kind: 'QUOTE',
+    number: 'Q-2026-0009',
+    version: 2,
+    dueDate: null,
+    validUntil: '2026-10-24',
+    subject: 'Brand identity, proposal',
+  },
+  [line('l1', 'Discovery and research', 5, 720_000_000), line('l2', 'Concepts, three routes', 8, 680_000_000)],
+);
 
-export const mockReceipt = (): RenderInput => withTotals({
-  ...base(),
-  template: 'receipt',
-  kind: 'INVOICE',
-  number: 'INV-2026-0044',
-  pricesIncludeTax: true,
-  amountInWords: false,
-  buyerReference: null,
-  subject: null,
-  notes: null,
-  lines: [line('l1', 'Print, A2 poster', 2, 24_000_000, { unit: 'item' }), line('l2', 'Frame', 1, 45_000_000, { unit: 'item' })],
-});
+export const mockReceipt = (): RenderInput => computed(
+  {
+    ...base(),
+    template: 'receipt',
+    kind: 'INVOICE',
+    number: 'INV-2026-0044',
+    pricesIncludeTax: true,
+    amountInWords: false,
+    buyerReference: null,
+    subject: null,
+    notes: null,
+  },
+  [line('l1', 'Print, A2 poster', 2, 24_000_000, { unit: 'item' }), line('l2', 'Frame', 1, 45_000_000, { unit: 'item' })],
+);

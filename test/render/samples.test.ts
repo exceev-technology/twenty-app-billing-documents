@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderDocument } from '../../render/document.ts';
-import { mockInvoice, mockLogo } from '../../render/samples/mock.ts';
+import { mockInvoice, mockLogo, mockLongInvoice, mockQuote, mockReceipt } from '../../render/samples/mock.ts';
 
 const LOGO = fileURLToPath(new URL('../../render/samples/logo.png', import.meta.url));
 
@@ -19,6 +19,23 @@ test('the mock company carries the logo into a rendered invoice', async () => {
   assert.ok(logo, 'mockLogo() returned nothing');
   const { pages } = await renderDocument({ ...mockInvoice(), brand: { ...mockInvoice().brand, logo } });
   assert.equal(pages, 1);
+});
+
+test('every sample prints totals that agree with its lines, with or without tax in the prices', () => {
+  for (const make of [mockInvoice, mockLongInvoice, mockQuote, mockReceipt]) {
+    const input = make();
+    const lines = input.lines.reduce((total, line) => total + line.lineTotalMicros, 0);
+    const { subtotalMicros, taxTotalMicros, totalMicros } = input.totals;
+    assert.equal(subtotalMicros + taxTotalMicros, totalMicros, `${make.name}: subtotal and tax do not make the total`);
+    assert.equal(input.pricesIncludeTax ? totalMicros : subtotalMicros, lines, `${make.name}: the lines do not add up`);
+  }
+});
+
+test('the long invoice has two tax codes, discounts and service periods', () => {
+  const input = mockLongInvoice();
+  assert.equal(input.totals.taxCodesUsed.length, 2);
+  assert.ok(input.lines.some((line) => line.discountPercent), 'no line is discounted');
+  assert.ok(input.lines.every((line) => line.periodStart && line.periodEnd), 'a line has no service period');
 });
 
 test('the mock company is fictitious', () => {
