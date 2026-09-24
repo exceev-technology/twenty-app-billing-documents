@@ -12,14 +12,22 @@ const on = (template: TemplateKey, input: RenderInput): RenderInput => ({ ...inp
 
 test('every layout prints the content the law needs, on every document', () => {
   for (const template of TEMPLATES) {
-    for (const make of [mockInvoice, mockQuote, mockLongInvoice]) {
+    for (const make of [mockInvoice, mockQuote, mockLongInvoice, mockReceipt]) {
       const input = on(template, make());
       const text = printed(definitionFor(input));
+      const { seller, buyer } = input;
       const needed = [
-        input.number!, input.seller.name, ...input.lines.map((line) => line.description), input.mentions!, input.taxNotes[0]!,
+        input.number!,
+        seller.name, seller.legalName!, seller.legalForm!, ...seller.addressLines, seller.email!, seller.phone!, seller.website!,
+        ...input.identifiers.filter((identifier) => identifier.side === 'SELLER').map((identifier) => identifier.value),
+        ...input.lines.map((line) => line.description),
         ...input.totals.taxCodesUsed.map((code) => input.taxNames[code]!),
+        formatMoney(input.totals.subtotalMicros, 'EUR', 'en-GB'), formatMoney(input.totals.totalMicros, 'EUR', 'en-GB'),
+        input.mentions!, ...input.taxNotes, input.brand.footerNote!,
       ];
-      if (template !== 'receipt') needed.push(input.buyer.name);
+      if (template !== 'receipt') {
+        needed.push(buyer.name, ...buyer.addressLines, ...input.identifiers.filter((identifier) => identifier.side === 'BUYER').map((identifier) => identifier.value));
+      }
       for (const value of needed) assert.ok(text.includes(value), `${template}: missing ${value}`);
       for (const row of input.totals.recap) {
         assert.ok(text.includes(String(row.rate)) || text.includes(String(row.rate).replace('.', ',')), `${template}: missing the ${row.rate}% recap row`);
