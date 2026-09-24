@@ -17,9 +17,12 @@ records to a plain input, calls Rendering, and stores the bytes.
   result types, the problem type and `minorDigits`. It bundles pdfmake, so
   unlike the engine it runs in a logic function, never in a front component.
 - pdfmake is pinned to an exact version as a dependency, and imported as its
-  prebuilt bundle: importing the package itself reads a font file from disk at
-  import time, which fails once a logic function is bundled. That trap cost the
-  internal app a debugging session.
+  prebuilt bundle (`pdfmake/build/pdfmake.js`, with Roboto from
+  `build/vfs_fonts.js`): the package's Node entry reads `__dirname` when it
+  renders, which the ES module twenty-sdk builds for a logic function does not
+  define. That trap cost the internal app a debugging session, and
+  `test/render/bundle.test.ts` bundles the renderer with the SDK's own esbuild
+  options so it cannot come back.
 - One entry point. Everything else in `render/` is private to it.
 - Rendering never decides a business fact. A document with no number prints a
   draft marker; it never invents one. A missing identifier is Lifecycle's gate
