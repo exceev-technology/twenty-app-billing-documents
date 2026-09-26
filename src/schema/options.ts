@@ -22,6 +22,15 @@ export const QR_MODES: readonly Option[] = [
   ['URL_WITH_PAYLOAD', 'Link with payload', 'green'],
 ];
 
+/** The Renderer's five layouts (Rendering §12), read in lower case: the server only takes upper-case values. */
+export const TEMPLATES: readonly Option[] = [
+  ['CLASSIC', 'Classic', 'blue'],
+  ['MODERN', 'Modern', 'purple'],
+  ['COMPACT', 'Compact', 'gray'],
+  ['LETTERHEAD', 'Letterhead', 'orange'],
+  ['RECEIPT', 'Receipt', 'green'],
+];
+
 export const APPLIES_TO: readonly Option[] = [
   ['SELLER', 'Seller', 'blue'],
   ['BUYER', 'Buyer', 'orange'],

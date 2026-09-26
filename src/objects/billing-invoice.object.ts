@@ -2,6 +2,7 @@ import { defineObject, OnDeleteAction } from 'twenty-sdk/define';
 import { date, dateTime, fieldId, manyToOne, objectId, oneToMany, text } from '../schema/fields.ts';
 import { documentFields } from '../schema/documents.ts';
 import { INVOICE_STATUSES } from '../schema/options.ts';
+import { markAppOnly } from '../schema/app-only.ts';
 
 const O = 'billingInvoice';
 
@@ -14,7 +15,7 @@ export default defineObject({
   description: 'An invoice. Numbered and locked when issued; corrected only by a credit note.',
   icon: 'IconFileInvoice',
   labelIdentifierFieldMetadataUniversalIdentifier: fieldId(O, 'subject'),
-  fields: [
+  fields: markAppOnly(O, [
     ...documentFields({ object: O, lineObject: 'billingInvoiceLine', lineParentField: 'invoice', issuerInverse: 'invoices', buyerInverse: 'billingInvoices', statuses: INVOICE_STATUSES }),
     manyToOne(O, 'opportunity', { label: 'Opportunity', icon: 'IconTargetArrow' }, { object: 'opportunity', inverse: 'billingInvoices', onDelete: OnDeleteAction.SET_NULL }),
     manyToOne(O, 'quote', { label: 'Quote', icon: 'IconFileDescription' }, { object: 'billingQuote', inverse: 'invoices', onDelete: OnDeleteAction.SET_NULL }),
@@ -24,5 +25,5 @@ export default defineObject({
     dateTime(O, 'sentAt', { label: 'Sent at', icon: 'IconSend' }),
     date(O, 'paidAt', { label: 'Paid on', icon: 'IconCash' }),
     oneToMany(O, 'creditNotes', { label: 'Credit notes', icon: 'IconReceiptRefund' }, { object: 'billingCreditNote', inverse: 'invoice' }),
-  ],
+  ]),
 });
