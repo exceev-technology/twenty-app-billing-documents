@@ -102,3 +102,13 @@ test('describeAll keeps the order of the problems', () => {
   ], 'EN');
   assert.deepEqual(worded.map((problem) => problem.code), ['MISSING_ISSUER', 'MISSING_BUYER']);
 });
+
+test('French messages don’t take a plain space before : ; ? ! or inside « »', () => {
+  const fr = PACKS.FR;
+  const texts = [
+    ...LIFECYCLE_CODES.map((code) => fr.problems[code as 'NOT_ALLOWED'](DETAILS)),
+    ...RENDER_CODES.map((code) => fr.renderProblems[code as 'UNSUPPORTED_SCRIPT'](DETAILS)),
+    ...everyMessage(fr),
+  ];
+  for (const text of texts) assert.doesNotMatch(text, / [:;?!]|« | »/, text);
+});

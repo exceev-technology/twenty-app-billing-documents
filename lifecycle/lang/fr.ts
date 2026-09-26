@@ -19,16 +19,16 @@ const correct = (kind: keyof typeof kinds): string =>
 export const fr: LifecyclePack = {
   code: 'FR',
   problems: {
-    NOT_ALLOWED: () => 'Votre rôle ne permet pas de modifier ce document, donc pas de lancer cette action.',
-    WRONG_STATUS: ({ value }) => `Cette action demande un brouillon ; ce document est au statut ${statusName(value)}.`,
+    NOT_ALLOWED: () => 'Votre rôle ne permet pas de modifier ce document\u00a0: vous ne pouvez donc pas lancer cette action.',
+    WRONG_STATUS: ({ value }) => `Cette action demande un brouillon\u00a0; ce document est au statut ${statusName(value)}.`,
     ALREADY_ISSUED: ({ value }) => `Ce document est déjà émis, sous le numéro ${value}.`,
     MISSING_ISSUER: () => 'Choisissez l’émetteur.',
-    MISSING_PROFILE: () => 'L’émetteur n’a pas de profil de facturation : choisissez-en un sur l’émetteur.',
+    MISSING_PROFILE: () => 'L’émetteur n’a pas de profil de facturation\u00a0: choisissez-en un sur l’émetteur.',
     MISSING_BUYER: () => 'Choisissez la société ou la personne à facturer.',
     MISSING_CURRENCY: () => 'Indiquez une devise sur le document, sur l’émetteur ou sur son profil.',
     MISSING_IDENTIFIER: ({ field, value }) => `${party(field)} n’a pas de ${value}.`,
     INVALID_IDENTIFIER: ({ field, value }) => `${party(field)} a un ${value} qui n’a pas le format attendu.`,
-    IDENTIFIER_OWNER: ({ value }) => `L’identifiant ${value} est rattaché à plus d’un enregistrement : n’en gardez qu’un.`,
+    IDENTIFIER_OWNER: ({ value }) => `L’identifiant ${value} est rattaché à plus d’un enregistrement\u00a0: n’en gardez qu’un.`,
     MISSING_INVOICE: () => 'Choisissez la facture que cet avoir corrige.',
     INVOICE_NOT_ISSUED: () => 'La facture que cet avoir corrige n’est pas émise.',
     INVOICE_MISMATCH: ({ field }) =>
@@ -38,11 +38,11 @@ export const fr: LifecyclePack = {
     DATE_IN_FUTURE: ({ value }) => `La date d’émission, ${value}, est postérieure à aujourd’hui.`,
     DATE_BEFORE_LAST: ({ value }) => `La date d’émission est antérieure au ${value}, date du dernier document numéroté de sa séquence.`,
     DUE_BEFORE_ISSUE: () => 'L’échéance est antérieure à la date d’émission.',
-    CLOCK_SKEW: () => 'La date de votre ordinateur s’écarte de plus d’un jour de celle du serveur : vérifiez sa date et son heure.',
-    LEDGER_BEHIND: ({ value }) => `La séquence de numérotation ${value} est très en retard sur les numéros déjà attribués : augmentez son dernier numéro.`,
+    CLOCK_SKEW: () => 'La date de votre ordinateur s’écarte de plus d’un jour de celle du serveur\u00a0: vérifiez sa date et son heure.',
+    LEDGER_BEHIND: ({ value }) => `La séquence de numérotation ${value} est très en retard sur les numéros déjà attribués\u00a0: augmentez son dernier numéro.`,
   },
   renderProblems: {
-    UNSUPPORTED_SCRIPT: ({ field, value }) => `Certains caractères ne peuvent pas être imprimés avec la police du PDF (${field}) : ${value}`,
+    UNSUPPORTED_SCRIPT: ({ field, value }) => `Certains caractères ne peuvent pas être imprimés avec la police du PDF (${field})\u00a0: ${value}`,
     UNSUPPORTED_IMAGE: () => 'Le logo de l’émetteur n’est pas une image PNG ou JPEG, ou le fichier est endommagé.',
     UNKNOWN_TEMPLATE: ({ value }) => `Le modèle de l’émetteur, ${value}, n’est pas connu de cette application.`,
     UNKNOWN_LANGUAGE: ({ value }) => `Les documents ne peuvent pas encore être imprimés en ${value}.`,
@@ -68,18 +68,18 @@ export const fr: LifecyclePack = {
   statuses,
   kinds,
   messages: {
-    previewReady: 'Aperçu prêt : il est dans le champ PDF.',
+    previewReady: 'Aperçu prêt\u00a0: il est dans le champ PDF.',
     issued: (kind, number) => `${kind === 'INVOICE' ? 'Émise' : 'Émis'} sous le numéro ${number}.`,
-    quotePdf: (number, version) => `Devis ${number}, version ${version} : il est dans le champ PDF.`,
+    quotePdf: (number, version) => `Devis ${number}, version ${version}\u00a0: il est dans le champ PDF.`,
     unexpected: (ref) => `Une erreur s’est produite (réf. ${ref}).`,
     fieldsPutBack: (kind, fields) =>
-      `${thisOne[kind]} est ${issued[kind]} : ${fields.length > 1 ? `les modifications de ${list(fields)} ont été annulées` : `la modification de ${list(fields)} a été annulée`}. ${correct(kind)}`,
-    lineChangePutBack: (kind) => `${thisOne[kind]} est ${issued[kind]} : la modification d’une ligne a été annulée. ${correct(kind)}`,
-    lineAddedRemoved: (kind) => `${thisOne[kind]} est ${issued[kind]} : la ligne ajoutée a été retirée. ${correct(kind)}`,
-    lineDeletedRestored: (kind) => `${thisOne[kind]} est ${issued[kind]} : la ligne supprimée a été restaurée. ${correct(kind)}`,
-    lineMoveReverted: (kind) => `${thisOne[kind]} est ${issued[kind]} : la ligne déplacée a été remise en place. ${correct(kind)}`,
+      `${thisOne[kind]} est ${issued[kind]}\u00a0: ${fields.length > 1 ? `les modifications de ${list(fields)} ont été annulées` : `la modification de ${list(fields)} a été annulée`}. ${correct(kind)}`,
+    lineChangePutBack: (kind) => `${thisOne[kind]} est ${issued[kind]}\u00a0: la modification d’une ligne a été annulée. ${correct(kind)}`,
+    lineAddedRemoved: (kind) => `${thisOne[kind]} est ${issued[kind]}\u00a0: la ligne ajoutée a été retirée. ${correct(kind)}`,
+    lineDeletedRestored: (kind) => `${thisOne[kind]} est ${issued[kind]}\u00a0: la ligne supprimée a été restaurée. ${correct(kind)}`,
+    lineMoveReverted: (kind) => `${thisOne[kind]} est ${issued[kind]}\u00a0: la ligne déplacée a été remise en place. ${correct(kind)}`,
     documentRestored: (kind, number) =>
-      `${thisOne[kind]} porte le numéro ${number} et ne peut pas être ${kind === 'INVOICE' ? 'supprimée : elle a été restaurée' : 'supprimé : il a été restauré'}.`,
+      `${thisOne[kind]} porte le numéro ${number} et ne peut pas être ${kind === 'INVOICE' ? 'supprimée\u00a0: elle a été restaurée' : 'supprimé\u00a0: il a été restauré'}.`,
     statusPutBack: (rule, kind, back) => {
       const why = {
         ISSUE: `Seule l’action Issue émet ${kind === 'INVOICE' ? 'une facture' : 'un avoir'}.`,
@@ -89,10 +89,10 @@ export const fr: LifecyclePack = {
       }[rule];
       return `${why} Le statut a été remis à ${back}.`;
     },
-    createdAsDraft: (kind, status) => `${thisOne[kind]} commence comme brouillon : son statut ${status} a été remis à Brouillon.`,
-    ledgerDuplicateRemoved: 'Une séquence de numérotation existe déjà pour cet émetteur, ce type de document et cette période : celle-ci a été supprimée.',
+    createdAsDraft: (kind, status) => `${thisOne[kind]} commence comme brouillon\u00a0: son statut ${status} a été remis à Brouillon.`,
+    ledgerDuplicateRemoved: 'Une séquence de numérotation existe déjà pour cet émetteur, ce type de document et cette période\u00a0: celle-ci a été supprimée.',
     ledgerChangePutBack: (fields) =>
-      `Cette séquence a déjà attribué des numéros : son émetteur, son type et sa période sont fixés, et son dernier numéro ne peut que monter. La modification de ${list(fields)} a été annulée.`,
-    ledgerRestored: 'Cette séquence a déjà attribué des numéros et ne peut pas être supprimée : elle a été restaurée.',
+      `Cette séquence a déjà attribué des numéros\u00a0: son émetteur, son type et sa période sont fixés, et son dernier numéro ne peut que monter. La modification de ${list(fields)} a été annulée.`,
+    ledgerRestored: 'Cette séquence a déjà attribué des numéros et ne peut pas être supprimée\u00a0: elle a été restaurée.',
   },
 };
