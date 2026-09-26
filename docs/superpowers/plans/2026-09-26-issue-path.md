@@ -593,6 +593,8 @@ If creating a record fails because the form sends an app-only field (a currency 
 
 ### Task 3: Lifecycle's words, and the rules of its folder
 
+> **French typography.** Every French message puts a non-breaking space (U+00A0, written `\u00a0` in the source) before `:` `;` `?` `!` and inside `« »`, as `render/lang/fr.ts` does, and a pack test enforces it. The code blocks below predate that rule: where they show a plain space in French prose, the committed `lifecycle/lang/fr.ts` is the reference.
+
 Lifecycle words everything a person reads, in English and French (spec §10): its own problems, the Renderer's problems (Rendering does not word them), the unit names, the field and status names a guard mentions, and every message. This task also creates the folder's purity rules, so every later file is checked from its first line.
 
 **Files:**
@@ -1042,7 +1044,7 @@ const correct = (kind: keyof typeof kinds): string =>
 export const fr: LifecyclePack = {
   code: 'FR',
   problems: {
-    NOT_ALLOWED: () => 'Votre rôle ne permet pas de modifier ce document, donc pas de lancer cette action.',
+    NOT_ALLOWED: () => 'Votre rôle ne permet pas de modifier ce document\u00a0: vous ne pouvez donc pas lancer cette action.',
     WRONG_STATUS: ({ value }) => `Cette action demande un brouillon ; ce document est au statut ${statusName(value)}.`,
     ALREADY_ISSUED: ({ value }) => `Ce document est déjà émis, sous le numéro ${value}.`,
     MISSING_ISSUER: () => 'Choisissez l’émetteur.',
@@ -5129,7 +5131,7 @@ test('a locked field changed on an issued invoice is put back, with a message na
   await w.user.update('billingInvoices', w.invoice.id, { subject: 'Autre chose' });
   await settle(w);
   assert.equal(invoice(w).subject, 'Identité visuelle');
-  assert.deepEqual(corrections(w), ['Cette facture est émise : la modification de Objet a été annulée. Corrigez-la par un avoir.']);
+  assert.deepEqual(corrections(w), ['Cette facture est émise\u00a0: la modification de Objet a été annulée. Corrigez-la par un avoir.']);
 });
 
 test('several locked fields changed at once are put back together, in one message', async () => {
@@ -5276,7 +5278,7 @@ test('a document created by a person with another status than Draft is set to Dr
   const imported = await w.user.create('billingInvoices', { subject: 'Importée', status: 'PAID', issuerId: w.issuer.id, companyId: w.company.id, currencyCode: 'EUR' });
   await settle(w);
   assert.equal(invoice(w, imported.id).status, 'DRAFT');
-  assert.deepEqual(corrections(w), ['Cette facture commence comme brouillon : son statut Payée a été remis à Brouillon.']);
+  assert.deepEqual(corrections(w), ['Cette facture commence comme brouillon\u00a0: son statut Payée a été remis à Brouillon.']);
 });
 
 test('a guard speaks the document’s language', async () => {
@@ -6730,7 +6732,7 @@ test('a call no signed-in person made is refused as NOT_ALLOWED, in the caller�
   assert.equal(apiKey.status, 403);
   assert.deepEqual(apiKey.body, {
     ok: false,
-    problems: [{ code: 'NOT_ALLOWED', message: 'Votre rôle ne permet pas de modifier ce document, donc pas de lancer cette action.' }],
+    problems: [{ code: 'NOT_ALLOWED', message: 'Votre rôle ne permet pas de modifier ce document\u00a0: vous ne pouvez donc pas lancer cette action.' }],
   });
   const noMember = await respond({ body: issueBody(w), ...SIGNED_IN }, { workspaceMemberId: null }, noDeps);
   assert.equal(noMember.status, 403);
@@ -7071,7 +7073,7 @@ const WORDS = {
   },
   fr: {
     more: (count: number) => `Et ${count} de plus.`,
-    off: 'Les actions de facturation ont besoin des fonctions logiques, désactivées sur ce serveur. Voir « Issuing documents » dans le README de l’app.',
+    off: 'Les actions de facturation ont besoin des fonctions logiques, désactivées sur ce serveur. Voir «\u00a0Issuing documents\u00a0» dans le README de l’app.',
     failed: (status: number) => `L’action de facturation a échoué (HTTP ${status}).`,
     unreachable: 'L’action de facturation n’a pas pu joindre le serveur. Vérifiez votre connexion et réessayez.',
   },
