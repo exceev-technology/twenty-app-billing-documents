@@ -71,17 +71,44 @@ export async function findLedger(store: Store, scope: Scope): Promise<Row | null
 
 /**
  * Twenty keeps a soft-deleted row's values, its unique key included, so a
- * ledger row deleted before its scope gave out a number would block the
- * scope for ever. Frees the key: the row comes back just long enough to
- * lose it. True when a row was freed.
+ * ledger row deleted before it ever gave out a number would otherwise block
+ * the scope for ever, and one deleted after numbers went out must not lose
+ * its lastValue. Twenty also accepts an update to a soft-deleted row and
+ * leaves it deleted, which is what lets a stale key be freed without ever
+ * bringing its lastValue back to life.
+ *
+ * Called when creating the scope's ledger row was refused as a duplicate:
+ * another row already holds the scope's key, live or deleted. Resolves to
+ * the row to use, or null when the key is held by neither (someone else's
+ * attempt raced past it; the caller tries again).
  */
-export async function releaseDeletedHolder(store: Store, scopeKey: string): Promise<boolean> {
-  const [holder] = await store.list(LEDGER, { scopeKey }, { deleted: 'only', limit: 1 });
-  if (!holder) return false;
-  await store.restore(LEDGER, holder.id);
+async function resolveDuplicateLedger(store: Store, scope: Scope): Promise<Row | null> {
+  const scopeKey = scopeKeyOf(scope);
+  const [holder] = await store.list(LEDGER, { scopeKey }, { deleted: 'include', limit: 1 });
+  if (!holder) return null;
+  if (!holder.deletedAt) return holder; // Someone created it at the same moment.
+  if (await scopeHasNumbers(store, scope)) {
+    // Numbers already went out under this key: its lastValue must survive, so
+    // the row comes back rather than starting over.
+    try {
+      await store.restore(LEDGER, holder.id);
+    } catch {
+      // Another claim restored it first; it is live now, with the same key and lastValue.
+    }
+    const [live] = await store.list(LEDGER, { scopeKey }, { limit: 1 });
+    return live ?? null;
+  }
+  // No number has ever come out of this scope: the deleted row's lastValue is
+  // stale and must never come back, so its key is freed without restoring it.
   await store.update(LEDGER, holder.id, { scopeKey: null });
-  await store.softDelete(LEDGER, holder.id);
-  return true;
+  try {
+    return await store.create(LEDGER, { ...scopeFields(scope), lastValue: 0, scopeKey });
+  } catch (error) {
+    if (!(error instanceof DuplicateError)) throw error;
+    // Another claim's fresh row won the race; use it.
+    const [live] = await store.list(LEDGER, { scopeKey }, { limit: 1 });
+    return live ?? null;
+  }
 }
 
 /** The scope's ledger row, created at 0 when it has none (spec §5, step 2). */
@@ -93,8 +120,9 @@ export async function ensureLedger(store: Store, scope: Scope): Promise<Row> {
       return await store.create(LEDGER, { ...scopeFields(scope), lastValue: 0, scopeKey: scopeKeyOf(scope) });
     } catch (error) {
       if (!(error instanceof DuplicateError)) throw error;
-      // Someone created it at the same moment (the next read finds it), or a deleted row still holds the key.
-      await releaseDeletedHolder(store, scopeKeyOf(scope));
+      const resolved = await resolveDuplicateLedger(store, scope);
+      if (resolved) return resolved;
+      // Nothing currently holds the key: another attempt raced past it; try again.
     }
   }
   throw new Error(`The ledger of ${scopeKeyOf(scope)} could be neither found nor created`);
@@ -151,9 +179,15 @@ export async function claimNumber(store: Store, input: ClaimInput): Promise<Clai
   }
 }
 
+/**
+ * Always constrains issueDate to a non-blank value, even in a scope with no
+ * period bounds ('ALL'): left unconstrained, a DESC order by issueDate could
+ * sort a blank first (Postgres does, with NULLs before values by default)
+ * and starve a limited read of the dated rows it needs.
+ */
 const numberedIn = (scope: Scope): Where => {
-  const bounds = periodBounds(scope.periodKey);
-  return { issuerId: scope.issuerId, numberKey: { notNull: true }, ...(bounds ? { issueDate: bounds } : {}) };
+  const bounds = periodBounds(scope.periodKey) ?? { gte: '0001-01-01' };
+  return { issuerId: scope.issuerId, numberKey: { notNull: true }, issueDate: bounds };
 };
 
 /** The latest issue date among the scope's numbered documents, deleted ones included, other than `exceptId`. */

@@ -101,6 +101,14 @@ export function memoryDb(options: Options = {}) {
       return [rows, index];
     }
 
+    /** Like Twenty: an update reaches a row whether it is live or soft-deleted. */
+    function existing(plural: string, id: string): [Row[], number] {
+      const rows = table(plural);
+      const index = rows.findIndex((row) => row.id === id);
+      if (index === -1) throw new Error(`No ${plural} record ${id}`);
+      return [rows, index];
+    }
+
     return {
       async get(plural, id, getOptions) {
         const row = table(plural).find((candidate) => candidate.id === id);
@@ -138,8 +146,10 @@ export function memoryDb(options: Options = {}) {
       async update(plural, id, data) {
         injected('update', plural, data);
         allowed(plural, data);
-        const [rows, index] = live(plural, id);
+        const [rows, index] = existing(plural, id);
         const before = rows[index]!;
+        // Twenty accepts an update to a soft-deleted row and leaves it deleted:
+        // `deletedAt` carries over from `before` unless `data` itself sets it.
         const after: Row = { ...before, ...copy(data), updatedAt: stamp(), updatedBy: actor };
         checkUnique(plural, after);
         rows[index] = after;
