@@ -12,7 +12,7 @@ import { APP_OBJECTS, STANDARD_TARGETS } from '../schema/names.ts';
 export default defineApplicationRole({
   universalIdentifier: id('role.billing'),
   label: 'Billing Documents',
-  description: 'Reads and writes the app’s own records, reads companies, people and opportunities, and uploads PDFs. Never destroys a record.',
+  description: 'Reads and writes the app’s own records, reads companies, people and opportunities, writes timeline messages, and uploads PDFs. Never destroys a record.',
   canUpdateAllSettings: false,
   canAccessAllTools: false,
   canReadAllObjectRecords: false,
@@ -37,6 +37,14 @@ export default defineApplicationRole({
       canSoftDeleteObjectRecords: false,
       canDestroyObjectRecords: false,
     })),
+    {
+      // The messages the app leaves on a record's timeline, written as the app so their author reads as the app.
+      objectUniversalIdentifier: STANDARD_OBJECT.timelineActivity.universalIdentifier,
+      canReadObjectRecords: true,
+      canUpdateObjectRecords: true,
+      canSoftDeleteObjectRecords: false,
+      canDestroyObjectRecords: false,
+    },
   ],
   permissionFlagUniversalIdentifiers: [SystemPermissionFlag.UPLOAD_FILE],
 });

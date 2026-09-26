@@ -1,6 +1,7 @@
 import { defineObject } from 'twenty-sdk/define';
 import { fieldId, objectId } from '../schema/fields.ts';
 import { lineFields } from '../schema/documents.ts';
+import { markAppOnly } from '../schema/app-only.ts';
 
 const O = 'billingQuoteLine';
 
@@ -13,5 +14,5 @@ export default defineObject({
   description: 'One line of a quote.',
   icon: 'IconList',
   labelIdentifierFieldMetadataUniversalIdentifier: fieldId(O, 'description'),
-  fields: lineFields({ object: O, parentObject: 'billingQuote', parentField: 'quote', parentLabel: 'Quote', catalogInverse: 'quoteLines', taxCodeInverse: 'quoteLines' }),
+  fields: markAppOnly(O, lineFields({ object: O, parentObject: 'billingQuote', parentField: 'quote', parentLabel: 'Quote', catalogInverse: 'quoteLines', taxCodeInverse: 'quoteLines' })),
 });

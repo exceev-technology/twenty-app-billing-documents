@@ -1,7 +1,8 @@
 import { defineObject, OnDeleteAction } from 'twenty-sdk/define';
 import {
-  address, boolean, emails, fieldId, files, links, manyToOne, objectId, oneToMany, phones, richText, text,
+  address, boolean, emails, fieldId, files, links, manyToOne, objectId, oneToMany, phones, richText, select, text,
 } from '../schema/fields.ts';
+import { TEMPLATES } from '../schema/options.ts';
 
 const O = 'billingIssuer';
 
@@ -28,6 +29,7 @@ export default defineObject({
     text(O, 'defaultCurrency', { label: 'Default currency', description: "ISO 4217 code. Empty: the profile's.", icon: 'IconCurrencyDollar' }),
     richText(O, 'paymentDetails', { label: 'Payment details', description: 'Free text: bank formats differ by country.', icon: 'IconBuildingBank' }),
     text(O, 'accentColor', { label: 'Accent colour', description: '#RRGGBB.', icon: 'IconPalette' }),
+    select(O, 'template', { label: 'Template', description: 'The layout of the PDFs.', icon: 'IconLayout' }, TEMPLATES, 'CLASSIC'),
     text(O, 'footerNote', { label: 'Footer note', icon: 'IconAlignLeft' }),
     links(O, 'verificationBaseUrl', { label: 'Verification link', description: "Used when the profile's QR mode is \"Link with payload\".", icon: 'IconQrcode' }),
     boolean(O, 'isDefault', { label: 'Default issuer', icon: 'IconStar' }, false),

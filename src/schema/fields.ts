@@ -71,6 +71,9 @@ export const decimal = (o: string, n: string, m: Meta, decimals: number) =>
 export const files = (o: string, n: string, m: Meta, maxNumberOfValues: number) =>
   field(o, n, FieldType.FILES, m, { universalSettings: { maxNumberOfValues } });
 
+/** A field no two records share. Blank values do not collide; a soft-deleted record keeps its value. */
+export const unique = (f: ObjectField): ObjectField => ({ ...f, isUnique: true }) as unknown as ObjectField;
+
 /**
  * Options get explicit identifiers. Left without one, the CLI derives it from
  * the label, so renaming a label would change the identifier and lose the

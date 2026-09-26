@@ -1,6 +1,6 @@
 import { OnDeleteAction } from 'twenty-sdk/define';
 import {
-  boolean, currency, date, decimal, files, integer, manyToOne, oneToMany, rawJson, richText, select, text,
+  boolean, currency, date, decimal, files, integer, manyToOne, oneToMany, rawJson, richText, select, text, unique,
   type ObjectField, type Option,
 } from './fields.ts';
 import { LANGUAGES, UNITS } from './options.ts';
@@ -24,6 +24,7 @@ export function documentFields(d: DocumentShape): ObjectField[] {
   return [
     text(O, 'subject', { label: 'Subject', icon: 'IconFileText' }),
     text(O, 'number', { label: 'Number', description: 'Set when the document is numbered. Never typed by hand.', icon: 'IconHash' }),
+    unique(text(O, 'numberKey', { label: 'Number key', description: 'Issuer and number, so that no number is held twice. Set by the app.', icon: 'IconKey' })),
     select(O, 'status', { label: 'Status', icon: 'IconProgressCheck' }, d.statuses, 'DRAFT'),
     manyToOne(O, 'issuer', { label: 'Issuer', icon: 'IconBuildingStore' }, { object: 'billingIssuer', inverse: d.issuerInverse, onDelete: OnDeleteAction.SET_NULL }),
     manyToOne(O, 'company', { label: 'Company', icon: 'IconBuildingSkyscraper' }, { object: 'company', inverse: d.buyerInverse, onDelete: OnDeleteAction.SET_NULL }),
