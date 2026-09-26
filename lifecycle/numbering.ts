@@ -1,4 +1,4 @@
-import { EngineError, formatNumber, periodKey, validatePattern, type NumberingReset } from '../engine/index.ts';
+import { EngineError, formatNumber, periodBounds, periodKey, sequenceOf, validatePattern, type NumberingReset } from '../engine/index.ts';
 import { LifecycleError, type DocumentKind } from './lang/pack.ts';
 import { KINDS, type Kind } from './load.ts';
 import { DuplicateError, type Row, type Store, type Where } from './store.ts';
@@ -23,37 +23,6 @@ export const scopeOf = (kind: Kind, issuerId: string, reset: NumberingReset, iss
 });
 
 const kindOfType = (type: DocumentKind): Kind => Object.values(KINDS).find((kind) => kind.kind === type)!;
-
-/** The first and last day of a period: '2026' is the year, '2026-09' the month, 'ALL' has no bounds. */
-export function periodBounds(key: string): { gte: string; lte: string } | null {
-  if (key === 'ALL') return null;
-  const year = /^(\d{4})$/.exec(key);
-  if (year) return { gte: `${key}-01-01`, lte: `${key}-12-31` };
-  const month = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(key);
-  if (!month) throw new Error(`A period is ALL, YYYY or YYYY-MM, not "${key}"`);
-  // Day 0 of the next month is the last day of this one.
-  const last = new Date(Date.UTC(Number(month[1]), Number(month[2]), 0)).getUTCDate();
-  return { gte: `${key}-01`, lte: `${key}-${String(last).padStart(2, '0')}` };
-}
-
-const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/** The sequence a number was formatted from, read back through its pattern; null when the number does not fit it. */
-export function sequenceOf(pattern: string, number: string): number | null {
-  let group = 0;
-  let sequenceGroup = 0;
-  const source = pattern.split(/(\{[^{}]*\})/).map((part) => {
-    const token = /^\{([^{}]*)\}$/.exec(part)?.[1];
-    if (token === undefined) return escape(part);
-    group += 1;
-    if (token === 'YYYY') return '(\\d{4})';
-    if (token === 'YY' || token === 'MM') return '(\\d{2})';
-    sequenceGroup = group;
-    return '(\\d+)';
-  }).join('');
-  const match = new RegExp(`^${source}$`).exec(number);
-  return match && sequenceGroup > 0 ? Number(match[sequenceGroup]) : null;
-}
 
 /** A ledger's last value as a positive integer; anything else (empty, a typo, a negative number) counts as 0. */
 export function lastValueOf(ledger: Row | null | undefined): number {
@@ -170,7 +139,9 @@ export async function claimNumber(store: Store, input: ClaimInput): Promise<Clai
       if (!(error instanceof DuplicateError)) throw error;
       refusals += 1;
       if (refusals >= MAX_REFUSALS) {
-        throw new LifecycleError([{ code: 'LEDGER_BEHIND', value: `${scope.documentType} ${scope.periodKey}` }]);
+        const issuer = await store.get('billingIssuers', issuerId);
+        const issuerLabel = typeof issuer?.name === 'string' && issuer.name !== '' ? issuer.name : issuerId;
+        throw new LifecycleError([{ code: 'LEDGER_BEHIND', value: `${issuerLabel}, ${scope.periodKey}`, documentType: scope.documentType }]);
       }
       continue;
     }
@@ -191,8 +162,8 @@ const numberedIn = (scope: Scope): Where => {
 };
 
 /** The latest issue date among the scope's numbered documents, deleted ones included, other than `exceptId`. */
-export async function latestIssueDate(store: Store, kind: Kind, scope: Scope, exceptId: string): Promise<string | null> {
-  const rows = await store.list(kind.plural, numberedIn(scope), {
+export async function latestIssueDate(store: Store, scope: Scope, exceptId: string): Promise<string | null> {
+  const rows = await store.list(kindOfType(scope.documentType).plural, numberedIn(scope), {
     deleted: 'include', orderBy: { field: 'issueDate', direction: 'desc' }, limit: 2,
   });
   const latest = rows.find((row) => row.id !== exceptId && typeof row.issueDate === 'string' && row.issueDate !== '');

@@ -11,7 +11,7 @@ export type {
   TaxCodeInput,
   TaxComponentInput,
 } from './document.ts';
-export { formatNumber, periodKey, validatePattern } from './numbering.ts';
+export { formatNumber, periodBounds, periodKey, sequenceOf, validatePattern } from './numbering.ts';
 export type { NumberingReset } from './numbering.ts';
 export { EngineError } from './problems.ts';
 export type { Problem, ProblemCode } from './problems.ts';
