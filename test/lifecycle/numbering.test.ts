@@ -167,6 +167,55 @@ test('two drafts claimed while a deleted, keyed ledger row blocks a scope with n
   }
 });
 
+test('a holder captured before the scope had numbers is not restored once another claim has already moved its key on', async () => {
+  const w = workspace();
+  const old = w.db.seed('billingSequences', { issuerId: w.issuer.id, documentType: 'INVOICE', periodKey: '2026', lastValue: 99, scopeKey: scopeKeyOf(scope2026(w)) });
+  await w.app.softDelete('billingSequences', old.id);
+  // claimNumber never sets issueDate: both documents need it already, so that
+  // A's claim genuinely makes scopeHasNumbers true for B to observe.
+  const first = w.addInvoice({ issueDate: TODAY });
+  const second = w.addInvoice({ issueDate: TODAY });
+  const lock = lockstep(w.db);
+  // B: find (none live) -> create (refused: old still holds the key) ->
+  // list-by-key (captures `old`) -> then pauses, about to ask scopeHasNumbers.
+  const bPromise = claim(w, second.id, {}, lock.flow('B'));
+  await lock.step('B');
+  await lock.step('B');
+  await lock.step('B');
+  // A: runs to completion first, entirely undisturbed by B. The scope had no
+  // numbers when B captured `old`, so A frees `old`'s key, creates a fresh
+  // row and claims a number under it: the scope now has numbers, but `old`
+  // (the row B is still holding onto) is unkeyed, not restored.
+  const aPromise = claim(w, first.id, {}, lock.flow('A'));
+  while (await lock.step('A'));
+  await aPromise;
+  // B resumes: its scopeHasNumbers check now sees A's number, so it takes the
+  // "restore" branch — but its re-read must see `old` has lost the key, and
+  // skip restoring it, taking the fresh row A created instead.
+  await lock.finish(bPromise);
+  const b = await bPromise;
+  assert.equal(b.number, 'F2026-0002');
+  const live = w.db.rows('billingSequences').filter((row) => !row.deletedAt);
+  assert.equal(live.length, 1);
+  assert.equal(live[0]?.scopeKey, scopeKeyOf(scope2026(w)));
+  assert.equal(live[0]?.lastValue, 2);
+  const stale = w.db.row('billingSequences', old.id);
+  assert.ok(stale?.deletedAt);
+  assert.equal(stale?.scopeKey, null);
+});
+
+test('a restore refused for a reason other than the row already being live is not swallowed', async () => {
+  const w = workspace();
+  numbered(w, 'F2026-0001');
+  const old = w.db.seed('billingSequences', { issuerId: w.issuer.id, documentType: 'INVOICE', periodKey: '2026', lastValue: 1, scopeKey: scopeKeyOf(scope2026(w)) });
+  await w.app.softDelete('billingSequences', old.id);
+  const brokenRestore: Store = { ...w.app, restore: async () => { throw new Error('injected restore failure'); } };
+  await assert.rejects(ensureLedger(brokenRestore, scope2026(w)), /injected restore failure/);
+  // The row is exactly as broken: still deleted, still holding its key.
+  assert.ok(w.db.row('billingSequences', old.id)?.deletedAt);
+  assert.equal(w.db.row('billingSequences', old.id)?.scopeKey, scopeKeyOf(scope2026(w)));
+});
+
 test('the same draft claimed twice, while a deleted, keyed ledger row blocks a scope with no numbers, still converges on one number', async () => {
   for (const order of [['A', 'B'], ['B', 'A'], ['A', 'A', 'B'], ['B', 'B', 'A'], ['A', 'B', 'B', 'A']]) {
     const w = workspace();
@@ -264,6 +313,14 @@ test('in a scope that never resets, a numbered document with no issue date is ne
   assert.equal(await latestIssueDate(w.app, scope, dated.id), null);
   assert.equal(await latestIssueDate(w.app, scope, 'none'), '2026-01-01');
   assert.equal(await scopeHasNumbers(w.app, scope), true);
+});
+
+test('a scope that never resets counts a numbered document with no issue date at all, though the date rules still find none', async () => {
+  const w = workspace();
+  const scope = scopeOf(INVOICE, w.issuer.id, 'NEVER', TODAY);
+  numbered(w, 'F-0001', { issueDate: null });
+  assert.equal(await scopeHasNumbers(w.app, scope), true);
+  assert.equal(await latestIssueDate(w.app, scope, 'none'), null);
 });
 
 test('a claim in a scope that resets monthly numbers within the month, and the date rules see only that month', async () => {

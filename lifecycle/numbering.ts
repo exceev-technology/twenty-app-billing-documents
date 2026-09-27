@@ -58,11 +58,23 @@ async function resolveDuplicateLedger(store: Store, scope: Scope): Promise<Row |
   if (!holder.deletedAt) return holder; // Someone created it at the same moment.
   if (await scopeHasNumbers(store, scope)) {
     // Numbers already went out under this key: its lastValue must survive, so
-    // the row comes back rather than starting over.
-    try {
-      await store.restore(LEDGER, holder.id);
-    } catch {
-      // Another claim restored it first; it is live now, with the same key and lastValue.
+    // the row comes back rather than starting over. `holder` was read before
+    // this check (itself a read), so another claim may have moved on since:
+    // freed its key for a fresh row (the branch below, on another claim),
+    // or already restored it. Re-read before restoring, and restore only a
+    // holder that is still deleted and still holds the scope's key; a stale
+    // `holder` restored blindly could come back live without the key at all.
+    const current = await store.get(LEDGER, holder.id, { deleted: true });
+    if (current?.deletedAt && current.scopeKey === scopeKey) {
+      try {
+        await store.restore(LEDGER, holder.id);
+      } catch (error) {
+        const after = await store.get(LEDGER, holder.id, { deleted: true });
+        // Fine only when the holder itself is now live: another claim
+        // restored it first, with the same key and lastValue. Anything else
+        // is a real failure, not this race, and must not be swallowed.
+        if (!after || after.deletedAt) throw error;
+      }
     }
     const [live] = await store.list(LEDGER, { scopeKey }, { limit: 1 });
     return live ?? null;
@@ -150,27 +162,36 @@ export async function claimNumber(store: Store, input: ClaimInput): Promise<Clai
   }
 }
 
-/**
- * Always constrains issueDate to a non-blank value, even in a scope with no
- * period bounds ('ALL'): left unconstrained, a DESC order by issueDate could
- * sort a blank first (Postgres does, with NULLs before values by default)
- * and starve a limited read of the dated rows it needs.
- */
+/** The scope's numbered documents: its issuer and type, and the period's own date bounds when it has any. */
 const numberedIn = (scope: Scope): Where => {
-  const bounds = periodBounds(scope.periodKey) ?? { gte: '0001-01-01' };
-  return { issuerId: scope.issuerId, numberKey: { notNull: true }, issueDate: bounds };
+  const bounds = periodBounds(scope.periodKey);
+  return { issuerId: scope.issuerId, numberKey: { notNull: true }, ...(bounds ? { issueDate: bounds } : {}) };
 };
+
+/**
+ * Like numberedIn, but always excludes a blank issue date too, even in a
+ * scope with no period bounds ('ALL'): left unconstrained there, a DESC
+ * order by issueDate could sort a blank first (Postgres does, with NULLs
+ * before values by default) and starve a limited read of the dated rows it
+ * needs. Only latestIssueDate reads an order and a limited slice; scopeHasNumbers
+ * just asks whether any row matches, so a document with no issue date still
+ * counts for it in an 'ALL' scope.
+ */
+const datedIn = (scope: Scope): Where => ({
+  ...numberedIn(scope),
+  issueDate: periodBounds(scope.periodKey) ?? { gte: '0001-01-01' },
+});
 
 /** The latest issue date among the scope's numbered documents, deleted ones included, other than `exceptId`. */
 export async function latestIssueDate(store: Store, scope: Scope, exceptId: string): Promise<string | null> {
-  const rows = await store.list(kindOfType(scope.documentType).plural, numberedIn(scope), {
+  const rows = await store.list(kindOfType(scope.documentType).plural, datedIn(scope), {
     deleted: 'include', orderBy: { field: 'issueDate', direction: 'desc' }, limit: 2,
   });
   const latest = rows.find((row) => row.id !== exceptId && typeof row.issueDate === 'string' && row.issueDate !== '');
   return latest ? String(latest.issueDate) : null;
 }
 
-/** Whether the scope has given out a number: a document of its issuer and type holds a key dated inside the period. */
+/** Whether the scope has given out a number: a document of its issuer and type holds a key, dated inside the period when it has one. */
 export async function scopeHasNumbers(store: Store, scope: Scope): Promise<boolean> {
   const rows = await store.list(kindOfType(scope.documentType).plural, numberedIn(scope), { deleted: 'include', limit: 1 });
   return rows.length > 0;
