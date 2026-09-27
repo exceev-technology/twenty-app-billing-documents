@@ -13,7 +13,7 @@ const RENDER_CODES = [
   'MISSING_TAX_NAME', 'INVALID_LOCALE', 'INVALID_DATE', 'INVALID_CURRENCY', 'QR_BASE_URL_MISSING', 'QR_PAYLOAD_EMPTY',
 ];
 const UNITS = ['UNIT', 'HOUR', 'DAY', 'WEEK', 'MONTH', 'YEAR', 'KG', 'G', 'TONNE', 'M', 'KM', 'M2', 'M3', 'LITRE', 'KWH', 'FLAT_FEE', 'PACKAGE'];
-const DETAILS = { field: 'seller', value: 'SIREN' };
+const DETAILS = { field: 'seller', value: 'SIREN', documentType: 'INVOICE' } as const;
 
 const filled = (text: string, where: string) => assert.ok(text.trim().length > 0, `${where} is empty`);
 

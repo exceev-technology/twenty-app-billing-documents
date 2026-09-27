@@ -39,7 +39,8 @@ export const fr: LifecyclePack = {
     DATE_BEFORE_LAST: ({ value }) => `La date d’émission est antérieure au ${value}, date du dernier document numéroté de sa séquence.`,
     DUE_BEFORE_ISSUE: () => 'L’échéance est antérieure à la date d’émission.',
     CLOCK_SKEW: () => 'La date de votre ordinateur s’écarte de plus d’un jour de celle du serveur\u00a0: vérifiez sa date et son heure.',
-    LEDGER_BEHIND: ({ value }) => `La séquence de numérotation ${value} est très en retard sur les numéros déjà attribués\u00a0: augmentez son dernier numéro.`,
+    LEDGER_BEHIND: ({ value, documentType }) =>
+      `La séquence de numérotation de type ${documentType ? kinds[documentType] : 'document'}, pour ${value}, est très en retard sur les numéros déjà attribués\u00a0: augmentez son dernier numéro.`,
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Certains caractères ne peuvent pas être imprimés avec la police du PDF (${field})\u00a0: ${value}`,

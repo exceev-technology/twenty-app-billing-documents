@@ -13,8 +13,12 @@ export type LifecycleProblemCode =
   | 'MISSING_INVOICE' | 'INVOICE_NOT_ISSUED' | 'INVOICE_MISMATCH'
   | 'DATE_IN_FUTURE' | 'DATE_BEFORE_LAST' | 'DUE_BEFORE_ISSUE' | 'CLOCK_SKEW' | 'LEDGER_BEHIND';
 
-/** A problem is data: `field` names what to fix, `value` what was found. The packs word it. */
-export type LifecycleProblem = { code: LifecycleProblemCode; field?: string; value?: string };
+/**
+ * A problem is data: `field` names what to fix, `value` what was found. The
+ * packs word it. `documentType` is carried only by LEDGER_BEHIND, raw, so
+ * each pack can word it with its own kind names instead of printing the enum.
+ */
+export type LifecycleProblem = { code: LifecycleProblemCode; field?: string; value?: string; documentType?: DocumentKind };
 
 /** A refusal found part-way through, such as a sequence too far behind: it carries its problems to the action. */
 export class LifecycleError extends Error {
@@ -51,7 +55,7 @@ export type StatusKey = 'DRAFT' | 'ISSUED' | 'SENT' | 'PAID' | 'CANCELLED' | 'AC
 /** Which status rule a move broke (spec §7): issuing, returning to draft, cancelling, or invoicing a quote. */
 export type StatusRule = 'ISSUE' | 'DRAFT' | 'CANCEL' | 'INVOICED';
 
-type Details = { field?: string; value?: string };
+type Details = { field?: string; value?: string; documentType?: DocumentKind };
 
 export type LifecyclePack = {
   code: Language;
@@ -100,8 +104,8 @@ export function describe(problem: AnyProblem, language: Language, lineNumbers?: 
     const { code, field, value } = problem.problem;
     return { code, message: pack.renderProblems[code]({ field, value }), ...(field ? { field } : {}) };
   }
-  const { code, field, value } = problem;
-  return { code, message: pack.problems[code]({ field, value }), ...(field ? { field } : {}) };
+  const { code, field, value, documentType } = problem;
+  return { code, message: pack.problems[code]({ field, value, documentType }), ...(field ? { field } : {}) };
 }
 
 export function describeAll(problems: readonly AnyProblem[], language: Language, lineNumbers?: ReadonlyMap<string, number>): WordedProblem[] {

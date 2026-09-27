@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatNumber, periodKey, validatePattern } from '../../engine/numbering.ts';
+import { formatNumber, periodBounds, periodKey, sequenceOf, validatePattern } from '../../engine/numbering.ts';
 import { EngineError } from '../../engine/problems.ts';
 
 test('a pattern fills in the year, the month and the padded sequence', () => {
@@ -72,4 +72,24 @@ test('a reset other than never, yearly or monthly is refused, never read as mont
 test('an impossible date is refused, whatever the reset', () => {
   assert.throws(() => formatNumber('{YYYY}{MM}-{SEQ:3}', 1, '2026-13-40'), /YYYY-MM-DD/);
   assert.throws(() => periodKey('NEVER', 'not a date'), /YYYY-MM-DD/);
+});
+
+test('a period runs from its first day to its last, the inverse of periodKey', () => {
+  assert.equal(periodBounds('ALL'), null);
+  assert.deepEqual(periodBounds('2026'), { gte: '2026-01-01', lte: '2026-12-31' });
+  assert.deepEqual(periodBounds('2026-09'), { gte: '2026-09-01', lte: '2026-09-30' });
+  assert.deepEqual(periodBounds('2028-02'), { gte: '2028-02-01', lte: '2028-02-29' });
+  assert.deepEqual(periodBounds('2026-02'), { gte: '2026-02-01', lte: '2026-02-28' });
+  assert.deepEqual(periodBounds('2000-02'), { gte: '2000-02-01', lte: '2000-02-29' });
+  assert.deepEqual(periodBounds('1900-02'), { gte: '1900-02-01', lte: '1900-02-28' });
+  assert.throws(() => periodBounds('2026-13'), /period/);
+});
+
+test('a number’s sequence is read back through its pattern', () => {
+  assert.equal(sequenceOf('INV-{YYYY}-{SEQ:4}', 'INV-2026-0017'), 17);
+  assert.equal(sequenceOf('INV-{YYYY}-{SEQ:4}', 'INV-2026-12345'), 12345);
+  assert.equal(sequenceOf('INV-{SEQ:5}', 'INV-00001'), 1);
+  assert.equal(sequenceOf('{YY}{MM}-{SEQ:3}', '2609-120'), 120);
+  assert.equal(sequenceOf('A.{SEQ:2}(x)', 'A.07(x)'), 7);
+  assert.equal(sequenceOf('INV-{YYYY}-{SEQ:4}', 'Q-2026-0001'), null);
 });

@@ -36,7 +36,8 @@ export const en: LifecyclePack = {
     DATE_BEFORE_LAST: ({ value }) => `The issue date is earlier than ${value}, the date of the last numbered document in its sequence.`,
     DUE_BEFORE_ISSUE: () => 'The due date is earlier than the issue date.',
     CLOCK_SKEW: () => 'Your computer’s date is more than a day away from the server’s: check its date and time.',
-    LEDGER_BEHIND: ({ value }) => `The numbering sequence ${value} is far behind the numbers already given: raise its last number.`,
+    LEDGER_BEHIND: ({ value, documentType }) =>
+      `The ${documentType ? kinds[documentType] : 'document'} numbering sequence of ${value} is far behind the numbers already given: raise its last number.`,
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Some characters cannot be printed with the PDF’s font (${field}): ${value}`,

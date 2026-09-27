@@ -4,8 +4,8 @@ import { EngineError } from '../../engine/index.ts';
 import { LifecycleError } from '../../lifecycle/lang/pack.ts';
 import { KINDS } from '../../lifecycle/load.ts';
 import {
-  claimNumber, ensureLedger, latestIssueDate, nextNumber, numberKeyOf, periodBounds, raiseLedger, scopeHasNumbers, scopeKeyOf,
-  scopeOf, sequenceOf, type ClaimInput,
+  claimNumber, ensureLedger, latestIssueDate, nextNumber, numberKeyOf, raiseLedger, scopeHasNumbers, scopeKeyOf,
+  scopeOf, type ClaimInput,
 } from '../../lifecycle/numbering.ts';
 import type { Store } from '../../lifecycle/store.ts';
 import { lockstep } from './helpers/memory-store.ts';
@@ -23,23 +23,8 @@ const scope2026 = (w: Workspace) => scopeOf(INVOICE, w.issuer.id, 'YEARLY', TODA
 const numbered = (w: Workspace, number: string, over: Record<string, unknown> = {}) =>
   w.addInvoice({ number, numberKey: numberKeyOf(w.issuer.id, number), issueDate: TODAY, ...over });
 
-test('a period runs from its first day to its last', () => {
-  assert.equal(periodBounds('ALL'), null);
-  assert.deepEqual(periodBounds('2026'), { gte: '2026-01-01', lte: '2026-12-31' });
-  assert.deepEqual(periodBounds('2026-09'), { gte: '2026-09-01', lte: '2026-09-30' });
-  assert.deepEqual(periodBounds('2028-02'), { gte: '2028-02-01', lte: '2028-02-29' });
-  assert.deepEqual(periodBounds('2026-02'), { gte: '2026-02-01', lte: '2026-02-28' });
-  assert.throws(() => periodBounds('2026-13'), /period/);
-});
-
-test('a number’s sequence is read back through its pattern', () => {
-  assert.equal(sequenceOf(PATTERN, 'F2026-0017'), 17);
-  assert.equal(sequenceOf(PATTERN, 'F2026-12345'), 12345);
-  assert.equal(sequenceOf('INV-{SEQ:5}', 'INV-00001'), 1);
-  assert.equal(sequenceOf('{YY}{MM}-{SEQ:3}', '2609-120'), 120);
-  assert.equal(sequenceOf('A.{SEQ:2}(x)', 'A.07(x)'), 7);
-  assert.equal(sequenceOf(PATTERN, 'Q-2026-0001'), null);
-});
+// periodBounds and sequenceOf now live in the Engine (test/engine/numbering.test.ts):
+// this file exercises them only through Lifecycle's own functions.
 
 test('the scope is the issuer, the document type and the period of the issue date', () => {
   const w = workspace();
@@ -71,15 +56,27 @@ test('a number another document holds is stepped over', async () => {
   assert.equal(w.db.rows('billingSequences')[0]?.lastValue, 2);
 });
 
-test('after fifty refusals the claim stops with LEDGER_BEHIND, naming the sequence, and holds no number', async () => {
+test('after fifty refusals the claim stops with LEDGER_BEHIND, naming the issuer, the type and the period, and holds no number', async () => {
   const w = workspace();
   for (let n = 1; n <= 50; n++) numbered(w, `F2026-${String(n).padStart(4, '0')}`);
   await assert.rejects(claim(w, w.invoice.id), (error: unknown) => {
     assert.ok(error instanceof LifecycleError);
-    assert.deepEqual(error.problems, [{ code: 'LEDGER_BEHIND', value: 'INVOICE 2026' }]);
+    assert.deepEqual(error.problems, [{ code: 'LEDGER_BEHIND', value: `${w.issuer.name}, 2026`, documentType: 'INVOICE' }]);
     return true;
   });
   assert.equal(w.db.row('billingInvoices', w.invoice.id)?.number, '');
+});
+
+test('LEDGER_BEHIND falls back to the issuer’s id when it has no name', async () => {
+  const w = workspace();
+  const other = w.db.seed('billingIssuers', { profileId: w.profile.id });
+  const theirs = w.addInvoice({ issuerId: other.id });
+  for (let n = 1; n <= 50; n++) w.addInvoice({ issuerId: other.id, number: `F2026-${String(n).padStart(4, '0')}`, numberKey: numberKeyOf(other.id, `F2026-${String(n).padStart(4, '0')}`), issueDate: TODAY });
+  await assert.rejects(claim(w, theirs.id, { issuerId: other.id }), (error: unknown) => {
+    assert.ok(error instanceof LifecycleError);
+    assert.deepEqual(error.problems, [{ code: 'LEDGER_BEHIND', value: `${other.id}, 2026`, documentType: 'INVOICE' }]);
+    return true;
+  });
 });
 
 test('forty-nine refusals still end with a number', async () => {
@@ -149,6 +146,107 @@ test('a ledger row deleted before its first number, still holding its key, does 
   assert.equal(w.db.row('billingSequences', old.id)?.scopeKey, null);
 });
 
+test('two drafts claimed while a deleted, keyed ledger row blocks a scope with no numbers still converge on consecutive numbers', async () => {
+  for (const order of [['A', 'B'], ['B', 'A'], ['A', 'A', 'B'], ['B', 'B', 'A'], ['A', 'B', 'B', 'A']]) {
+    const w = workspace();
+    const old = w.db.seed('billingSequences', { issuerId: w.issuer.id, documentType: 'INVOICE', periodKey: '2026', lastValue: 99, scopeKey: scopeKeyOf(scope2026(w)) });
+    await w.app.softDelete('billingSequences', old.id);
+    const second = w.addInvoice();
+    const lock = lockstep(w.db);
+    const both = Promise.all([claim(w, w.invoice.id, {}, lock.flow('A')), claim(w, second.id, {}, lock.flow('B'))]);
+    for (let round = 0; round < 12; round++) for (const name of order) await lock.step(name);
+    await lock.finish();
+    const numbers = (await both).map((result) => result.number).sort();
+    assert.deepEqual(numbers, ['F2026-0001', 'F2026-0002'], order.join(''));
+    const live = w.db.rows('billingSequences').filter((row) => !row.deletedAt);
+    assert.equal(live.length, 1, order.join(''));
+    assert.equal(live[0]?.scopeKey, scopeKeyOf(scope2026(w)), order.join(''));
+    assert.equal(live[0]?.lastValue, 2, order.join(''));
+    assert.ok(w.db.row('billingSequences', old.id)?.deletedAt, order.join(''));
+    assert.equal(w.db.row('billingSequences', old.id)?.scopeKey, null, order.join(''));
+  }
+});
+
+test('a holder captured before the scope had numbers is not restored once another claim has already moved its key on', async () => {
+  const w = workspace();
+  const old = w.db.seed('billingSequences', { issuerId: w.issuer.id, documentType: 'INVOICE', periodKey: '2026', lastValue: 99, scopeKey: scopeKeyOf(scope2026(w)) });
+  await w.app.softDelete('billingSequences', old.id);
+  // claimNumber never sets issueDate: both documents need it already, so that
+  // A's claim genuinely makes scopeHasNumbers true for B to observe.
+  const first = w.addInvoice({ issueDate: TODAY });
+  const second = w.addInvoice({ issueDate: TODAY });
+  const lock = lockstep(w.db);
+  // B: find (none live) -> create (refused: old still holds the key) ->
+  // list-by-key (captures `old`) -> then pauses, about to ask scopeHasNumbers.
+  const bPromise = claim(w, second.id, {}, lock.flow('B'));
+  await lock.step('B');
+  await lock.step('B');
+  await lock.step('B');
+  // A: runs to completion first, entirely undisturbed by B. The scope had no
+  // numbers when B captured `old`, so A frees `old`'s key, creates a fresh
+  // row and claims a number under it: the scope now has numbers, but `old`
+  // (the row B is still holding onto) is unkeyed, not restored.
+  const aPromise = claim(w, first.id, {}, lock.flow('A'));
+  while (await lock.step('A'));
+  await aPromise;
+  // B resumes: its scopeHasNumbers check now sees A's number, so it takes the
+  // "restore" branch — but its re-read must see `old` has lost the key, and
+  // skip restoring it, taking the fresh row A created instead.
+  await lock.finish(bPromise);
+  const b = await bPromise;
+  assert.equal(b.number, 'F2026-0002');
+  const live = w.db.rows('billingSequences').filter((row) => !row.deletedAt);
+  assert.equal(live.length, 1);
+  assert.equal(live[0]?.scopeKey, scopeKeyOf(scope2026(w)));
+  assert.equal(live[0]?.lastValue, 2);
+  const stale = w.db.row('billingSequences', old.id);
+  assert.ok(stale?.deletedAt);
+  assert.equal(stale?.scopeKey, null);
+});
+
+test('a restore refused for a reason other than the row already being live is not swallowed', async () => {
+  const w = workspace();
+  numbered(w, 'F2026-0001');
+  const old = w.db.seed('billingSequences', { issuerId: w.issuer.id, documentType: 'INVOICE', periodKey: '2026', lastValue: 1, scopeKey: scopeKeyOf(scope2026(w)) });
+  await w.app.softDelete('billingSequences', old.id);
+  const brokenRestore: Store = { ...w.app, restore: async () => { throw new Error('injected restore failure'); } };
+  await assert.rejects(ensureLedger(brokenRestore, scope2026(w)), /injected restore failure/);
+  // The row is exactly as broken: still deleted, still holding its key.
+  assert.ok(w.db.row('billingSequences', old.id)?.deletedAt);
+  assert.equal(w.db.row('billingSequences', old.id)?.scopeKey, scopeKeyOf(scope2026(w)));
+});
+
+test('the same draft claimed twice, while a deleted, keyed ledger row blocks a scope with no numbers, still converges on one number', async () => {
+  for (const order of [['A', 'B'], ['B', 'A'], ['A', 'A', 'B'], ['B', 'B', 'A'], ['A', 'B', 'B', 'A']]) {
+    const w = workspace();
+    const old = w.db.seed('billingSequences', { issuerId: w.issuer.id, documentType: 'INVOICE', periodKey: '2026', lastValue: 99, scopeKey: scopeKeyOf(scope2026(w)) });
+    await w.app.softDelete('billingSequences', old.id);
+    const lock = lockstep(w.db);
+    const both = Promise.all([claim(w, w.invoice.id, {}, lock.flow('A')), claim(w, w.invoice.id, {}, lock.flow('B'))]);
+    for (let round = 0; round < 12; round++) for (const name of order) await lock.step(name);
+    await lock.finish();
+    const [a, b] = await both;
+    assert.equal(a.number, 'F2026-0001', order.join(''));
+    assert.equal(b.number, 'F2026-0001', order.join(''));
+    const live = w.db.rows('billingSequences').filter((row) => !row.deletedAt);
+    assert.equal(live.length, 1, order.join(''));
+    assert.equal(live[0]?.lastValue, 1, order.join(''));
+  }
+});
+
+test('a ledger row deleted after its scope has given out numbers is restored, keeping its key and lastValue', async () => {
+  const w = workspace();
+  for (let n = 1; n <= 60; n++) numbered(w, `F2026-${String(n).padStart(4, '0')}`);
+  const ledger = w.db.seed('billingSequences', { issuerId: w.issuer.id, documentType: 'INVOICE', periodKey: '2026', lastValue: 60, scopeKey: scopeKeyOf(scope2026(w)) });
+  await w.app.softDelete('billingSequences', ledger.id);
+  assert.equal((await claim(w, w.invoice.id)).number, 'F2026-0061');
+  const live = w.db.row('billingSequences', ledger.id);
+  assert.ok(live && !live.deletedAt);
+  assert.equal(live?.scopeKey, scopeKeyOf(scope2026(w)));
+  assert.equal(live?.lastValue, 61);
+  assert.equal(w.db.rows('billingSequences').filter((row) => !row.deletedAt).length, 1);
+});
+
 test('each year has its own sequence, and the number carries the issue date’s year', async () => {
   const w = workspace();
   assert.equal((await claim(w, w.invoice.id, { issueDate: '2025-12-31' })).number, 'F2025-0001');
@@ -167,6 +265,12 @@ test('two issuers can both hold F2026-0001', async () => {
 test('a pattern the Engine refuses is refused before anything is written', async () => {
   const w = workspace();
   await assert.rejects(claim(w, w.invoice.id, { pattern: 'F-{SEQ}' }), EngineError);
+  assert.deepEqual(w.db.writes, []);
+});
+
+test('a pattern refused only because it would repeat numbers under its reset still stops before anything is written', async () => {
+  const w = workspace();
+  await assert.rejects(claim(w, w.invoice.id, { pattern: 'F-{SEQ:4}', reset: 'YEARLY' }), EngineError);
   assert.deepEqual(w.db.writes, []);
 });
 
@@ -196,9 +300,60 @@ test('the latest issue date of a scope counts deleted documents, and nothing out
   numbered(w, 'F2025-0009', { issueDate: '2025-12-30' });
   w.addInvoice({ issueDate: '2026-09-01' });
   const self = numbered(w, 'F2026-0003', { issueDate: '2026-06-01' });
-  assert.equal(await latestIssueDate(w.app, INVOICE, scope2026(w), self.id), '2026-05-01');
-  assert.equal(await latestIssueDate(w.app, INVOICE, scope2026(w), 'none'), '2026-06-01');
-  assert.equal(await latestIssueDate(w.app, INVOICE, { ...scope2026(w), periodKey: '2024' }, 'none'), null);
+  assert.equal(await latestIssueDate(w.app, scope2026(w), self.id), '2026-05-01');
+  assert.equal(await latestIssueDate(w.app, scope2026(w), 'none'), '2026-06-01');
+  assert.equal(await latestIssueDate(w.app, { ...scope2026(w), periodKey: '2024' }, 'none'), null);
+});
+
+test('in a scope that never resets, a numbered document with no issue date is never the latest, and does not hide the one that has one', async () => {
+  const w = workspace();
+  const scope = scopeOf(INVOICE, w.issuer.id, 'NEVER', TODAY);
+  const dated = numbered(w, 'F-0001', { issueDate: '2026-01-01' });
+  numbered(w, 'F-0002', { issueDate: null });
+  assert.equal(await latestIssueDate(w.app, scope, dated.id), null);
+  assert.equal(await latestIssueDate(w.app, scope, 'none'), '2026-01-01');
+  assert.equal(await scopeHasNumbers(w.app, scope), true);
+});
+
+test('a scope that never resets counts a numbered document with no issue date at all, though the date rules still find none', async () => {
+  const w = workspace();
+  const scope = scopeOf(INVOICE, w.issuer.id, 'NEVER', TODAY);
+  numbered(w, 'F-0001', { issueDate: null });
+  assert.equal(await scopeHasNumbers(w.app, scope), true);
+  assert.equal(await latestIssueDate(w.app, scope, 'none'), null);
+});
+
+test('a claim in a scope that resets monthly numbers within the month, and the date rules see only that month', async () => {
+  const w = workspace();
+  const pattern = 'F{YYYY}{MM}-{SEQ:3}';
+  const scope = scopeOf(INVOICE, w.issuer.id, 'MONTHLY', TODAY);
+  assert.equal(scope.periodKey, '2026-09');
+  // claimNumber only sets number and numberKey: the document must already carry
+  // the issue date the date rules (scopeHasNumbers, latestIssueDate) read.
+  const first = w.addInvoice({ issueDate: TODAY });
+  assert.equal(await scopeHasNumbers(w.app, scope), false);
+  assert.equal((await claim(w, first.id, { pattern, reset: 'MONTHLY' })).number, 'F202609-001');
+  assert.equal(await scopeHasNumbers(w.app, scope), true);
+  assert.equal(await latestIssueDate(w.app, scope, first.id), null);
+  const second = w.addInvoice({ issueDate: TODAY });
+  assert.equal((await claim(w, second.id, { pattern, reset: 'MONTHLY' })).number, 'F202609-002');
+  assert.equal(await latestIssueDate(w.app, scope, second.id), TODAY);
+});
+
+test('a claim in a scope that never resets shares one sequence across every period', async () => {
+  const w = workspace();
+  const pattern = 'F-{SEQ:3}';
+  const scope = scopeOf(INVOICE, w.issuer.id, 'NEVER', TODAY);
+  assert.equal(scope.periodKey, 'ALL');
+  const first = w.addInvoice({ issueDate: TODAY });
+  assert.equal(await scopeHasNumbers(w.app, scope), false);
+  assert.equal((await claim(w, first.id, { pattern, reset: 'NEVER' })).number, 'F-001');
+  assert.equal(await scopeHasNumbers(w.app, scope), true);
+  assert.equal(await latestIssueDate(w.app, scope, first.id), null);
+  const nextYear = w.addInvoice({ issueDate: '2027-01-05' });
+  assert.equal((await claim(w, nextYear.id, { pattern, reset: 'NEVER', issueDate: '2027-01-05' })).number, 'F-002');
+  assert.equal(await latestIssueDate(w.app, scope, nextYear.id), TODAY);
+  assert.equal(await latestIssueDate(w.app, scope, 'none'), '2027-01-05');
 });
 
 test('a scope has given out a number once a document of its issuer and type holds a key dated inside it', async () => {

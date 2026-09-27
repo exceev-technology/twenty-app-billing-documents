@@ -53,6 +53,19 @@ test('a unique field refuses a second holder, lets blanks coexist, and keeps a s
   await store.update('billingInvoices', second.id, { numberKey: 'i:F2' });
 });
 
+test('an update reaches a soft-deleted row too, and leaves it deleted', async () => {
+  const memory = db();
+  const store = memory.store();
+  const invoice = await store.create('billingInvoices', { subject: 'a' });
+  await store.softDelete('billingInvoices', invoice.id);
+  const after = await store.update('billingInvoices', invoice.id, { subject: 'b' });
+  assert.equal(after.subject, 'b');
+  assert.ok(after.deletedAt);
+  const row = memory.row('billingInvoices', invoice.id);
+  assert.equal(row?.subject, 'b');
+  assert.ok(row?.deletedAt);
+});
+
 test('a role that cannot edit refuses the write, and a person cannot write an app-only field', async () => {
   const memory = db();
   const invoice = await memory.store().create('billingInvoices', { subject: 'x' });

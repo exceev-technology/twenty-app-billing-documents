@@ -1,4 +1,4 @@
-import { EngineError, formatNumber, periodKey, validatePattern, type NumberingReset } from '../engine/index.ts';
+import { EngineError, formatNumber, periodBounds, periodKey, sequenceOf, validatePattern, type NumberingReset } from '../engine/index.ts';
 import { LifecycleError, type DocumentKind } from './lang/pack.ts';
 import { KINDS, type Kind } from './load.ts';
 import { DuplicateError, type Row, type Store, type Where } from './store.ts';
@@ -24,37 +24,6 @@ export const scopeOf = (kind: Kind, issuerId: string, reset: NumberingReset, iss
 
 const kindOfType = (type: DocumentKind): Kind => Object.values(KINDS).find((kind) => kind.kind === type)!;
 
-/** The first and last day of a period: '2026' is the year, '2026-09' the month, 'ALL' has no bounds. */
-export function periodBounds(key: string): { gte: string; lte: string } | null {
-  if (key === 'ALL') return null;
-  const year = /^(\d{4})$/.exec(key);
-  if (year) return { gte: `${key}-01-01`, lte: `${key}-12-31` };
-  const month = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(key);
-  if (!month) throw new Error(`A period is ALL, YYYY or YYYY-MM, not "${key}"`);
-  // Day 0 of the next month is the last day of this one.
-  const last = new Date(Date.UTC(Number(month[1]), Number(month[2]), 0)).getUTCDate();
-  return { gte: `${key}-01`, lte: `${key}-${String(last).padStart(2, '0')}` };
-}
-
-const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/** The sequence a number was formatted from, read back through its pattern; null when the number does not fit it. */
-export function sequenceOf(pattern: string, number: string): number | null {
-  let group = 0;
-  let sequenceGroup = 0;
-  const source = pattern.split(/(\{[^{}]*\})/).map((part) => {
-    const token = /^\{([^{}]*)\}$/.exec(part)?.[1];
-    if (token === undefined) return escape(part);
-    group += 1;
-    if (token === 'YYYY') return '(\\d{4})';
-    if (token === 'YY' || token === 'MM') return '(\\d{2})';
-    sequenceGroup = group;
-    return '(\\d+)';
-  }).join('');
-  const match = new RegExp(`^${source}$`).exec(number);
-  return match && sequenceGroup > 0 ? Number(match[sequenceGroup]) : null;
-}
-
 /** A ledger's last value as a positive integer; anything else (empty, a typo, a negative number) counts as 0. */
 export function lastValueOf(ledger: Row | null | undefined): number {
   const value = Number(ledger?.lastValue ?? 0);
@@ -71,17 +40,56 @@ export async function findLedger(store: Store, scope: Scope): Promise<Row | null
 
 /**
  * Twenty keeps a soft-deleted row's values, its unique key included, so a
- * ledger row deleted before its scope gave out a number would block the
- * scope for ever. Frees the key: the row comes back just long enough to
- * lose it. True when a row was freed.
+ * ledger row deleted before it ever gave out a number would otherwise block
+ * the scope for ever, and one deleted after numbers went out must not lose
+ * its lastValue. Twenty also accepts an update to a soft-deleted row and
+ * leaves it deleted, which is what lets a stale key be freed without ever
+ * bringing its lastValue back to life.
+ *
+ * Called when creating the scope's ledger row was refused as a duplicate:
+ * another row already holds the scope's key, live or deleted. Resolves to
+ * the row to use, or null when the key is held by neither (someone else's
+ * attempt raced past it; the caller tries again).
  */
-export async function releaseDeletedHolder(store: Store, scopeKey: string): Promise<boolean> {
-  const [holder] = await store.list(LEDGER, { scopeKey }, { deleted: 'only', limit: 1 });
-  if (!holder) return false;
-  await store.restore(LEDGER, holder.id);
+async function resolveDuplicateLedger(store: Store, scope: Scope): Promise<Row | null> {
+  const scopeKey = scopeKeyOf(scope);
+  const [holder] = await store.list(LEDGER, { scopeKey }, { deleted: 'include', limit: 1 });
+  if (!holder) return null;
+  if (!holder.deletedAt) return holder; // Someone created it at the same moment.
+  if (await scopeHasNumbers(store, scope)) {
+    // Numbers already went out under this key: its lastValue must survive, so
+    // the row comes back rather than starting over. `holder` was read before
+    // this check (itself a read), so another claim may have moved on since:
+    // freed its key for a fresh row (the branch below, on another claim),
+    // or already restored it. Re-read before restoring, and restore only a
+    // holder that is still deleted and still holds the scope's key; a stale
+    // `holder` restored blindly could come back live without the key at all.
+    const current = await store.get(LEDGER, holder.id, { deleted: true });
+    if (current?.deletedAt && current.scopeKey === scopeKey) {
+      try {
+        await store.restore(LEDGER, holder.id);
+      } catch (error) {
+        const after = await store.get(LEDGER, holder.id, { deleted: true });
+        // Fine only when the holder itself is now live: another claim
+        // restored it first, with the same key and lastValue. Anything else
+        // is a real failure, not this race, and must not be swallowed.
+        if (!after || after.deletedAt) throw error;
+      }
+    }
+    const [live] = await store.list(LEDGER, { scopeKey }, { limit: 1 });
+    return live ?? null;
+  }
+  // No number has ever come out of this scope: the deleted row's lastValue is
+  // stale and must never come back, so its key is freed without restoring it.
   await store.update(LEDGER, holder.id, { scopeKey: null });
-  await store.softDelete(LEDGER, holder.id);
-  return true;
+  try {
+    return await store.create(LEDGER, { ...scopeFields(scope), lastValue: 0, scopeKey });
+  } catch (error) {
+    if (!(error instanceof DuplicateError)) throw error;
+    // Another claim's fresh row won the race; use it.
+    const [live] = await store.list(LEDGER, { scopeKey }, { limit: 1 });
+    return live ?? null;
+  }
 }
 
 /** The scope's ledger row, created at 0 when it has none (spec §5, step 2). */
@@ -93,8 +101,9 @@ export async function ensureLedger(store: Store, scope: Scope): Promise<Row> {
       return await store.create(LEDGER, { ...scopeFields(scope), lastValue: 0, scopeKey: scopeKeyOf(scope) });
     } catch (error) {
       if (!(error instanceof DuplicateError)) throw error;
-      // Someone created it at the same moment (the next read finds it), or a deleted row still holds the key.
-      await releaseDeletedHolder(store, scopeKeyOf(scope));
+      const resolved = await resolveDuplicateLedger(store, scope);
+      if (resolved) return resolved;
+      // Nothing currently holds the key: another attempt raced past it; try again.
     }
   }
   throw new Error(`The ledger of ${scopeKeyOf(scope)} could be neither found nor created`);
@@ -142,7 +151,9 @@ export async function claimNumber(store: Store, input: ClaimInput): Promise<Clai
       if (!(error instanceof DuplicateError)) throw error;
       refusals += 1;
       if (refusals >= MAX_REFUSALS) {
-        throw new LifecycleError([{ code: 'LEDGER_BEHIND', value: `${scope.documentType} ${scope.periodKey}` }]);
+        const issuer = await store.get('billingIssuers', issuerId);
+        const issuerLabel = typeof issuer?.name === 'string' && issuer.name !== '' ? issuer.name : issuerId;
+        throw new LifecycleError([{ code: 'LEDGER_BEHIND', value: `${issuerLabel}, ${scope.periodKey}`, documentType: scope.documentType }]);
       }
       continue;
     }
@@ -151,21 +162,36 @@ export async function claimNumber(store: Store, input: ClaimInput): Promise<Clai
   }
 }
 
+/** The scope's numbered documents: its issuer and type, and the period's own date bounds when it has any. */
 const numberedIn = (scope: Scope): Where => {
   const bounds = periodBounds(scope.periodKey);
   return { issuerId: scope.issuerId, numberKey: { notNull: true }, ...(bounds ? { issueDate: bounds } : {}) };
 };
 
+/**
+ * Like numberedIn, but always excludes a blank issue date too, even in a
+ * scope with no period bounds ('ALL'): left unconstrained there, a DESC
+ * order by issueDate could sort a blank first (Postgres does, with NULLs
+ * before values by default) and starve a limited read of the dated rows it
+ * needs. Only latestIssueDate reads an order and a limited slice; scopeHasNumbers
+ * just asks whether any row matches, so a document with no issue date still
+ * counts for it in an 'ALL' scope.
+ */
+const datedIn = (scope: Scope): Where => ({
+  ...numberedIn(scope),
+  issueDate: periodBounds(scope.periodKey) ?? { gte: '0001-01-01' },
+});
+
 /** The latest issue date among the scope's numbered documents, deleted ones included, other than `exceptId`. */
-export async function latestIssueDate(store: Store, kind: Kind, scope: Scope, exceptId: string): Promise<string | null> {
-  const rows = await store.list(kind.plural, numberedIn(scope), {
+export async function latestIssueDate(store: Store, scope: Scope, exceptId: string): Promise<string | null> {
+  const rows = await store.list(kindOfType(scope.documentType).plural, datedIn(scope), {
     deleted: 'include', orderBy: { field: 'issueDate', direction: 'desc' }, limit: 2,
   });
   const latest = rows.find((row) => row.id !== exceptId && typeof row.issueDate === 'string' && row.issueDate !== '');
   return latest ? String(latest.issueDate) : null;
 }
 
-/** Whether the scope has given out a number: a document of its issuer and type holds a key dated inside the period. */
+/** Whether the scope has given out a number: a document of its issuer and type holds a key, dated inside the period when it has one. */
 export async function scopeHasNumbers(store: Store, scope: Scope): Promise<boolean> {
   const rows = await store.list(kindOfType(scope.documentType).plural, numberedIn(scope), { deleted: 'include', limit: 1 });
   return rows.length > 0;
