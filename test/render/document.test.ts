@@ -167,14 +167,17 @@ function flatPng(width: number, height: number): Uint8Array {
 }
 
 test('a logo far larger than its slot is drawn scaled into it, never at full size', async () => {
-  const input = mockInvoice();
-  const { bytes } = await renderDocument({ ...input, brand: { ...input.brand, logo: { bytes: flatPng(3000, 1200), type: 'image/png' } } });
-  const file = Buffer.from(bytes).toString('latin1');
-  assert.match(file, /\/Subtype \/Image[\s\S]*?\/Width 3000/, 'the logo was not embedded');
-  const drawn = [...pdfStreams(file).join('\n').matchAll(/([\d.]+) 0 0 (-?[\d.]+) -?[\d.]+ -?[\d.]+ cm\s*\/I\d+ Do/g)];
-  assert.equal(drawn.length, 1, 'the logo was not drawn exactly once');
-  const [, width, height] = drawn[0]!;
-  assert.ok(Number(width) <= 120 && Math.abs(Number(height)) <= 48, `drawn at ${width} x ${height} pt, outside its 120 x 48 slot`);
+  // The letterhead prints no logo: the paper has one.
+  for (const template of ['classic', 'modern', 'compact', 'receipt'] as const) {
+    const input = { ...mockInvoice(), template };
+    const { bytes } = await renderDocument({ ...input, brand: { ...input.brand, logo: { bytes: flatPng(3000, 1200), type: 'image/png' } } });
+    const file = Buffer.from(bytes).toString('latin1');
+    assert.match(file, /\/Subtype \/Image[\s\S]*?\/Width 3000/, `${template}: the logo was not embedded`);
+    const drawn = [...pdfStreams(file).join('\n').matchAll(/([\d.]+) 0 0 (-?[\d.]+) -?[\d.]+ -?[\d.]+ cm\s*\/I\d+ Do/g)];
+    assert.equal(drawn.length, 1, `${template}: the logo was not drawn exactly once`);
+    const [, width, height] = drawn[0]!;
+    assert.ok(Number(width) <= 120 && Math.abs(Number(height)) <= 48, `${template}: drawn at ${width} x ${height} pt, outside its 120 x 48 slot`);
+  }
 });
 
 test('a logo that starts right but is damaged is refused, not thrown by the PDF library', async () => {
