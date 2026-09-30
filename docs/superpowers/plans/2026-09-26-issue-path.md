@@ -20,7 +20,7 @@
 - **Twenty's CLI** is `./node_modules/.bin/twenty`, never `npx twenty` (npm has an unrelated package of that name), and always with `--remote billing-test`. The `exceev-tech` remote is never deployed to.
 - **Workspaces.** Only billing-test (workspace demo-exceev, MCP server `demo-exceev-crm`) is written to. The other MCP servers are never written to.
 - **Deploy** with `npm run deploy -- --remote billing-test --yes` (there is no terminal to confirm in), then commit `ids.lock.json`.
-- **Git.** Commits carry the repository's git identity only: no `Co-Authored-By` trailer, and no attribution line in the pull request. One git command per shell call (a hook blocks `git remote` and `git config`). Push by URL: `git push https://github.com/exceev-technology/twenty-app-billing-documents.git feat/issue-path`. Work on `feat/issue-path`; Task 1's probe branch is never pushed or merged.
+- **Git.** Commits carry the repository's git identity only: no `Co-Authored-By` trailer, and no attribution line in the pull request. One git command per shell call (a hook blocks `git remote` and `git config`). Push by URL: `git push https://github.com/exceev-technology/twenty-app-billing-documents.git feat/issue-path-part-2`. Work on `feat/issue-path-part-2` (Tasks 1–8 merged through `feat/issue-path` and `fix/numbering`); Task 1's probe branch is never pushed or merged.
 - **People's words.** Everything a person reads comes from Lifecycle's packs (`lifecycle/lang/en.ts`, `fr.ts`), except the buttons' transport messages (Task 17) and the timeline types' labels, which Twenty shows untranslated.
 
 ## Decisions taken on the maintainer's behalf
@@ -44,7 +44,7 @@ The spec leaves these open or states them for another situation; the plan settle
 
 Places where a reader should slow down; each has tests, but the reasoning is subtle.
 
-- **A ledger row deleted before its first number still holds its unique `scopeKey`** (a soft-deleted row keeps its value). `releaseDeletedHolder` (Task 8) restores it, clears the key, and deletes it again, so a new row can take the scope.
+- **A ledger row deleted before its first number still holds its unique `scopeKey`** (a soft-deleted row keeps its value). Twenty accepts an update to a deleted row and leaves it deleted, so the key is cleared on the deleted row itself (Tasks 8 and 9), and its stale `lastValue` never comes back to life; a deleted row whose scope has given out numbers is restored instead.
 - **Rich text is compared by its markdown** (Task 12): Twenty derives `blocknote` on the server, so comparing the whole value would make a guard rewrite forever.
 - **Totals use the effective currency** (Task 10): a document with no currency yet still totals in the one Issue will fill.
 - **The catalog fill treats `UNIT` as empty** (Task 10): otherwise no catalog item's unit would ever reach a new line, whose unit defaults to `UNIT`.
@@ -3649,7 +3649,7 @@ The ledger stays editable, so a business can create the row for a scope before i
 | updated | the scope has given out a number and this row holds the scope's key | Scope fields put back; a lowered `lastValue` put back; a raised one kept. A timeline message. |
 | updated | otherwise | Free: the key follows a changed scope, by the same rule as a created row. |
 | deleted | the scope has given out a number and this row holds the scope's key | Restored, with a timeline message. |
-| deleted | otherwise | Nothing. A key it still holds is freed when another row needs it (Task 8). |
+| deleted | otherwise | Nothing. A key it still holds is freed when another row needs it (Tasks 8 and 9): cleared on the deleted row, which stays deleted. |
 
 A scope has given out a number when a document of that issuer and type holds a `numberKey` and an issue date inside the period. Timeline messages on a ledger row are in its issuer's profile language. A message that cannot be written never undoes the correction it explains: `leaveMessage` swallows its failure (the REST store logs it).
 
@@ -3834,7 +3834,7 @@ export async function leaveMessage(store: Store, entry: TimelineEntry): Promise<
 Change the imports at the top of `lifecycle/numbering.ts` to:
 
 ```ts
-import { EngineError, formatNumber, periodKey, validatePattern, type NumberingReset } from '../engine/index.ts';
+import { EngineError, formatNumber, periodBounds, periodKey, sequenceOf, validatePattern, type NumberingReset } from '../engine/index.ts';
 import { LifecycleError, PACKS, type DocumentKind, type Language, type LifecyclePack } from './lang/pack.ts';
 import { KINDS, type Kind } from './load.ts';
 import { DuplicateError, leaveMessage, sourceOf, type RecordEvent, type Row, type Store, type Where } from './store.ts';
@@ -3868,7 +3868,21 @@ async function tellLedger(store: Store, row: Row, text: (pack: LifecyclePack) =>
   await leaveMessage(store, { object: 'billingSequence', recordId: row.id, kind: 'CORRECTION', text: text(pack) });
 }
 
-/** Gives a live row its scope's key; a live holder makes this row the duplicate, a deleted one gives way. */
+/**
+ * Frees the scope's key from a deleted row whose scope never gave out a
+ * number: the key is cleared on the row while it stays deleted, as
+ * resolveDuplicateLedger does, so its stale lastValue never comes back.
+ * True when it did. A live holder, or a deleted one whose scope has numbers
+ * (its own guard restores it), keeps the key.
+ */
+async function freeDeletedKey(store: Store, scope: Scope): Promise<boolean> {
+  const [holder] = await store.list(LEDGER, { scopeKey: scopeKeyOf(scope) }, { deleted: 'include', limit: 1 });
+  if (!holder?.deletedAt || (await scopeHasNumbers(store, scope))) return false;
+  await store.update(LEDGER, holder.id, { scopeKey: null });
+  return true;
+}
+
+/** Gives a live row its scope's key; a live holder makes this row the duplicate, a deleted numberless one gives way. */
 async function keyRow(store: Store, row: Row, scope: Scope): Promise<void> {
   const key = scopeKeyOf(scope);
   if (row.scopeKey === key) return;
@@ -3878,7 +3892,7 @@ async function keyRow(store: Store, row: Row, scope: Scope): Promise<void> {
       return;
     } catch (error) {
       if (!(error instanceof DuplicateError)) throw error;
-      if (attempt === 0 && (await releaseDeletedHolder(store, key))) continue;
+      if (attempt === 0 && (await freeDeletedKey(store, scope))) continue;
       await store.softDelete(LEDGER, row.id);
       await tellLedger(store, row, (pack) => pack.messages.ledgerDuplicateRemoved);
       return;
@@ -4944,7 +4958,7 @@ export async function runAction(raw: unknown, deps: ActionDeps): Promise<ActionO
     step = 'gate';
     const issueDate = textOf(loaded.document.issueDate);
     const scope = loaded.issuer && loaded.profile ? scopeOf(kind, loaded.issuer.id, resetOf(loaded.profile), issueDate) : null;
-    const latest = request.action === 'issue' && scope ? await latestIssueDate(deps.app, kind, scope, document.id) : null;
+    const latest = request.action === 'issue' && scope ? await latestIssueDate(deps.app, scope, document.id) : null;
     const problems = checkGate(loaded, { action: request.action, localDate: request.localDate, latestIssueDate: latest });
     if (problems.length > 0) return refuse(422, pack, problems, lineNumbers);
 
@@ -7564,7 +7578,7 @@ Record what each step showed (the snackbar text, the number, the timeline text, 
 - [ ] **Step 6: Push the branch**
 
 ```bash
-git push https://github.com/exceev-technology/twenty-app-billing-documents.git feat/issue-path
+git push https://github.com/exceev-technology/twenty-app-billing-documents.git feat/issue-path-part-2
 ```
 
 - [ ] **Step 7: Open the pull request**
@@ -7579,7 +7593,7 @@ Title: `feat: the issue path (sub-project 4a)`. The body, with no attribution li
 Write the body to `.git/ISSUE_PATH_PR.md` (inside `.git`, so it is never committed), then:
 
 ```bash
-gh pr create --repo exceev-technology/twenty-app-billing-documents --base main --head feat/issue-path --title "feat: the issue path (sub-project 4a)" --body-file .git/ISSUE_PATH_PR.md
+gh pr create --repo exceev-technology/twenty-app-billing-documents --base main --head feat/issue-path-part-2 --title "feat: the issue path, part 2 (sub-project 4a)" --body-file .git/ISSUE_PATH_PR.md
 ```
 
 - [ ] **Step 8: Watch it, without archiving on merge**
