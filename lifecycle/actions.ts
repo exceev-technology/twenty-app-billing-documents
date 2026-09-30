@@ -49,7 +49,8 @@ function isCalendarDate(value: string): boolean {
 export function parseRequest(raw: unknown): ActionRequest | null {
   if (raw === null || typeof raw !== 'object') return null;
   const { action, object, recordId, localDate, locale } = raw as Record<string, unknown>;
-  if (typeof action !== 'string' || !(action in OBJECTS)) return null;
+  // Own names only: 'toString' or '__proto__' are inherited, and are no action.
+  if (typeof action !== 'string' || !Object.hasOwn(OBJECTS, action)) return null;
   if (typeof object !== 'string' || !OBJECTS[action as ActionName].includes(object as DocumentObject)) return null;
   if (typeof recordId !== 'string' || !RECORD_ID.test(recordId)) return null;
   if (typeof localDate !== 'string' || !isCalendarDate(localDate)) return null;
@@ -123,6 +124,24 @@ function refuse(status: 403 | 422, pack: LifecyclePack, problems: readonly AnyPr
   return { status, body: { ok: false, problems: describeAll(problems, pack.code, lineNumbers) } };
 }
 
+const alreadyIssued = (pack: LifecyclePack, document: Row): ActionOutcome =>
+  refuse(422, pack, [{ source: 'lifecycle', code: 'ALREADY_ISSUED', value: textOf(document.number) }]);
+
+/**
+ * A fresh read before each write that cannot be taken back (the upload, the
+ * ISSUED write): another request for the same draft may have issued it since
+ * this one loaded it. It narrows the window, it cannot close it: two requests
+ * that both pass the last re-read can still both write, as Twenty has no
+ * compare-and-set. The outcome is still one number (the unique numberKey),
+ * identical PDF bytes and hash, at worst a duplicate timeline row and an
+ * orphaned upload; and the button ignores a second click (spec §6).
+ */
+async function issuedMeanwhile(run: Run): Promise<ActionOutcome | null> {
+  const current = await run.deps.app.get(run.kind.plural, run.loaded.document.id);
+  if (!current) throw new Error('The document no longer exists');
+  return isIssued(run.kind, current) ? alreadyIssued(run.pack, current) : null;
+}
+
 /** The figures, the logo, and the Renderer's input for a number and a version. */
 async function prepare(run: Run) {
   const totals = computeDocument(toDocumentInput(run.loaded));
@@ -168,6 +187,8 @@ async function issue(run: Run): Promise<ActionOutcome> {
   if (claim.number !== trialNumber) rendered = await run.render(inputFor(claim.number));
 
   run.step('upload');
+  const issuedBeforeUpload = await issuedMeanwhile(run);
+  if (issuedBeforeUpload) return issuedBeforeUpload;
   const file = await deps.app.upload({ bytes: rendered.bytes, name: `${claim.number}.pdf`, mime: 'application/pdf', object: kind.object, field: 'pdf' });
   const documentHash = await deps.sha256(rendered.bytes);
 
@@ -180,6 +201,8 @@ async function issue(run: Run): Promise<ActionOutcome> {
   }
 
   run.step('document');
+  const issuedBeforeWrite = await issuedMeanwhile(run);
+  if (issuedBeforeWrite) return issuedBeforeWrite;
   const printed = inputFor(claim.number);
   const snapshot: Record<string, unknown> = {
     printed: { ...printed, brand: { ...printed.brand, logo: await logoReference(run, logo) } },
@@ -233,11 +256,12 @@ async function quotePdf(run: Run): Promise<ActionOutcome> {
 
 /** What a button asked for, answered: never a thrown error, always an outcome the route can send. */
 export async function runAction(raw: unknown, deps: ActionDeps): Promise<ActionOutcome> {
-  const request = parseRequest(raw);
   const locale = (raw as { locale?: unknown } | null)?.locale;
   const pack = packFor(typeof locale === 'string' ? locale : null);
+  let request: ActionRequest | null = null;
   let step = 'request';
   try {
+    request = parseRequest(raw);
     if (!request) throw new Error('The request is not one of the actions this route runs');
     const serverDate = deps.now().toISOString().slice(0, 10);
     if (Math.abs(dayNumber(request.localDate) - dayNumber(serverDate)) > 1) {
@@ -248,7 +272,7 @@ export async function runAction(raw: unknown, deps: ActionDeps): Promise<ActionO
     step = 'read';
     const document = await deps.app.get(kind.plural, request.recordId);
     if (!document) throw new Error('The document no longer exists');
-    if (isIssued(kind, document)) return refuse(422, pack, [{ source: 'lifecycle', code: 'ALREADY_ISSUED', value: textOf(document.number) }]);
+    if (isIssued(kind, document)) return alreadyIssued(pack, document);
 
     step = 'defaults';
     const defaults = await defaultsFor(deps.app, kind, document, request.localDate);
@@ -263,7 +287,7 @@ export async function runAction(raw: unknown, deps: ActionDeps): Promise<ActionO
     const loaded = await loadDocument(deps.app, kind, document.id);
     if (!loaded) throw new Error('The document no longer exists');
     // Another request may have issued it meanwhile: a double click is answered as the first read would have been.
-    if (isIssued(kind, loaded.document)) return refuse(422, pack, [{ source: 'lifecycle', code: 'ALREADY_ISSUED', value: textOf(loaded.document.number) }]);
+    if (isIssued(kind, loaded.document)) return alreadyIssued(pack, loaded.document);
     const lineNumbers = new Map(loaded.lines.map((line, index) => [line.id, index + 1]));
 
     step = 'gate';

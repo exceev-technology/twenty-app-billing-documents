@@ -49,6 +49,19 @@ test('a request is read only when it is one of the three actions on its own kind
   assert.equal(parseRequest({ action: 'preview', object: 'billingCreditNote', recordId: id, localDate: TODAY })?.locale, 'en');
 });
 
+test('an action named like an inherited property is no action, and is answered, never thrown', async () => {
+  const w = workspace();
+  const { deps, logs } = setup(w);
+  for (const action of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+    assert.equal(parseRequest({ action, object: 'billingInvoice', recordId: w.invoice.id, localDate: TODAY }), null, action);
+    const outcome = await runAction(request(w, { action }), deps);
+    assert.equal(outcome.status, 500, action);
+    assert.deepEqual(problemCodes(outcome), ['UNEXPECTED'], action);
+  }
+  assert.equal(logs.length, 4);
+  assert.deepEqual(w.db.writes, []);
+});
+
 test('days are added on the calendar, across months and years', () => {
   assert.equal(addDays('2026-09-26', 30), '2026-10-26');
   assert.equal(addDays('2026-12-15', 30), '2027-01-14');
@@ -344,6 +357,7 @@ test('two Issues of the same draft at once end with one number and one PDF', asy
     await lock.finish(...flows);
     const outcomes = await Promise.all(flows);
     for (const outcome of outcomes) {
+      // Perfectly simultaneous requests may both get through (Twenty has no compare-and-set): either way, one number.
       const fine = outcome.body.ok ? outcome.body.number === 'F2026-0001' : problemCodes(outcome).join() === 'ALREADY_ISSUED';
       assert.ok(fine, `${order.join('')}: ${JSON.stringify(outcome.body)}`);
     }
@@ -351,6 +365,88 @@ test('two Issues of the same draft at once end with one number and one PDF', asy
     assert.equal(issued.status, 'ISSUED', order.join(''));
     assert.equal(issued.number, 'F2026-0001', order.join(''));
     assert.equal((issued.pdf as unknown[]).length, 1, order.join(''));
+    assert.equal(w.db.rows('billingSequences')[0]?.lastValue, 1, order.join(''));
+  }
+});
+
+/** Two Issues of the same draft over one database, each with its own Renderer, run by hand: `advance` lets one of them make store calls until `done` holds or it has answered. */
+function racing(w: Workspace) {
+  const lock = lockstep(w.db);
+  const answered = new Set<string>();
+  const start = (name: string) => {
+    const { deps, inputs } = setup(w);
+    const outcome = runAction(request(w), { ...deps, app: lock.flow(name) });
+    void outcome.then(() => answered.add(name));
+    return { outcome, inputs };
+  };
+  const flows = { A: start('A'), B: start('B') };
+  const advance = async (name: 'A' | 'B', done: () => boolean = () => false): Promise<void> => {
+    for (let calls = 0; calls < 300 && !answered.has(name) && !done(); calls++) await lock.step(name);
+  };
+  const finish = async (): Promise<[ActionOutcome, ActionOutcome]> => {
+    await lock.finish(flows.A.outcome, flows.B.outcome);
+    return [await flows.A.outcome, await flows.B.outcome];
+  };
+  return { flows, advance, finish };
+}
+
+const uploads = (w: Workspace) => w.db.writes.filter((write) => write.op === 'upload');
+const issuedWrites = (w: Workspace) => w.db.writes.filter((write) => write.plural === 'billingInvoices' && write.data?.status === 'ISSUED');
+
+test('an Issue that loaded the draft before another issued it is refused before it uploads anything', async () => {
+  for (const [early, late] of [['A', 'B'], ['B', 'A']] as const) {
+    const w = workspace();
+    const race = racing(w);
+    // The late one has rendered its trial and is about to claim: the draft is still a draft for it.
+    await race.advance(late, () => race.flows[late].inputs.length > 0);
+    await race.advance(early);
+    const [a, b] = await race.finish();
+    const outcomes = { A: a, B: b };
+    assert.deepEqual(outcomes[early].body, { ok: true, number: 'F2026-0001', message: 'Issued as F2026-0001.' }, early);
+    assert.deepEqual(outcomes[late].body, { ok: false, problems: [{ code: 'ALREADY_ISSUED', message: 'This document is already issued, as F2026-0001.' }] }, late);
+    assert.equal(outcomes[late].status, 422, late);
+    assert.equal(uploads(w).length, 1, `${early} ran first: one upload`);
+    assert.equal(issuedWrites(w).length, 1, `${early} ran first: one ISSUED write`);
+    assert.equal(w.db.timeline.length, 1, `${early} ran first: one timeline message`);
+    assert.equal(w.db.rows('billingSequences')[0]?.lastValue, 1);
+  }
+});
+
+test('an Issue that has uploaded when another issues the draft does not write the document again', async () => {
+  for (const [early, late] of [['A', 'B'], ['B', 'A']] as const) {
+    const w = workspace();
+    const race = racing(w);
+    await race.advance(late, () => uploads(w).length > 0);
+    await race.advance(early);
+    const [a, b] = await race.finish();
+    const outcomes = { A: a, B: b };
+    assert.equal(outcomes[early].body.ok, true, early);
+    assert.deepEqual(problemCodes(outcomes[late]), ['ALREADY_ISSUED'], late);
+    assert.equal(issuedWrites(w).length, 1, `${early} ran first: the document is written once`);
+    assert.equal(w.db.timeline.length, 1, `${early} ran first: one timeline message`);
+    const issued = invoiceRow(w);
+    const fileIds = uploads(w).map((write) => write.id);
+    assert.equal(fileIds.length, 2, 'the late one’s upload is left orphaned, never attached');
+    assert.deepEqual((issued.pdf as { fileId: string }[]).map((file) => file.fileId), [fileIds.at(-1)], 'the PDF field holds the first issuer’s file');
+    assert.equal(issued.issuedAt, '2026-09-26T09:30:00.000Z');
+    assert.equal(w.db.rows('billingSequences')[0]?.lastValue, 1);
+  }
+});
+
+test('an Issue far behind another is answered ALREADY_ISSUED', async () => {
+  for (const order of [[...Array(12).fill('A'), 'B'], [...Array(12).fill('B'), 'A']] as string[][]) {
+    const w = workspace();
+    const lock = lockstep(w.db);
+    const run = (name: string) => runAction(request(w), { ...setup(w).deps, app: lock.flow(name) });
+    const flows = [run('A'), run('B')];
+    for (let round = 0; round < 40; round++) for (const name of order) await lock.step(name);
+    await lock.finish(...flows);
+    const [a, b] = await Promise.all(flows);
+    const [first, second] = order[0] === 'A' ? [a!, b!] : [b!, a!];
+    assert.equal(first.body.ok && first.body.number, 'F2026-0001', order.join(''));
+    assert.deepEqual(problemCodes(second), ['ALREADY_ISSUED'], order.join(''));
+    assert.equal(uploads(w).length, 1, order.join(''));
+    assert.equal(w.db.timeline.length, 1, order.join(''));
     assert.equal(w.db.rows('billingSequences')[0]?.lastValue, 1, order.join(''));
   }
 });
