@@ -80,4 +80,6 @@ npm run typecheck
 
 ## Author
 
-Exceev Technology. Released under the [MIT licence](LICENSE).
+Exceev Technology. Released under the [MIT licence](LICENSE). The PDF layouts
+take their look from pdfcn's invoice designs, see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
