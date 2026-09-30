@@ -110,6 +110,21 @@ export async function onDocumentEvent(store: Store, kind: Kind, event: RecordEve
 
 type LineCorrection = 'changed' | 'added' | 'deleted' | 'moved';
 
+/**
+ * What an event says about a line arriving in an issued document: that it was added there ('added',
+ * which includes one restored there and one moved in from no document), that it came from another
+ * document (`from`, which is where it goes back to), or nothing. A line created elsewhere and moved
+ * in before the creation was handled is told by its creation, which names the document it began in.
+ */
+function arrivalOf(event: RecordEvent, key: string, documentId: string): 'added' | { from: string } | null {
+  const before = idOf(event.before?.[key]);
+  const after = idOf(event.after?.[key]);
+  if (event.name === 'created') return after === documentId ? 'added' : after !== null ? { from: after } : null;
+  if (event.name === 'restored') return after === documentId ? 'added' : null;
+  if (event.name === 'updated' && after === documentId && before !== documentId) return before !== null ? { from: before } : 'added';
+  return null;
+}
+
 /** An issued document's lines, put back to its snapshot (spec §7). */
 async function reconcileIssuedLines(store: Store, kind: Kind, document: Row, event: RecordEvent, line: Row | null): Promise<void> {
   const key = kind.parentKey;
@@ -133,16 +148,16 @@ async function reconcileIssuedLines(store: Store, kind: Kind, document: Row, eve
     }
   }
 
-  // A line on the document that the snapshot does not know. Only its own event acts on it:
-  // another event cannot tell where it came from.
+  // A line on the document that the snapshot does not know, as it stands now. Only the event that shows
+  // it arriving acts on it: any other event (an edit, say) cannot tell where the line came from.
   if (line && line.id === event.recordId && !line.deletedAt && idOf(line[key]) === document.id && !(line.id in snapshotLines)) {
-    const from = idOf(event.before?.[key]);
-    if (event.name === 'updated' && from !== null && from !== document.id) {
-      await store.update(kind.linePlural, line.id, { [key]: from });
-      corrections.add('moved');
-    } else {
+    const arrival = arrivalOf(event, key, document.id);
+    if (arrival === 'added') {
       await store.softDelete(kind.linePlural, line.id);
       corrections.add('added');
+    } else if (arrival) {
+      await store.update(kind.linePlural, line.id, { [key]: arrival.from });
+      corrections.add('moved');
     }
   }
 

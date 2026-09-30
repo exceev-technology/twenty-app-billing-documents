@@ -413,3 +413,60 @@ test('a quote is never worded with the rules of an invoice', async () => {
   await settle(w);
   assert.deepEqual(corrections(w), ['Un devis passe au statut Facturé quand il devient une facture. Le statut a été remis à Accepté.']);
 });
+
+const MOVED_BACK = 'Cette facture est émise : la ligne déplacée a été remise en place. Corrigez-la par un avoir.';
+
+test('a line created on a draft and moved into an issued invoice before its creation is handled goes back to the draft', async () => {
+  for (const reverse of [false, true]) {
+    const w = workspace();
+    const draft = w.addInvoice();
+    await issued(w);
+    const line = await w.user.create(LINES, { invoiceId: draft.id, description: 'Ailleurs', quantity: 1, unit: 'DAY', unitPrice: money(100_000_000), taxCodeId: w.vat20.id });
+    await w.user.update(LINES, line.id, { invoiceId: w.invoice.id });
+    const events = w.db.takeEvents();
+    await deliver(w, reverse ? [...events].reverse() : events);
+    const where = reverse ? 'reversed' : 'in order';
+    assert.deepEqual([w.db.row(LINES, line.id)!.invoiceId, w.db.row(LINES, line.id)!.deletedAt], [draft.id, null], where);
+    assert.deepEqual(corrections(w), [MOVED_BACK], where);
+    assert.deepEqual(invoice(w, draft.id).total, money(120_000_000), `${where}: the draft follows its line`);
+  }
+});
+
+test('a line moved into an issued invoice, then edited there, goes back to the draft whatever the order the events come in', async () => {
+  for (const reverse of [true, false]) {
+    const w = workspace();
+    const draft = w.addInvoice();
+    const wanderer = w.addLine(INVOICE, draft.id, { description: 'Ailleurs' });
+    await issued(w);
+    await w.user.update(LINES, wanderer.id, { invoiceId: w.invoice.id });
+    await w.user.update(LINES, wanderer.id, { description: 'Modifiée' });
+    const events = w.db.takeEvents();
+    await deliver(w, reverse ? [...events].reverse() : events);
+    const where = reverse ? 'reversed' : 'in order';
+    assert.deepEqual([w.db.row(LINES, wanderer.id)!.invoiceId, w.db.row(LINES, wanderer.id)!.deletedAt], [draft.id, null], where);
+    assert.deepEqual(corrections(w), [MOVED_BACK], where);
+  }
+});
+
+test('an event that does not show a line arriving leaves a line the snapshot does not know alone', async () => {
+  const w = workspace();
+  await issued(w);
+  // Put in place with no event: nothing says where it came from.
+  const stray = w.addLine(INVOICE, w.invoice.id, { description: 'Inconnue' });
+  await w.user.update(LINES, stray.id, { description: 'Modifiée' });
+  await settle(w);
+  assert.deepEqual([w.db.row(LINES, stray.id)!.invoiceId, w.db.row(LINES, stray.id)!.deletedAt], [w.invoice.id, null]);
+  assert.deepEqual(corrections(w), []);
+});
+
+test('a line that the guard removed and a person restores is removed again', async () => {
+  const w = workspace();
+  await issued(w);
+  const added = await w.user.create(LINES, { invoiceId: w.invoice.id, description: 'Ajoutée', quantity: 1, unit: 'DAY', unitPrice: money(1_000_000), taxCodeId: w.vat20.id });
+  await settle(w);
+  assert.ok(w.db.row(LINES, added.id)!.deletedAt);
+  await w.user.restore(LINES, added.id);
+  await settle(w);
+  assert.ok(w.db.row(LINES, added.id)!.deletedAt);
+  assert.equal(corrections(w).length, 2);
+});
