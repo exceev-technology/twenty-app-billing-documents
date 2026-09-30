@@ -17,13 +17,17 @@ const settle = (w: Workspace, store: Store = w.app) => drain(w.db, dispatcher(st
 const invoice = (w: Workspace, id = w.invoice.id) => w.db.row('billingInvoices', id)!;
 const corrections = (w: Workspace) => w.db.timeline.filter((entry) => entry.kind === 'CORRECTION').map((entry) => entry.text);
 
-/** Issues the fixture's invoice through the action, then lets its events settle. */
-async function issued(w: Workspace, id = w.invoice.id, object = 'billingInvoice'): Promise<void> {
-  const outcome = await runAction({ action: 'issue', object, recordId: id, localDate: TODAY, locale: 'en' }, {
+/** Runs Issue on a document through the action, and answers as the route would. */
+const issue = (w: Workspace, id = w.invoice.id, object = 'billingInvoice') =>
+  runAction({ action: 'issue', object, recordId: id, localDate: TODAY, locale: 'en' }, {
     app: w.app, caller: w.db.store('MANUAL'), now, reference: () => 'ref', log: () => {},
     sha256: async (bytes) => createHash('sha256').update(bytes).digest('hex'),
     render: async (input) => ({ bytes: new TextEncoder().encode(`%PDF ${input.number}`), pages: 1 }),
   });
+
+/** Issues the fixture's invoice through the action, then lets its events settle. */
+async function issued(w: Workspace, id = w.invoice.id, object = 'billingInvoice'): Promise<void> {
+  const outcome = await issue(w, id, object);
   assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
   await settle(w);
 }
@@ -42,6 +46,8 @@ test('the status rules, for each kind of document', () => {
   assert.equal(statusRuleBroken(INVOICE, 'PAID', 'DRAFT', done), 'DRAFT');
   assert.equal(statusRuleBroken(INVOICE, 'ISSUED', 'CANCELLED', done), 'CANCEL');
   assert.equal(statusRuleBroken(INVOICE, 'DRAFT', 'CANCELLED', numberedDraft), 'CANCEL');
+  assert.equal(statusRuleBroken(INVOICE, 'SENT', 'DRAFT', numberedDraft), null, 'a numbered draft never issued may return to Draft');
+  assert.equal(statusRuleBroken(credit, 'PAID', 'DRAFT', numberedDraft), null);
   assert.equal(statusRuleBroken(INVOICE, 'DRAFT', 'CANCELLED', draft), null);
   assert.equal(statusRuleBroken(INVOICE, 'CANCELLED', 'DRAFT', draft), null);
   assert.equal(statusRuleBroken(credit, 'DRAFT', 'ISSUED', draft), 'ISSUE');
@@ -138,6 +144,24 @@ test('only the app issues or cancels; a person’s move there is put back', asyn
   await w.app.update('billingInvoices', w.invoice.id, { status: 'CANCELLED' });
   await settle(w);
   assert.equal(invoice(w).status, 'CANCELLED', 'the app cancels (sub-project 4b, through a credit note)');
+});
+
+test('a numbered draft moved to Sent returns to Draft, and the next Issue gives it the number it holds', async () => {
+  const w = workspace();
+  w.db.failNext((op) => op === 'upload');
+  assert.equal((await issue(w)).status, 500);
+  await settle(w);
+  assert.equal(invoice(w).number, 'F2026-0001');
+  for (const status of ['SENT', 'DRAFT']) {
+    await w.user.update('billingInvoices', w.invoice.id, { status });
+    await settle(w);
+    assert.equal(invoice(w).status, status);
+  }
+  assert.deepEqual(corrections(w), []);
+  await issued(w);
+  assert.deepEqual([invoice(w).status, invoice(w).number], ['ISSUED', 'F2026-0001']);
+  assert.equal(w.db.rows('billingSequences')[0]?.lastValue, 1);
+  assert.equal((invoice(w).pdf as unknown[]).length, 1);
 });
 
 test('a draft with no number is cancelled and revived freely', async () => {

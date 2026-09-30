@@ -14,7 +14,8 @@ export function statusRuleBroken(kind: Kind, from: string, to: string, state: { 
   // A quote returns before the three rules below: they are worded for invoices and credit notes only.
   if (kind.kind === 'QUOTE') return to === 'INVOICED' ? 'INVOICED' : null;
   if (to === 'ISSUED' && !state.issued) return 'ISSUE';
-  if (state.numbered && to === 'DRAFT') return 'DRAFT';
+  // Issued only: a numbered draft moved on after a failed Issue must come back to Draft to be issued.
+  if (state.issued && to === 'DRAFT') return 'DRAFT';
   if (state.numbered && to === 'CANCELLED') return 'CANCEL';
   return null;
 }

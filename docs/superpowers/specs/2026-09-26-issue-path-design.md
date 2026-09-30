@@ -251,8 +251,8 @@ is an invoice or credit note with a `snapshot`.
 
 1. Only the app moves a document into ISSUED (invoices, credit notes) or
    INVOICED (quotes, done by 4b).
-2. A numbered invoice or credit note never returns to DRAFT, and only the app
-   cancels one (4b, through a credit note).
+2. An issued invoice or credit note never returns to DRAFT, and only the app
+   cancels a numbered one (4b, through a credit note).
 3. Every other move is free: ISSUED, SENT and PAID in any order, a quote's
    SENT, ACCEPTED, DECLINED and EXPIRED, cancelling or reviving a draft that
    has no number.
