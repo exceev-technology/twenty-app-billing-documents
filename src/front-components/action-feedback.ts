@@ -68,7 +68,8 @@ type Answer = { ok: true; message: string } | { ok: false; problems: { message: 
 const isAnswer = (body: unknown): body is Answer => {
   const answer = body as { ok?: unknown; message?: unknown; problems?: unknown } | null;
   if (answer?.ok === true) return typeof answer.message === 'string';
-  return answer?.ok === false && Array.isArray(answer.problems) && answer.problems.every((problem) => typeof problem?.message === 'string');
+  // A refusal without a problem would show an empty snackbar: it falls through to the HTTP status instead.
+  return answer?.ok === false && Array.isArray(answer.problems) && answer.problems.length > 0 && answer.problems.every((problem) => typeof problem?.message === 'string');
 };
 
 /** The snackbar for an answer: the message, or the first five problems and how many more. */

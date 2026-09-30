@@ -72,6 +72,11 @@ test('a success shows its message, a refusal the first five problems and how man
   assert.deepEqual(feedbackFor({ status: 403, body: { ok: false, problems: problems.slice(0, 1) } }, 'en'), { message: 'Problem 1.', variant: 'error' });
 });
 
+test('a refusal that names no problem still says what failed, never an empty snackbar', () => {
+  assert.deepEqual(feedbackFor({ status: 422, body: { ok: false, problems: [] } }, 'en'), { message: 'The billing action failed (HTTP 422).', variant: 'error' });
+  assert.deepEqual(feedbackFor({ status: 422, body: { ok: false, problems: [] } }, 'fr'), { message: 'L’action de facturation a échoué (HTTP 422).', variant: 'error' });
+});
+
 test('a missing route says logic functions are off; anything else says what failed', () => {
   for (const status of [404, 503]) {
     assert.match(feedbackFor({ status, body: null }, 'en').message, /logic functions.*README/);

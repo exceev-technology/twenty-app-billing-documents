@@ -17,8 +17,10 @@ export function ActionCommand({ action, object }: { action: ButtonRequest['actio
       const client = new RestApiClient();
       const answer = await callRoute((path, body) => client.post(path, body), { action, object, recordId, localDate: localDateOf(new Date()), locale });
       await enqueueSnackbar(feedbackFor(answer, locale));
-    } catch {
-      // The snackbar itself failed: there is nothing left to tell the person with.
+    } catch (error) {
+      // Caught, not rethrown: a rejection would make the host skip its own cleanup of this headless component.
+      // Logged, because the route may already have acted and the person then gets no snackbar to say so.
+      console.error('billing action: the snackbar failed', error);
     }
   };
   return <Command execute={execute} />;
