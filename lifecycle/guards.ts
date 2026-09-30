@@ -111,6 +111,15 @@ export async function onDocumentEvent(store: Store, kind: Kind, event: RecordEve
 type LineCorrection = 'changed' | 'added' | 'deleted' | 'moved';
 
 /**
+ * Whether a line that came from `origin` may go back there: the document is live, and either a draft
+ * or issued with the line in its snapshot. Any other document would be guarded in its turn and send
+ * the line back, and the two would bounce it for ever: the line is removed instead.
+ */
+function canTakeBack(kind: Kind, origin: Row, lineId: string): boolean {
+  return !origin.deletedAt && (!isIssued(kind, origin) || lineId in (recordOf(origin).lines ?? {}));
+}
+
+/**
  * What an event says about a line arriving in an issued document: that it was added there ('added',
  * which includes one restored there and one moved in from no document), that it came from another
  * document (`from`, which is where it goes back to), or nothing. A line created elsewhere and moved
@@ -152,12 +161,15 @@ async function reconcileIssuedLines(store: Store, kind: Kind, document: Row, eve
   // it arriving acts on it: any other event (an edit, say) cannot tell where the line came from.
   if (line && line.id === event.recordId && !line.deletedAt && idOf(line[key]) === document.id && !(line.id in snapshotLines)) {
     const arrival = arrivalOf(event, key, document.id);
-    if (arrival === 'added') {
-      await store.softDelete(kind.linePlural, line.id);
-      corrections.add('added');
-    } else if (arrival) {
-      await store.update(kind.linePlural, line.id, { [key]: arrival.from });
-      corrections.add('moved');
+    if (arrival) {
+      const origin = arrival === 'added' ? null : await store.get(kind.plural, arrival.from, { deleted: true });
+      if (arrival !== 'added' && origin && canTakeBack(kind, origin, line.id)) {
+        await store.update(kind.linePlural, line.id, { [key]: arrival.from });
+        corrections.add('moved');
+      } else {
+        await store.softDelete(kind.linePlural, line.id);
+        corrections.add('added');
+      }
     }
   }
 

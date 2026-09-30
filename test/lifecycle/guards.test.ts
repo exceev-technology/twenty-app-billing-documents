@@ -470,3 +470,84 @@ test('a line that the guard removed and a person restores is removed again', asy
   assert.ok(w.db.row(LINES, added.id)!.deletedAt);
   assert.equal(corrections(w).length, 2);
 });
+
+const ADDED_REMOVED = 'Cette facture est émise : la ligne ajoutée a été retirée. Corrigez-la par un avoir.';
+
+/** The fixture's invoice issued, and a second one with one line, issued too. */
+async function twoIssued(w: Workspace) {
+  await issued(w);
+  const second = w.addInvoice({ subject: 'Seconde' });
+  w.addLine(INVOICE, second.id, { description: 'Autre prestation' });
+  await issued(w, second.id);
+  return second;
+}
+
+test('a line an issued invoice does not hold, moved into another issued invoice, is removed, not bounced between them', async () => {
+  for (const reverse of [false, true]) {
+    const w = workspace();
+    const second = await twoIssued(w);
+    const line = await w.user.create(LINES, { invoiceId: w.invoice.id, description: 'Glissée', quantity: 1, unit: 'DAY', unitPrice: money(1_000_000), taxCodeId: w.vat20.id });
+    await w.user.update(LINES, line.id, { invoiceId: second.id });
+    const events = w.db.takeEvents();
+    await deliver(w, reverse ? [...events].reverse() : events);
+    const where = reverse ? 'reversed' : 'in order';
+    assert.ok(w.db.row(LINES, line.id)!.deletedAt, where);
+    assert.deepEqual(corrections(w), [ADDED_REMOVED], where);
+  }
+});
+
+test('a line moved into an issued invoice from a draft that was issued since is removed, not sent back', async () => {
+  const w = workspace();
+  const draft = w.addInvoice({ subject: 'Brouillon' });
+  w.addLine(INVOICE, draft.id, { description: 'Autre prestation' });
+  await issued(w);
+  const line = await w.user.create(LINES, { invoiceId: draft.id, description: 'Glissée', quantity: 1, unit: 'DAY', unitPrice: money(1_000_000), taxCodeId: w.vat20.id });
+  await w.user.update(LINES, line.id, { invoiceId: w.invoice.id });
+  const events = w.db.takeEvents();
+  await issued(w, draft.id);
+  await deliver(w, events);
+  assert.ok(w.db.row(LINES, line.id)!.deletedAt);
+  assert.deepEqual(corrections(w), [ADDED_REMOVED]);
+});
+
+test('a line moved into an issued invoice from a deleted draft is removed, not sent back', async () => {
+  const w = workspace();
+  const draft = w.addInvoice({ subject: 'Brouillon' });
+  const wanderer = w.addLine(INVOICE, draft.id, { description: 'Ailleurs' });
+  await issued(w);
+  await w.user.update(LINES, wanderer.id, { invoiceId: w.invoice.id });
+  await w.user.softDelete('billingInvoices', draft.id);
+  await deliver(w, w.db.takeEvents());
+  assert.ok(w.db.row(LINES, wanderer.id)!.deletedAt);
+  assert.deepEqual(corrections(w), [ADDED_REMOVED]);
+});
+
+test('a line an issued invoice holds, moved into another issued invoice, goes back to the one that holds it', async () => {
+  const w = workspace();
+  const second = await twoIssued(w);
+  await w.user.update(LINES, w.lines[0]!.id, { invoiceId: second.id });
+  await settle(w);
+  assert.deepEqual([w.db.row(LINES, w.lines[0]!.id)!.invoiceId, w.db.row(LINES, w.lines[0]!.id)!.deletedAt], [w.invoice.id, null]);
+  assert.ok(corrections(w).length > 0 && corrections(w).every((text) => text === MOVED_BACK), 'only ever moved back, never removed');
+});
+
+test('a line created with no invoice and moved into an issued one is removed once, only by the event that moves it', async () => {
+  for (const reverse of [false, true]) {
+    const w = workspace();
+    await issued(w);
+    const line = await w.user.create(LINES, { invoiceId: null, description: 'Libre', quantity: 1, unit: 'DAY', unitPrice: money(1_000_000), taxCodeId: w.vat20.id });
+    await w.user.update(LINES, line.id, { invoiceId: w.invoice.id });
+    const [creation, move] = w.db.takeEvents();
+    const where = reverse ? 'reversed' : 'in order';
+    if (reverse) await deliver(w, [move!]);
+    else {
+      await deliver(w, [creation!]);
+      assert.deepEqual([w.db.row(LINES, line.id)!.invoiceId, w.db.row(LINES, line.id)!.deletedAt], [w.invoice.id, null], 'its creation names no invoice: it says nothing');
+      assert.deepEqual(corrections(w), []);
+      await deliver(w, [move!]);
+    }
+    assert.ok(w.db.row(LINES, line.id)!.deletedAt, where);
+    await deliver(w, [creation!, move!]);
+    assert.deepEqual(corrections(w), [ADDED_REMOVED], where);
+  }
+});
