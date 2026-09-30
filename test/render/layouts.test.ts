@@ -159,7 +159,7 @@ function totalsTable(template: TemplateKey): { layout: Record<string, (index: nu
   return find((definitionFor(on(template, mockInvoice())) as { content: unknown }).content) as ReturnType<typeof totalsTable>;
 }
 
-test('classic boxes its totals, modern sets them on a tinted panel, the others leave them plain', () => {
+test('classic boxes its totals, modern tints them, letterhead sets them on a grey card, the others leave them plain', () => {
   const classic = totalsTable('classic');
   assert.equal(classic.layout.vLineWidth!(0, classic), 0.5, 'classic totals have no left border');
   assert.equal(classic.layout.hLineWidth!(0, classic), 0.5, 'classic totals have no top border');
@@ -167,14 +167,19 @@ test('classic boxes its totals, modern sets them on a tinted panel, the others l
   const fill = modern.layout.fillColor?.(0, modern);
   assert.match(String(fill), /^#[0-9a-f]{6}$/, 'modern totals have no panel');
   assert.notEqual(fill, '#ffffff');
-  const compact = totalsTable('compact');
-  assert.equal(compact.layout.fillColor, undefined);
-  assert.equal(compact.layout.vLineWidth!(0, compact), 0);
+  const letterhead = totalsTable('letterhead');
+  assert.equal(letterhead.layout.fillColor?.(0, letterhead), '#f4f4f5', 'letterhead totals have no grey card');
+  assert.equal(letterhead.layout.vLineWidth!(0, letterhead), 0);
+  for (const template of ['compact', 'receipt'] as const) {
+    const plain = totalsTable(template);
+    assert.equal(plain.layout.fillColor, undefined, `${template} totals have a panel`);
+    assert.equal(plain.layout.vLineWidth!(0, plain), 0, `${template} totals have a border`);
+  }
 });
 
 test('a light accent never leaves text that cannot be read', () => {
   const yellow = '#f5d547';
-  for (const template of ['classic', 'modern'] as const) {
+  for (const template of TEMPLATES) {
     const input = on(template, mockInvoice());
     const json = JSON.stringify(definitionFor({ ...input, brand: { ...input.brand, accentColor: yellow } }));
     assert.ok(!json.includes(`"color":"${yellow}"`), `${template}: yellow text on white paper`);
