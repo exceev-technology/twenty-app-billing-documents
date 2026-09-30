@@ -38,6 +38,8 @@ export const en: LifecyclePack = {
     CLOCK_SKEW: () => 'Your computer’s date is more than a day away from the server’s: check its date and time.',
     LEDGER_BEHIND: ({ value, documentType }) =>
       `The ${documentType ? kinds[documentType] : 'document'} numbering sequence of ${value} is far behind the numbers already given: raise its last number.`,
+    HELD_NUMBER_ELSEWHERE: ({ value }) =>
+      `This document already holds the number ${value}, given under another issuer or period: put its issuer and issue date back to use it.`,
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Some characters cannot be printed with the PDF’s font (${field}): ${value}`,

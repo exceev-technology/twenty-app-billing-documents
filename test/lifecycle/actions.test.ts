@@ -255,6 +255,74 @@ test('a failure after each step leaves a numbered draft, and the next Issue fini
   }
 });
 
+/** A second issuer on the fixture's profile, with the SIREN the profile requires of a seller. */
+function secondIssuer(w: Workspace) {
+  const issuer = w.db.seed('billingIssuers', { name: 'Atelier Second', profileId: w.profile.id, logo: [], defaultCurrency: '', template: 'CLASSIC' });
+  w.db.seed('billingIdentifiers', { value: '222222222', identifierTypeId: w.siren.id, issuerId: issuer.id, companyId: null, personId: null });
+  return issuer;
+}
+
+const HELD_ELSEWHERE = {
+  code: 'HELD_NUMBER_ELSEWHERE',
+  message: 'This document already holds the number F2026-0001, given under another issuer or period: put its issuer and issue date back to use it.',
+};
+
+test('a draft that holds a number and has since changed issuer is refused, and the other issuer keeps its own number alone', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  const second = secondIssuer(w);
+  const theirs = w.addInvoice({ issuerId: second.id });
+  w.addLine(KINDS.billingInvoice, theirs.id);
+  assert.equal((await runAction(request(w, { recordId: theirs.id }), deps)).status, 200);
+  w.db.failNext((op) => op === 'upload');
+  assert.equal((await runAction(request(w), deps)).status, 500);
+  assert.equal(invoiceRow(w).number, 'F2026-0001');
+  await w.user.update('billingInvoices', w.invoice.id, { issuerId: second.id });
+  const before = w.db.writes.length;
+  const outcome = await runAction(request(w), deps);
+  assert.deepEqual(outcome, { status: 422, body: { ok: false, problems: [HELD_ELSEWHERE] } });
+  assert.deepEqual(w.db.writes.slice(before).map((write) => write.source), ['MANUAL'], 'nothing written but the defaults');
+  const secondsNumbers = w.db.rows('billingInvoices').filter((row) => row.issuerId === second.id && row.status === 'ISSUED').map((row) => row.number);
+  assert.deepEqual(secondsNumbers, ['F2026-0001']);
+  assert.equal(invoiceRow(w).status, 'DRAFT');
+  assert.deepEqual(w.db.rows('billingSequences').map((row) => [row.issuerId, row.lastValue]).sort(), [[w.issuer.id, 1], [second.id, 1]].sort());
+});
+
+test('a quote that holds a number and has since changed issuer is refused before a PDF is made', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  const second = secondIssuer(w);
+  const ask = (id: string) => runAction(request(w, { action: 'quotePdf', object: 'billingQuote', recordId: id }), deps);
+  const theirs = w.addQuote({ issuerId: second.id });
+  w.addLine(KINDS.billingQuote, theirs.id);
+  assert.equal((await ask(theirs.id)).status, 200);
+  const ours = w.addQuote();
+  w.addLine(KINDS.billingQuote, ours.id);
+  w.db.failNext((op) => op === 'upload');
+  assert.equal((await ask(ours.id)).status, 500);
+  await w.user.update('billingQuotes', ours.id, { issuerId: second.id });
+  const before = w.db.writes.length;
+  const outcome = await ask(ours.id);
+  assert.equal(outcome.status, 422);
+  assert.deepEqual(outcome.body, { ok: false, problems: [{ ...HELD_ELSEWHERE, message: HELD_ELSEWHERE.message.replace('F2026-0001', 'D2026-0001') }] });
+  assert.deepEqual(w.db.writes.slice(before).map((write) => write.source), ['MANUAL'], 'nothing written but the defaults');
+  assert.deepEqual(w.db.row('billingQuotes', ours.id)!.pdf, []);
+});
+
+test('a numbered draft whose issue date moved into the next year is refused, and that year’s sequence is left alone', async () => {
+  const w = workspace();
+  const lastDay = setup(w, { now: () => new Date('2026-12-31T16:00:00.000Z') });
+  w.db.failNext((op) => op === 'upload');
+  assert.equal((await runAction(request(w, { localDate: '2026-12-31' }), lastDay.deps)).status, 500);
+  assert.deepEqual([invoiceRow(w).number, invoiceRow(w).issueDate], ['F2026-0001', '2026-12-31']);
+  await w.user.update('billingInvoices', w.invoice.id, { issueDate: '2027-01-05' });
+  const newYear = setup(w, { now: () => new Date('2027-01-05T09:00:00.000Z') });
+  const outcome = await runAction(request(w, { localDate: '2027-01-05' }), newYear.deps);
+  assert.deepEqual(problemCodes(outcome), ['HELD_NUMBER_ELSEWHERE']);
+  assert.deepEqual(w.db.rows('billingSequences').map((row) => [row.periodKey, row.lastValue]), [['2026', 1]]);
+  assert.deepEqual([invoiceRow(w).status, invoiceRow(w).number], ['DRAFT', 'F2026-0001']);
+});
+
 test('a timeline message that cannot be written does not undo the issue', async () => {
   const w = workspace();
   const { deps } = setup(w);

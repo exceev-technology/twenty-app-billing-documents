@@ -5,7 +5,7 @@ import { checkGate, resetOf } from './gate.ts';
 import { describeAll, LifecycleError, packFor, PACKS, type AnyProblem, type LifecyclePack, type WordedProblem } from './lang/pack.ts';
 import { isIssued, kindOf, LINE_FIELDS, loadDocument, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
 import { effectiveCurrency, fileInputs, idOf, languageOf, moneyOf, textOf, toDocumentInput, toRenderInput } from './map.ts';
-import { claimNumber, latestIssueDate, nextNumber, raiseLedger, scopeOf, type Scope } from './numbering.ts';
+import { claimNumber, heldNumberOf, latestIssueDate, nextNumber, raiseLedger, scopeOf, type Scope } from './numbering.ts';
 import { leaveMessage, NotAllowedError, type CallerStore, type Row, type Store } from './store.ts';
 import { sameMoney } from './totals.ts';
 
@@ -103,9 +103,6 @@ export function recordOf(kind: Kind, loaded: Loaded): { document: Record<string,
   };
 }
 
-const heldNumber = (document: Row): string | null =>
-  typeof document.number === 'string' && document.number !== '' && Boolean(document.numberKey) ? document.number : null;
-
 type Run = {
   request: ActionRequest;
   kind: Kind;
@@ -177,7 +174,9 @@ async function issue(run: Run): Promise<ActionOutcome> {
 
   run.step('trial');
   const { totals, logo, inputFor } = await prepare(run);
-  const trialNumber = heldNumber(document) ?? (await nextNumber(deps.app, scope, pattern, issueDate)).number;
+  // The gate has refused a held number that is not this issuer's and period's.
+  const held = heldNumberOf(document, issuer!.id, pattern, issueDate);
+  const trialNumber = held?.number ?? (await nextNumber(deps.app, scope, pattern, issueDate)).number;
   let rendered = await run.render(inputFor(trialNumber));
 
   run.step('claim');
@@ -232,12 +231,12 @@ async function quotePdf(run: Run): Promise<ActionOutcome> {
   const { kind, deps, loaded, scope, issueDate } = run;
   const { document, issuer, profile } = loaded;
   const pattern = textOf(profile![kind.patternField]);
-  const held = heldNumber(document);
+  const held = heldNumberOf(document, issuer!.id, pattern, issueDate);
   const version = held ? (wholeDays(document.version) ?? 0) + 1 : 1;
 
   run.step('trial');
   const { inputFor } = await prepare(run);
-  const trialNumber = held ?? (await nextNumber(deps.app, scope, pattern, issueDate)).number;
+  const trialNumber = held?.number ?? (await nextNumber(deps.app, scope, pattern, issueDate)).number;
   let rendered = await run.render(inputFor(trialNumber, version));
 
   run.step('claim');

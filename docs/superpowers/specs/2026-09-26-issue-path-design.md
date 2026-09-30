@@ -126,9 +126,14 @@ their own sequence.
    creation is refused as a duplicate, someone created it at the same moment:
    read it again.
 3. Read the document. A number it already holds is reused, and allocation
-   ends. The ledger is read before the document, so two requests for the same
-   draft converge on the same number: whichever reads second sees the first
-   one's claim, or claims the same number on the same record.
+   ends, provided it still belongs there: its `numberKey` names this issuer,
+   and the pattern, given the number's sequence and the issue date, prints it
+   again (a pattern that no longer reads the number back keeps it by its key
+   alone). A number given under another issuer or period is refused with
+   `HELD_NUMBER_ELSEWHERE`, before anything is written (the gate, §6). The
+   ledger is read before the document, so two requests for the same draft
+   converge on the same number: whichever reads second sees the first one's
+   claim, or claims the same number on the same record.
 4. Take `n = lastValue + 1` and `number = formatNumber(pattern, n, issueDate)`.
 5. Claim it: write `number` and `numberKey` on the document, as the app. If the
    unique key refuses it, another document holds that number: try `n + 1`.
@@ -192,7 +197,9 @@ reported, not the first:
 
 1. The status allows the action: DRAFT for preview and issue.
 2. The issuer is set and has a profile; the currency is known; the profile's
-   pattern for the type is valid.
+   pattern for the type is valid; for an issue or a quote PDF, a number the
+   document already holds still belongs to its issuer and its issue date's
+   period (§5, step 3).
 3. A buyer is set: a company, a person, or both.
 4. A credit note names an invoice that is issued, with the same issuer and the
    same currency.
@@ -379,7 +386,8 @@ Lifecycle's problem codes: `NOT_ALLOWED`, `WRONG_STATUS`, `ALREADY_ISSUED`,
 `MISSING_ISSUER`, `MISSING_PROFILE`, `MISSING_BUYER`, `MISSING_CURRENCY`,
 `MISSING_IDENTIFIER`, `INVALID_IDENTIFIER`, `IDENTIFIER_OWNER`,
 `MISSING_INVOICE`, `INVOICE_NOT_ISSUED`, `INVOICE_MISMATCH`, `DATE_IN_FUTURE`,
-`DATE_BEFORE_LAST`, `DUE_BEFORE_ISSUE`, `CLOCK_SKEW`, `LEDGER_BEHIND`.
+`DATE_BEFORE_LAST`, `DUE_BEFORE_ISSUE`, `CLOCK_SKEW`, `LEDGER_BEHIND`,
+`HELD_NUMBER_ELSEWHERE`.
 
 | Failure | What the person sees |
 |---|---|

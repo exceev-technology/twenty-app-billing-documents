@@ -127,6 +127,28 @@ export type ClaimInput = { kind: Kind; documentId: string; issuerId: string; pat
 export type Claim = { number: string; n: number | null; reused: boolean };
 
 /**
+ * A number a document holds. `belongs` says whether it was given under this
+ * issuer and prints this issue date's period: a draft whose issuer or date
+ * changed after its claim must not carry it into another sequence, where the
+ * unique key (which names the first issuer) would not catch a duplicate.
+ */
+export type HeldNumber = { number: string; n: number | null; belongs: boolean };
+
+/**
+ * The number a document holds, or null. When the pattern no longer reads it
+ * back (it changed since the claim), the number is its issuer's by its key
+ * alone, with no sequence (`n` null). The pattern must be valid.
+ */
+export function heldNumberOf(document: Row, issuerId: string, pattern: string, issueDate: string): HeldNumber | null {
+  const { number, numberKey } = document;
+  if (typeof number !== 'string' || number === '' || !numberKey) return null;
+  const read = sequenceOf(pattern, number);
+  const n = read !== null && Number.isSafeInteger(read) && read > 0 ? read : null;
+  const belongs = numberKey === numberKeyOf(issuerId, number) && (n === null || formatNumber(pattern, n, issueDate) === number);
+  return { number, n, belongs };
+}
+
+/**
  * Spec §5, steps 1 to 6. The ledger is read before the document, so two
  * requests for the same draft converge: whichever reads the document second
  * sees the first one's claim, or claims the same number on the same record.
@@ -139,8 +161,11 @@ export async function claimNumber(store: Store, input: ClaimInput): Promise<Clai
   const ledger = await ensureLedger(store, scope);
   const document = await store.get(kind.plural, documentId);
   if (!document) throw new Error(`${kind.object} ${documentId} no longer exists`);
-  if (typeof document.number === 'string' && document.number !== '' && document.numberKey) {
-    return { number: document.number, n: sequenceOf(pattern, document.number), reused: true };
+  const held = heldNumberOf(document, issuerId, pattern, issueDate);
+  if (held) {
+    // The gate refuses this first; refused here too, so that no caller can reuse it elsewhere.
+    if (!held.belongs) throw new LifecycleError([{ code: 'HELD_NUMBER_ELSEWHERE', value: held.number }]);
+    return { number: held.number, n: held.n, reused: true };
   }
   let refusals = 0;
   for (let n = lastValueOf(ledger) + 1; ; n += 1) {
