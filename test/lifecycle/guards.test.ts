@@ -257,6 +257,15 @@ test('a guard speaks the document’s language', async () => {
   assert.deepEqual(corrections(w), ['This invoice is issued: the change to Subject was put back. Correct it with a credit note.']);
 });
 
+test('a put-back message is worded in the document’s language as put back, not in the one a person set', async () => {
+  const w = workspace();
+  await issued(w);
+  await w.user.update('billingInvoices', w.invoice.id, { language: 'EN' });
+  await settle(w);
+  assert.equal(invoice(w).language, 'FR');
+  assert.deepEqual(corrections(w), ['Cette facture est émise\u00a0: la modification de Langue a été annulée. Corrigez-la par un avoir.']);
+});
+
 test('a retried event changes nothing', async () => {
   const w = workspace();
   await issued(w);

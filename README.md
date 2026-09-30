@@ -53,15 +53,19 @@ preset you delete stays deleted.
 Select one draft invoice or credit note: **Preview PDF** and **Issue** appear
 at the top of the record and in the command menu. On a quote, **Generate PDF**.
 
-- **Preview PDF** renders the document, marked DRAFT, into its PDF field. It
-  numbers nothing and can be run as often as you like.
+- **Preview PDF**, like Issue, first fills what the draft leaves empty: the
+  issue date (today), the currency, the language and the due date. It then
+  renders the document, marked DRAFT, into its PDF field. It numbers nothing
+  and can be run as often as you like. A draft previewed on one day and issued
+  later keeps the preview's issue date, unless you change it.
 - **Issue** fills what is left empty (issue date, currency, language, due
   date), checks everything at once and lists every problem it finds, then gives
   the document the next number of its sequence, renders the PDF, and freezes
   the document with a copy of what was printed and the PDF's SHA-256 hash.
-- **Generate PDF** numbers a quote on its first PDF, then adds a new version
-  (v2, v3…) each time. The quote stays editable; its PDF field keeps the last
-  ten.
+- **Generate PDF** fills a quote's empty defaults the same way (its validity
+  in place of a due date), numbers it on its first PDF, then adds a new
+  version (v2, v3…) each time. The quote stays editable; its PDF field keeps
+  the last ten.
 
 The buttons act as you: anyone whose role can edit the document can issue it,
 and no one else. Messages follow your Twenty language.

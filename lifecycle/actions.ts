@@ -6,7 +6,7 @@ import { describeAll, LifecycleError, packFor, PACKS, type AnyProblem, type Life
 import { isIssued, kindOf, LINE_FIELDS, loadDocument, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
 import { effectiveCurrency, fileInputs, idOf, languageOf, moneyOf, textOf, toDocumentInput, toRenderInput } from './map.ts';
 import { claimNumber, heldNumberOf, latestIssueDate, nextNumber, raiseLedger, scopeOf, type Scope } from './numbering.ts';
-import { leaveMessage, NotAllowedError, type CallerStore, type Row, type Store } from './store.ts';
+import { leaveMessage, NotAllowedError, reasonOf, type CallerStore, type Row, type Store } from './store.ts';
 import { sameMoney } from './totals.ts';
 
 export type ActionName = 'preview' | 'issue' | 'quotePdf';
@@ -316,7 +316,7 @@ export async function runAction(raw: unknown, deps: ActionDeps): Promise<ActionO
     const reference = deps.reference();
     deps.log({
       reference, object: request?.object ?? null, recordId: request?.recordId ?? null, action: request?.action ?? null, step,
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error.message : String(error), ...reasonOf(error),
     });
     return { status: 500, body: { ok: false, problems: [{ code: 'UNEXPECTED', message: pack.messages.unexpected(reference) }] } };
   }

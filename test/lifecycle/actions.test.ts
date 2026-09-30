@@ -427,6 +427,20 @@ test('an unexpected failure is answered with a reference, and logged with the do
   assert.deepEqual(logs, [{ reference: 'ref-7f3a', object: 'billingInvoice', recordId: w.invoice.id, action: 'issue', step: 'upload', error: 'storage is full' }]);
 });
 
+test('an unexpected failure Twenty explained is logged with Twenty’s messages', async () => {
+  const w = workspace();
+  const { deps, logs } = setup(w);
+  const refusal = Object.assign(new Error('Request failed with status 400'), {
+    name: 'RestApiClientError', status: 400, body: { statusCode: 400, error: 'BadRequestException', messages: ['File exceeds the size limit'] },
+  });
+  w.db.failNext((op) => op === 'upload', refusal);
+  assert.equal((await runAction(request(w), deps)).status, 500);
+  assert.deepEqual(logs, [{
+    reference: 'ref-7f3a', object: 'billingInvoice', recordId: w.invoice.id, action: 'issue', step: 'upload',
+    error: 'Request failed with status 400', messages: ['File exceeds the size limit'],
+  }]);
+});
+
 test('the button’s message follows the caller’s locale, the timeline’s the document’s language', async () => {
   const w = workspace();
   const english = w.addInvoice({ language: 'EN', issueDate: TODAY });

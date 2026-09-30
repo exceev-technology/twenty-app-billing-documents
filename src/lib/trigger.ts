@@ -1,5 +1,5 @@
 import { RetryableLogicFunctionError } from 'twenty-sdk/logic-function';
-import type { RecordEvent, Row, Store } from '../../lifecycle/store.ts';
+import { reasonOf, type RecordEvent, type Row, type Store } from '../../lifecycle/store.ts';
 import { appStore } from './twenty-stores.ts';
 
 const OPERATIONS: readonly RecordEvent['name'][] = ['created', 'updated', 'deleted', 'restored', 'destroyed', 'upserted'];
@@ -39,12 +39,17 @@ export function runTrigger(
 ): (payload: unknown) => Promise<void> {
   return async (payload) => {
     const event = toRecordEvent(payload);
-    if (!event) return;
+    if (!event) {
+      // Said aloud: a change in the payload's shape would otherwise silence every guard without a trace.
+      const name = (payload as { name?: unknown } | null)?.name;
+      logLine({ trigger: 'ignored', reason: 'unrecognised payload', event: typeof name === 'string' ? name : null });
+      return;
+    }
     try {
       await handle(makeStore(), event);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logLine({ trigger: 'failed', event: event.name, recordId: event.recordId, error: message });
+      logLine({ trigger: 'failed', event: event.name, recordId: event.recordId, error: message, ...reasonOf(error) });
       if (isTransient(error)) throw new RetryableLogicFunctionError(message);
       throw error;
     }

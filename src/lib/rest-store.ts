@@ -1,5 +1,5 @@
 import {
-  DuplicateError, NotAllowedError,
+  DuplicateError, NotAllowedError, reasonOf,
   type CallerStore, type Condition, type FileRef, type ListOptions, type Row, type Store, type TimelineEntry, type Upload, type Where,
 } from '../../lifecycle/store.ts';
 
@@ -178,7 +178,10 @@ export function restStore(deps: RestStoreDeps): Store {
           properties: { message: entry.text },
         });
       } catch (error) {
-        log({ timeline: 'failed', kind: entry.kind, object: entry.object, recordId: entry.recordId, error: error instanceof Error ? error.message : String(error) });
+        log({
+          timeline: 'failed', kind: entry.kind, object: entry.object, recordId: entry.recordId,
+          error: error instanceof Error ? error.message : String(error), ...reasonOf(error),
+        });
       }
     },
   };

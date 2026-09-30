@@ -104,7 +104,9 @@ export async function onDocumentEvent(store: Store, kind: Kind, event: RecordEve
 
   if (Object.keys(patch).length > 0) {
     await store.update(kind.plural, document.id, patch);
-    for (const message of messages) await tell(store, kind, document, message);
+    // Worded from the document as put back: a tampered language or issuer does not choose the message's language.
+    const putBack = { ...document, ...patch };
+    for (const message of messages) await tell(store, kind, putBack, message);
   }
   if (!issued && documentChangeMatters(event)) await recomputeTotals(store, kind, document.id);
 }
@@ -123,8 +125,9 @@ function canTakeBack(kind: Kind, origin: Row, lineId: string): boolean {
 /**
  * What an event says about a line arriving in an issued document: that it was added there ('added',
  * which includes one restored there and one moved in from no document), that it came from another
- * document (`from`, which is where it goes back to), or nothing. A line created elsewhere and moved
- * in before the creation was handled is told by its creation, which names the document it began in.
+ * document (`from`: it goes back there only when canTakeBack holds, otherwise it is removed as an
+ * added line), or nothing. A line created elsewhere and moved in before the creation was handled is
+ * told by its creation, which names the document it began in.
  */
 function arrivalOf(event: RecordEvent, key: string, documentId: string): 'added' | { from: string } | null {
   const before = idOf(event.before?.[key]);

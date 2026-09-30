@@ -281,7 +281,13 @@ async function keyRow(store: Store, row: Row, scope: Scope): Promise<void> {
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
-/** The ledger's trigger (spec §5): see the table above. It reads the row afresh: events may arrive late or twice. */
+/**
+ * The ledger's trigger (spec §5). The app's own writes are left alone. A row
+ * created or restored gets its scope's key. Once the scope has given out its
+ * first number, a change to the row's issuer, type or period, or a lower last
+ * value, is put back, and a deletion is restored; until then the row is free.
+ * It reads the row afresh: events may arrive late or twice.
+ */
 export async function guardSequence(store: Store, event: RecordEvent): Promise<void> {
   if (event.name === 'destroyed' || event.name === 'upserted') return;
   if ((event.name === 'created' || event.name === 'updated') && sourceOf(event.after) === 'APPLICATION') return;

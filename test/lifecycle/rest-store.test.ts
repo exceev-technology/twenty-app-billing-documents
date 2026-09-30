@@ -179,5 +179,8 @@ test('a muted or missing timeline type, or a failed write, is logged and never t
   assert.equal(muted.logs[0]?.timeline, 'skipped');
   const failing = deps(rest);
   await restStore(failing).timeline({ object: 'billingInvoice', recordId: 'r1', kind: 'ISSUED', text: 'x' });
-  assert.equal(failing.logs[0]?.timeline, 'failed');
+  assert.deepEqual(failing.logs, [{
+    timeline: 'failed', kind: 'ISSUED', object: 'billingInvoice', recordId: 'r1',
+    error: 'Request failed with status 400', messages: ['Active timeline activity type was not found'],
+  }]);
 });

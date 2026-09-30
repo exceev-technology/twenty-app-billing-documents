@@ -60,7 +60,8 @@ test('a network failure, a rate limit or a server error is worth a retry; a refu
   assert.equal(isTransient(new Error('a bug')), false);
 });
 
-test('a trigger hands the event to its handler with a store built for the run', async () => {
+test('a trigger hands the event to its handler with a store built for the run', async (t) => {
+  t.mock.method(console, 'error', () => {});
   const stores: Store[] = [];
   const seen: RecordEvent[] = [];
   const handler = runTrigger(async (store, event) => { stores.push(store); seen.push(event); }, () => ({}) as Store);
@@ -70,6 +71,29 @@ test('a trigger hands the event to its handler with a store built for the run', 
   assert.notEqual(stores[0], stores[1]);
   await handler({ nonsense: true });
   assert.equal(seen.length, 2);
+});
+
+test('a payload that is not a database event is logged as ignored, and handled by no one', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {});
+  let handled = 0;
+  const handler = runTrigger(async () => { handled += 1; }, () => ({}) as Store);
+  await handler({ name: 'billingInvoice.exploded', recordId: 'r1' });
+  await handler(null);
+  assert.equal(handled, 0);
+  assert.deepEqual(logged.mock.calls.map((call) => JSON.parse(String(call.arguments[0]))), [
+    { trigger: 'ignored', reason: 'unrecognised payload', event: 'billingInvoice.exploded' },
+    { trigger: 'ignored', reason: 'unrecognised payload', event: null },
+  ]);
+});
+
+test('a failure Twenty explained is logged with Twenty’s messages', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {});
+  const refusal = Object.assign(restError(400), { body: { statusCode: 400, error: 'BadRequestException', messages: ['Invalid UUID'] } });
+  const failing = runTrigger(async () => { throw refusal; }, () => ({}) as Store);
+  await assert.rejects(failing({ name: 'billingInvoice.updated', recordId: 'r1', properties: {} }), (error) => error === refusal);
+  assert.deepEqual(JSON.parse(String(logged.mock.calls[0]!.arguments[0])), {
+    trigger: 'failed', event: 'updated', recordId: 'r1', error: 'status 400', messages: ['Invalid UUID'],
+  });
 });
 
 test('a transient failure asks the platform for a retry; any other failure fails the run as it is', async (t) => {

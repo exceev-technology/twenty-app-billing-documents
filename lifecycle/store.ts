@@ -77,6 +77,19 @@ export class NotAllowedError extends Error {
   }
 }
 
+/**
+ * Twenty's reason for a failure, for a log entry: a RestApiClientError carries
+ * Twenty's answer as `body` ({ statusCode, error, messages }), whose message
+ * alone says only the status. Read by shape, so Lifecycle needs no SDK: the
+ * body's messages, else the body itself, else nothing.
+ */
+export function reasonOf(error: unknown): { messages: unknown[] } | { body: unknown } | Record<string, never> {
+  const body = (error as { body?: unknown } | null | undefined)?.body;
+  if (body === undefined || body === null) return {};
+  const messages = (body as { messages?: unknown }).messages;
+  return Array.isArray(messages) ? { messages } : { body };
+}
+
 /** Who last wrote a record, as Twenty records it: 'APPLICATION' for the app, 'MANUAL' for a person. */
 export function sourceOf(row: Row | null | undefined): string | null {
   const actor = row?.updatedBy as { source?: unknown } | null | undefined;
