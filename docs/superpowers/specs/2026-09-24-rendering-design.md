@@ -170,8 +170,10 @@ nothing that long is ever unbreakable.
 very long word (a URL, an unspaced IBAN) would push the columns beside it off
 the page. A run wider than the space it lands in (a cell of the lines table or
 the recap, 60 pt on the receipt and 150 pt on A4; a column of modern's facts,
-90 pt; compact's stamp and letterhead's list of facts, 150 pt; any other block,
-190 pt and 240 pt) is handed to pdfmake as adjacent pieces, cut after a `/ . - @ _` where
+its own width, what the logo and the gutters leave shared among the facts
+(about 84 pt for a quote's four beside a logo); compact's stamp and
+letterhead's list of facts, 150 pt; any other block, 190 pt and 240 pt) is
+handed to pdfmake as adjacent pieces, cut after a `/ . - @ _` where
 there is one, measured with Roboto's own advance widths. Nothing is inserted
 into the text, so it copies and searches whole, and a run that fits its space is
 never cut.

@@ -126,6 +126,9 @@ function breakable(node: unknown, limit: number, size: number): unknown {
   ]));
 }
 
+/** The widest a logo is drawn: it is fitted into LOGO_WIDTH x 48 pt. */
+const LOGO_WIDTH = 120;
+
 /** pdfmake hands a layout callback the table node, so the rows are node.table.body and the columns node.table.widths. */
 type TableNode = { table: { body: unknown[]; widths: unknown[] } };
 type Callback = (index: number, node: TableNode) => unknown;
@@ -195,7 +198,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     const image = input.brand.logo;
     if (!image) return [];
     const base64 = Buffer.from(image.bytes).toString('base64');
-    return [{ image: `data:${image.type};base64,${base64}`, fit: [120, 48], margin }];
+    return [{ image: `data:${image.type};base64,${base64}`, fit: [LOGO_WIDTH, 48], margin }];
   };
 
   const heading = (text: string): Node => ({ text, ...smallLabel(style.base), margin: [0, 0, 0, 3] });
@@ -214,9 +217,9 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   const seller = (): Node[] => [heading(label('from')), ...party(input.seller, 'SELLER')];
   const buyer = (): Node[] => [heading(label('billTo')), ...party(input.buyer, 'BUYER')];
 
-  /** Seller left (under the logo, unless the header has it), buyer right. */
-  const parties = (withLogo: boolean): Node => ({
-    columns: [{ width: '*', stack: [...(withLogo ? logo() : []), ...seller()] }, { width: '*', stack: buyer() }],
+  /** Seller left, buyer right. */
+  const parties = (): Node => ({
+    columns: [{ width: '*', stack: seller() }, { width: '*', stack: buyer() }],
     columnGap: 18,
     margin: [0, 0, 0, 14],
   });
@@ -260,49 +263,57 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
         rule(1.5, HAIRLINE, [0, 12, 0, 14]),
       ],
     },
-    parties(false),
+    parties(),
     subjectAndNotes(),
   ];
 
   // invoice-modern: a banner in the accent, the logo and the facts in a row of small labels, a rule between seller and buyer.
-  const bannerTop = (): Node[] => [
-    {
-      table: {
-        widths: ['*'],
-        body: [[{
-          stack: [titleText({ color: onAccent }), { text: input.seller.name, color: onAccent, fontSize: style.base + 1, margin: [0, 2, 0, 0] }],
-          margin: [14, 12, 14, 12],
-        }]],
+  const bannerTop = (): Node[] => {
+    const row = facts();
+    const gap = 12;
+    // The facts share what the logo (at its widest, with its margin) and the gutters leave: a run is cut to that width,
+    // or pdfmake widens every column to hold it and the row runs past the margin.
+    const beside = input.brand.logo ? LOGO_WIDTH + gap + gap : 0;
+    const column = Math.floor((width - beside - gap * (row.length - 1)) / row.length);
+    return [
+      {
+        table: {
+          widths: ['*'],
+          body: [[{
+            stack: [titleText({ color: onAccent }), { text: input.seller.name, color: onAccent, fontSize: style.base + 1, margin: [0, 2, 0, 0] }],
+            margin: [14, 12, 14, 12],
+          }]],
+        },
+        layout: { fillColor: () => accent, hLineWidth: () => 0, vLineWidth: () => 0 },
+        margin: [0, 0, 0, 14],
       },
-      layout: { fillColor: () => accent, hLineWidth: () => 0, vLineWidth: () => 0 },
-      margin: [0, 0, 0, 14],
-    },
-    fit({
-      columns: [
-        ...logo([0, 0, 12, 0]).map((image) => ({ width: 'auto', stack: [image] })),
-        ...facts().map(([name, value], index) => ({
-          width: '*',
-          stack: [heading(name), { text: value, ...(index === 0 ? { bold: true, fontSize: size.number } : {}) }],
-        })),
-      ],
-      columnGap: 12,
-      margin: [0, 0, 0, 14],
-    }, 90),
-    {
-      table: { widths: ['*', '*'], body: [[{ stack: seller() }, { stack: buyer() }]] },
-      layout: {
-        hLineWidth: () => 0,
-        vLineWidth: (index: number) => (index === 1 ? 1 : 0),
-        vLineColor: () => HAIRLINE,
-        paddingLeft: (index: number) => (index === 0 ? 0 : 14),
-        paddingRight: (index: number) => (index === 0 ? 14 : 0),
-        paddingTop: () => 0,
-        paddingBottom: () => 0,
+      fit({
+        columns: [
+          ...logo([0, 0, gap, 0]).map((image) => ({ width: 'auto', stack: [image] })),
+          ...row.map(([name, value], index) => ({
+            width: '*',
+            stack: [heading(name), { text: value, ...(index === 0 ? { bold: true, fontSize: size.number } : {}) }],
+          })),
+        ],
+        columnGap: gap,
+        margin: [0, 0, 0, 14],
+      }, column),
+      {
+        table: { widths: ['*', '*'], body: [[{ stack: seller() }, { stack: buyer() }]] },
+        layout: {
+          hLineWidth: () => 0,
+          vLineWidth: (index: number) => (index === 1 ? 1 : 0),
+          vLineColor: () => HAIRLINE,
+          paddingLeft: (index: number) => (index === 0 ? 0 : 14),
+          paddingRight: (index: number) => (index === 0 ? 14 : 0),
+          paddingTop: () => 0,
+          paddingBottom: () => 0,
+        },
+        margin: [0, 0, 0, 14],
       },
-      margin: [0, 0, 0, 14],
-    },
-    subjectAndNotes(),
-  ];
+      subjectAndNotes(),
+    ];
+  };
 
   // invoice-minimal: the title over a heavy accent rule, the facts in a framed stamp beside it.
   const stampTop = (): Node[] => {
@@ -334,7 +345,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
         columnGap: 18,
         margin: [0, 0, 0, 12],
       },
-      parties(false),
+      parties(),
       subjectAndNotes(),
     ];
   };
@@ -496,16 +507,19 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   }, cell, size.small) as Node;
 
   /**
-   * Every look sets the total apart with a rule in the accent above it, or
+   * Every look sets the total apart with a rule in the accent above it (black on
+   * the receipt), or
    * (modern) fills its row with the accent; classic adds a light box, letterhead
    * a grey card, modern a tinted panel.
    */
   const totalsLayout = (): Record<string, Callback> => {
     const aboveTotal = (index: number, node: TableNode): boolean => index === rowCount(node) - 1;
     const between = (index: number, node: TableNode): boolean => index > 0 && index < rowCount(node);
+    // A thermal roll drops a pale accent: the receipt's rule above the total is black.
+    const totalRule = style.narrow ? INK : accent;
     const rules = (dividers: number, divider: string) => ({
       hLineWidth: (index: number, node: TableNode) => (aboveTotal(index, node) ? 1 : between(index, node) ? dividers : 0),
-      hLineColor: (index: number, node: TableNode) => (aboveTotal(index, node) ? accent : divider),
+      hLineColor: (index: number, node: TableNode) => (aboveTotal(index, node) ? totalRule : divider),
       vLineWidth: () => 0,
     });
     switch (style.totalsPanel) {
