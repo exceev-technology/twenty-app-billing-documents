@@ -217,6 +217,7 @@ export const IDS: Readonly<Record<string, string>> = {
   'field.person.billingInvoices': 'b4e14acd-5557-4817-8e5a-776a4c454a18',
   'field.person.billingQuotes': 'e0a2ee6e-b9a0-4f46-8ec5-3135e7aa3823',
   'frontComponent.billingTimelineMessage': '5cefcf39-9568-476b-85f0-2e22f020d456',
+  'logicFunction.billingAction': '42165608-7279-42e4-982b-f4b84c9cdad4',
   'logicFunction.createMissingPresets': 'aaf08293-7339-4abd-a60c-df1106cebd5a',
   'logicFunction.guardCreditNote': 'aac6b5b8-e866-43eb-8861-7e83dd6007ff',
   'logicFunction.guardCreditNoteLine': 'fbab2f02-5979-47a1-b187-e0cc33a6b329',
