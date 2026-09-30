@@ -309,6 +309,19 @@ test('a quote that holds a number and has since changed issuer is refused before
   assert.deepEqual(w.db.row('billingQuotes', ours.id)!.pdf, []);
 });
 
+test('a numbered quote whose date moved into the next year gets its next version with the same number, and no sequence rises', async () => {
+  const w = workspace();
+  const quote = w.addQuote();
+  w.addLine(KINDS.billingQuote, quote.id);
+  const ask = (localDate: string, clock: string) =>
+    runAction(request(w, { action: 'quotePdf', object: 'billingQuote', recordId: quote.id, localDate }), setup(w, { now: () => new Date(clock) }).deps);
+  assert.deepEqual((await ask('2026-12-18', '2026-12-18T10:00:00.000Z')).body, { ok: true, number: 'D2026-0001', version: 1, message: 'Quote D2026-0001, version 1: it is in the PDF field.' });
+  await w.user.update('billingQuotes', quote.id, { issueDate: '2027-01-08' });
+  const outcome = await ask('2027-01-08', '2027-01-08T10:00:00.000Z');
+  assert.deepEqual(outcome.body, { ok: true, number: 'D2026-0001', version: 2, message: 'Quote D2026-0001, version 2: it is in the PDF field.' });
+  assert.deepEqual(w.db.rows('billingSequences').filter((row) => row.lastValue !== 0).map((row) => [row.documentType, row.periodKey, row.lastValue]), [['QUOTE', '2026', 1]]);
+});
+
 test('a numbered draft whose issue date moved into the next year is refused, and that year’s sequence is left alone', async () => {
   const w = workspace();
   const lastDay = setup(w, { now: () => new Date('2026-12-31T16:00:00.000Z') });

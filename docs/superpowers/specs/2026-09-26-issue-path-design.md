@@ -127,9 +127,12 @@ their own sequence.
    read it again.
 3. Read the document. A number it already holds is reused, and allocation
    ends, provided it still belongs there: its `numberKey` names this issuer,
-   and the pattern, given the number's sequence and the issue date, prints it
-   again (a pattern that no longer reads the number back keeps it by its key
-   alone). A number given under another issuer or period is refused with
+   and, for an invoice or credit note, the pattern, given the number's
+   sequence and the issue date, prints it again (a pattern that no longer
+   reads the number back keeps it by its key alone). A quote's number belongs
+   by its key alone, since its date may change before each version (see
+   "Dates" below). A number given under another issuer, or an invoice's or
+   credit note's given for another period, is refused with
    `HELD_NUMBER_ELSEWHERE`, before anything is written (the gate, §6). The
    ledger is read before the document, so two requests for the same draft
    converge on the same number: whichever reads second sees the first one's
@@ -198,8 +201,8 @@ reported, not the first:
 1. The status allows the action: DRAFT for preview and issue.
 2. The issuer is set and has a profile; the currency is known; the profile's
    pattern for the type is valid; for an issue or a quote PDF, a number the
-   document already holds still belongs to its issuer and its issue date's
-   period (§5, step 3).
+   document already holds still belongs to its issuer and, for an invoice or
+   credit note, to its issue date's period (§5, step 3).
 3. A buyer is set: a company, a person, or both.
 4. A credit note names an invoice that is issued, with the same issuer and the
    same currency.

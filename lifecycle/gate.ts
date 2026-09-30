@@ -88,7 +88,7 @@ export function checkGate(loaded: Loaded, context: GateContext): AnyProblem[] {
   // 1. The status allows the action.
   if (context.action !== 'quotePdf' && document.status !== 'DRAFT') problems.push(lifecycle('WRONG_STATUS', { value: textOf(document.status) }));
 
-  // 2. Issuer, profile, currency, pattern, and a number already held that is still this issuer's and period's.
+  // 2. Issuer, profile, currency, pattern; a held number still this issuer's, and an invoice's or credit note's this period's.
   if (!issuer) problems.push(lifecycle('MISSING_ISSUER', { field: 'issuerId' }));
   else if (!profile) problems.push(lifecycle('MISSING_PROFILE', { field: 'profileId' }));
   const currencyCode = textOf(document.currencyCode).trim();
@@ -99,7 +99,7 @@ export function checkGate(loaded: Loaded, context: GateContext): AnyProblem[] {
     for (const problem of patternProblems) problems.push({ source: 'engine', problem, field: kind.patternField });
     // A preview numbers nothing. Issue and a quote PDF reuse a held number: refused here, before the claim writes anything.
     if (context.action !== 'preview' && patternProblems.length === 0 && issueDate !== '') {
-      const held = heldNumberOf(document, issuer.id, pattern, issueDate);
+      const held = heldNumberOf(kind, document, issuer.id, pattern, issueDate);
       if (held && !held.belongs) problems.push(lifecycle('HELD_NUMBER_ELSEWHERE', { value: held.number }));
     }
   }

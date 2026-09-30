@@ -81,6 +81,13 @@ test('a number the document holds was given under its issuer and for its issue d
   assert.deepEqual(codes(await loaded(w, quote.id, KINDS.billingQuote), { ...ISSUE, action: 'quotePdf' }), ['HELD_NUMBER_ELSEWHERE']);
 });
 
+test('a quote’s held number is refused under another issuer only: its date may move to another period', async () => {
+  const w = workspace();
+  const quote = w.addQuote({ number: 'D2026-0042', numberKey: numberKeyOf(w.issuer.id, 'D2026-0042'), issueDate: '2027-01-08' });
+  w.addLine(KINDS.billingQuote, quote.id);
+  assert.deepEqual(codes(await loaded(w, quote.id, KINDS.billingQuote), { ...ISSUE, action: 'quotePdf' }), []);
+});
+
 test('an empty numbering reset reads as the field’s default, yearly', () => {
   assert.equal(resetOf({ id: 'p', numberingReset: 'MONTHLY' }), 'MONTHLY');
   assert.equal(resetOf({ id: 'p', numberingReset: '' }), 'YEARLY');

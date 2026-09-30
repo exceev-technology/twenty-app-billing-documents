@@ -177,8 +177,8 @@ async function issue(run: Run): Promise<ActionOutcome> {
 
   run.step('trial');
   const { totals, logo, inputFor } = await prepare(run);
-  // The gate has refused a held number that is not this issuer's and period's.
-  const held = heldNumberOf(document, issuer!.id, pattern, issueDate);
+  // The gate has refused a held number that is not this issuer's and this period's.
+  const held = heldNumberOf(kind, document, issuer!.id, pattern, issueDate);
   const trialNumber = held?.number ?? (await nextNumber(deps.app, scope, pattern, issueDate)).number;
   let rendered = await run.render(inputFor(trialNumber));
 
@@ -234,7 +234,7 @@ async function quotePdf(run: Run): Promise<ActionOutcome> {
   const { kind, deps, loaded, scope, issueDate } = run;
   const { document, issuer, profile } = loaded;
   const pattern = textOf(profile![kind.patternField]);
-  const held = heldNumberOf(document, issuer!.id, pattern, issueDate);
+  const held = heldNumberOf(kind, document, issuer!.id, pattern, issueDate);
   const version = held ? (wholeDays(document.version) ?? 0) + 1 : 1;
 
   run.step('trial');

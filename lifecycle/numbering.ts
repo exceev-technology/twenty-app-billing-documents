@@ -128,24 +128,27 @@ export type Claim = { number: string; n: number | null; reused: boolean };
 
 /**
  * A number a document holds. `belongs` says whether it was given under this
- * issuer and prints this issue date's period: a draft whose issuer or date
- * changed after its claim must not carry it into another sequence, where the
- * unique key (which names the first issuer) would not catch a duplicate.
+ * issuer and, for an invoice or credit note, prints this issue date's period:
+ * a draft whose issuer or date changed after its claim must not carry it into
+ * another sequence, where the unique key (which names the first issuer) would
+ * not catch a duplicate, nor raise another period's ledger.
  */
 export type HeldNumber = { number: string; n: number | null; belongs: boolean };
 
 /**
  * The number a document holds, or null. When the pattern no longer reads it
  * back (it changed since the claim), the number is its issuer's by its key
- * alone, with no sequence (`n` null). The pattern must be valid.
+ * alone, with no sequence (`n` null). A quote's is its issuer's by its key
+ * alone too: its date may change before each version (spec §5, "Dates"), and
+ * no quote PDF raises a ledger. The pattern must be valid.
  */
-export function heldNumberOf(document: Row, issuerId: string, pattern: string, issueDate: string): HeldNumber | null {
+export function heldNumberOf(kind: Kind, document: Row, issuerId: string, pattern: string, issueDate: string): HeldNumber | null {
   const { number, numberKey } = document;
   if (typeof number !== 'string' || number === '' || !numberKey) return null;
   const read = sequenceOf(pattern, number);
   const n = read !== null && Number.isSafeInteger(read) && read > 0 ? read : null;
-  const belongs = numberKey === numberKeyOf(issuerId, number) && (n === null || formatNumber(pattern, n, issueDate) === number);
-  return { number, n, belongs };
+  const inPeriod = kind.kind === 'QUOTE' || n === null || formatNumber(pattern, n, issueDate) === number;
+  return { number, n, belongs: numberKey === numberKeyOf(issuerId, number) && inPeriod };
 }
 
 /**
@@ -161,7 +164,7 @@ export async function claimNumber(store: Store, input: ClaimInput): Promise<Clai
   const ledger = await ensureLedger(store, scope);
   const document = await store.get(kind.plural, documentId);
   if (!document) throw new Error(`${kind.object} ${documentId} no longer exists`);
-  const held = heldNumberOf(document, issuerId, pattern, issueDate);
+  const held = heldNumberOf(kind, document, issuerId, pattern, issueDate);
   if (held) {
     // The gate refuses this first; refused here too, so that no caller can reuse it elsewhere.
     if (!held.belongs) throw new LifecycleError([{ code: 'HELD_NUMBER_ELSEWHERE', value: held.number }]);
