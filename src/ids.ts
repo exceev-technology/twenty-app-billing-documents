@@ -216,6 +216,7 @@ export const IDS: Readonly<Record<string, string>> = {
   'field.person.billingIdentifiers': 'f795f780-786e-4879-8569-c9f39ee6a3c5',
   'field.person.billingInvoices': 'b4e14acd-5557-4817-8e5a-776a4c454a18',
   'field.person.billingQuotes': 'e0a2ee6e-b9a0-4f46-8ec5-3135e7aa3823',
+  'frontComponent.billingTimelineMessage': '5cefcf39-9568-476b-85f0-2e22f020d456',
   'logicFunction.createMissingPresets': 'aaf08293-7339-4abd-a60c-df1106cebd5a',
   'logicFunction.seedPresets': '48617a08-aea0-4320-9c96-03cf99d45d04',
   'navigationMenuItem.billing': '7002217f-8bb2-4415-b724-1a396e3230d0',
@@ -354,4 +355,6 @@ export const IDS: Readonly<Record<string, string>> = {
   'option.billingTaxCode.category.STANDARD': 'cb9c411f-5eaf-4de6-9a94-5149bd0dd2f6',
   'option.billingTaxCode.category.ZERO': '271fead7-4fda-4321-ba98-2ddc6f17e7ac',
   'role.billing': '13225ae6-4d2f-4c24-aced-05032c90de01',
+  'timelineActivityType.billingCorrection': '43101702-2d60-4a67-914b-3e80f3405c86',
+  'timelineActivityType.billingIssued': '1feec521-e663-443c-9419-d1c0061ac6d6',
 };

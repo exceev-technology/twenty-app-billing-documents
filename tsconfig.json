@@ -11,7 +11,8 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
-    "erasableSyntaxOnly": true
+    "erasableSyntaxOnly": true,
+    "jsx": "react-jsx"
   },
-  "include": ["src/**/*.ts", "engine/**/*.ts", "render/**/*.ts", "lifecycle/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "engine/**/*.ts", "render/**/*.ts", "lifecycle/**/*.ts", "test/**/*.ts"]
 }
