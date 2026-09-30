@@ -213,7 +213,9 @@ reported, not the first:
    preview; for an issue or a quote's first PDF, the number it is about to get
    (the next one in the ledger), in a trial run before that number is claimed.
    Unsupported characters, a bad logo or a QR code that cannot fit are refused
-   here.
+   here. A logo the issuer holds but that cannot be downloaded stops the
+   action as unexpected (HTTP 500) before any number is claimed: an issued PDF
+   is never rendered again, so it never goes out without its logo.
 
 **Issue** (invoices and credit notes), once the gate passes:
 

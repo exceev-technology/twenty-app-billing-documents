@@ -148,12 +148,20 @@ export function restStore(deps: RestStoreDeps): Store {
     async download(file) {
       const url = (file as { url?: unknown } | null)?.url;
       if (typeof url !== 'string' || url === '') return null;
-      const response = await deps.fetchFile(url);
-      if (!response.ok) {
-        log({ download: 'failed', status: response.status, fileId: (file as { fileId?: unknown }).fileId ?? null });
+      const fileId = (file as { fileId?: unknown }).fileId ?? null;
+      let bytes: Uint8Array;
+      try {
+        const response = await deps.fetchFile(url);
+        if (!response.ok) {
+          log({ download: 'failed', status: response.status, fileId });
+          return null;
+        }
+        bytes = new Uint8Array(await response.arrayBuffer());
+      } catch (error) {
+        // A transport fault reads as a refused download: the caller decides what a missing file means.
+        log({ download: 'failed', fileId, error: error instanceof Error ? error.message : String(error) });
         return null;
       }
-      const bytes = new Uint8Array(await response.arrayBuffer());
       return { bytes, type: imageType(bytes) };
     },
     async timeline(entry: TimelineEntry) {

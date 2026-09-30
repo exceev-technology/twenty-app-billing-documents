@@ -143,6 +143,9 @@ async function issuedMeanwhile(run: Run): Promise<ActionOutcome | null> {
 async function prepare(run: Run) {
   const totals = computeDocument(toDocumentInput(run.loaded));
   const logo = await loadLogo(run.deps.app, run.loaded.issuer);
+  // An issued PDF is never rendered again: it must not go out without the logo its issuer has. Before any claim.
+  const holdsLogo = Array.isArray(run.loaded.issuer?.logo) && Boolean(run.loaded.issuer.logo[0]);
+  if (!logo && holdsLogo) throw new Error('The issuer’s logo could not be downloaded');
   const inputFor = (number: string | null, version?: number): RenderInput =>
     toRenderInput(run.loaded, totals, { number, version, issueDate: run.issueDate, logo });
   return { totals, logo, inputFor };

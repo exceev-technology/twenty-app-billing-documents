@@ -148,6 +148,16 @@ test('a file is downloaded from its signed link, its type read from its bytes', 
   assert.equal(failing.logs[0]?.download, 'failed');
 });
 
+test('a download that fails in transport is logged and is nothing, as a refused one is', async () => {
+  const { rest } = fakeRest(() => ({}));
+  const unreachable = deps(rest, { fetchFile: async () => { throw new TypeError('fetch failed'); } });
+  assert.equal(await restStore(unreachable).download({ fileId: 'f', url: 'https://x' }), null);
+  assert.deepEqual(unreachable.logs, [{ download: 'failed', fileId: 'f', error: 'fetch failed' }]);
+  const cut = deps(rest, { fetchFile: async () => ({ ok: true, status: 200, arrayBuffer: async () => { throw new Error('socket hang up'); } }) });
+  assert.equal(await restStore(cut).download({ fileId: 'f', url: 'https://x' }), null);
+  assert.deepEqual(cut.logs, [{ download: 'failed', fileId: 'f', error: 'socket hang up' }]);
+});
+
 test('a timeline message is written as the app, on the record, with the type found by its universal identifier', async () => {
   const { rest, calls } = fakeRest(() => ({ data: { createTimelineActivity: { id: 't1' } } }));
   let lookups = 0;

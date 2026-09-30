@@ -341,6 +341,28 @@ test('a render problem is refused before any number is claimed', async () => {
   assert.deepEqual(w.db.rows('billingSequences'), []);
 });
 
+test('an issuer logo that cannot be downloaded stops every action as unexpected, before any number is claimed', async () => {
+  const w = workspace();
+  await w.app.update('billingIssuers', w.issuer.id, { logo: [{ fileId: 'file-expired', label: 'logo.png' }] });
+  const quote = w.addQuote();
+  w.addLine(KINDS.billingQuote, quote.id);
+  const { deps, logs } = setup(w);
+  const asks = [
+    request(w, { action: 'preview' }), request(w), request(w, { action: 'quotePdf', object: 'billingQuote', recordId: quote.id }),
+  ];
+  for (const ask of asks) {
+    const before = w.db.writes.length;
+    const outcome = await runAction(ask, deps);
+    assert.deepEqual(outcome, { status: 500, body: { ok: false, problems: [{ code: 'UNEXPECTED', message: 'Something went wrong (ref ref-7f3a).' }] } }, ask.action);
+    assert.deepEqual(w.db.writes.slice(before).map((write) => write.source), ['MANUAL'], `${ask.action}: nothing written but the defaults`);
+    assert.match(String(logs.at(-1)?.error), /logo could not be downloaded/, ask.action);
+  }
+  assert.deepEqual([invoiceRow(w).number, invoiceRow(w).pdf], ['', []]);
+  assert.deepEqual([w.db.row('billingQuotes', quote.id)!.number, w.db.row('billingQuotes', quote.id)!.pdf], ['', []]);
+  assert.deepEqual(w.db.rows('billingSequences'), []);
+  assert.deepEqual(logs.map((entry) => entry.step), ['render', 'trial', 'trial']);
+});
+
 test('the trial’s bytes are the final bytes; a number taken meanwhile is rendered again', async () => {
   const w = workspace();
   const plain = setup(w);
