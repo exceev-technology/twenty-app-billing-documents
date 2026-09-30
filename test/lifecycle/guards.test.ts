@@ -129,7 +129,7 @@ test('an issued invoice moves freely between Issued, Sent and Paid, never back t
   await w.user.update('billingInvoices', w.invoice.id, { status: 'DRAFT' });
   await settle(w);
   assert.equal(invoice(w).status, 'ISSUED');
-  assert.deepEqual(corrections(w), ['Une facture numérotée ne peut pas revenir au statut Brouillon. Le statut a été remis à Émise.']);
+  assert.deepEqual(corrections(w), ['Une facture émise ne peut pas revenir au statut Brouillon. Le statut a été remis à Émise.']);
 });
 
 test('only the app issues or cancels; a person’s move there is put back', async () => {

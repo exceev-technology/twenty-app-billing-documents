@@ -62,6 +62,14 @@ test('a French locale gets French, any other locale English', () => {
   for (const locale of ['en', 'en-US', 'de-DE', 'fra', '', null, undefined]) assert.equal(packFor(locale).code, 'EN', String(locale));
 });
 
+test('the Draft rule’s message speaks of an issued document, the only kind it now puts back', () => {
+  assert.equal(PACKS.EN.messages.statusPutBack('DRAFT', 'INVOICE', 'Issued'), 'An issued invoice cannot return to Draft. The status was put back to Issued.');
+  assert.equal(PACKS.EN.messages.statusPutBack('DRAFT', 'CREDIT_NOTE', 'Issued'), 'An issued credit note cannot return to Draft. The status was put back to Issued.');
+  assert.equal(PACKS.FR.messages.statusPutBack('DRAFT', 'INVOICE', 'Émise'), 'Une facture émise ne peut pas revenir au statut Brouillon. Le statut a été remis à Émise.');
+  assert.equal(PACKS.FR.messages.statusPutBack('DRAFT', 'CREDIT_NOTE', 'Émis'), 'Un avoir émis ne peut pas revenir au statut Brouillon. Le statut a été remis à Émis.');
+  assert.match(PACKS.EN.messages.statusPutBack('CANCEL', 'INVOICE', 'Draft'), /^A numbered invoice is cancelled through a credit note\./, 'cancelling is still refused to a numbered draft');
+});
+
 test('a guard’s message names the fields it put back and says how to correct', () => {
   assert.equal(
     PACKS.EN.messages.fieldsPutBack('INVOICE', ['Subject']),

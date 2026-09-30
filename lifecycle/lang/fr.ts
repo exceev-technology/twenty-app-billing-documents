@@ -86,7 +86,7 @@ export const fr: LifecyclePack = {
     statusPutBack: (rule, kind, back) => {
       const why = {
         ISSUE: `Seule l’action Issue émet ${kind === 'INVOICE' ? 'une facture' : 'un avoir'}.`,
-        DRAFT: `${kind === 'INVOICE' ? 'Une facture numérotée' : 'Un avoir numéroté'} ne peut pas revenir au statut Brouillon.`,
+        DRAFT: `${kind === 'INVOICE' ? 'Une facture émise' : 'Un avoir émis'} ne peut pas revenir au statut Brouillon.`,
         CANCEL: 'Une facture numérotée s’annule par un avoir.',
         INVOICED: 'Un devis passe au statut Facturé quand il devient une facture.',
       }[rule];

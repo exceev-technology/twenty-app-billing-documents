@@ -82,7 +82,7 @@ export const en: LifecyclePack = {
     statusPutBack: (rule, kind, back) => {
       const why = {
         ISSUE: `Only the Issue action issues a ${kinds[kind]}.`,
-        DRAFT: `A numbered ${kinds[kind]} cannot return to Draft.`,
+        DRAFT: `An issued ${kinds[kind]} cannot return to Draft.`,
         CANCEL: `A numbered ${kinds[kind]} is cancelled through a credit note.`,
         INVOICED: 'A quote becomes Invoiced when it is turned into an invoice.',
       }[rule];
