@@ -6,24 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { LOGIC_FUNCTION } from '../helpers/logic-function-build.ts';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-
-// What twenty-sdk 2.41 passes esbuild for a logic function: one ES module for
-// Node, Node built-ins left external, and `require` shimmed by a banner. Nothing
-// defines __dirname, and the bundle runs far from node_modules.
-const LOGIC_FUNCTION = {
-  bundle: true,
-  splitting: false,
-  format: 'esm' as const,
-  platform: 'node' as const,
-  external: [
-    'twenty-client-sdk/core', 'twenty-client-sdk/metadata', 'path', 'fs', 'crypto', 'stream', 'util', 'os', 'url',
-    'http', 'https', 'events', 'buffer', 'querystring', 'assert', 'zlib', 'net', 'tls', 'child_process', 'worker_threads',
-  ],
-  banner: { js: "import { createRequire as __createRequire } from 'module';\nconst require = __createRequire(import.meta.url);" },
-  logLevel: 'silent' as const,
-};
 
 test('the renderer still renders once bundled as a Twenty logic function', async () => {
   const folder = mkdtempSync(join(tmpdir(), 'render-bundle-'));
