@@ -82,3 +82,16 @@ export function sourceOf(row: Row | null | undefined): string | null {
   const actor = row?.updatedBy as { source?: unknown } | null | undefined;
   return typeof actor?.source === 'string' ? actor.source : null;
 }
+
+/**
+ * Leaves a timeline message after a correction. A message that cannot be
+ * written (a muted timeline type, a network fault) never undoes the correction
+ * it explains; the REST store logs the failure.
+ */
+export async function leaveMessage(store: Store, entry: TimelineEntry): Promise<void> {
+  try {
+    await store.timeline(entry);
+  } catch {
+    // The correction stands without its message.
+  }
+}
