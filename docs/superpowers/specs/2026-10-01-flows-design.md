@@ -173,9 +173,11 @@ changes a price, then previews and issues it as any credit note.
 
 ### The Cancel invoice button
 
-"Cancel invoice", on the same selection. The button first asks: "Cancel
-F2026-0001? A credit note for everything that remains is issued, and the
-invoice is marked Cancelled. This cannot be undone." Action `cancelInvoice`:
+"Cancel invoice", on the same selection. The button first asks: "Cancel this
+invoice? A credit note for everything that remains is issued, and the invoice
+is marked Cancelled. This cannot be undone." (The button knows only the
+selected record's id, so the question does not name the number.) Action
+`cancelInvoice`:
 
 1. Refused with `NOT_ISSUED` or `INVOICE_CANCELLED` as above.
 2. Compute the remainder. When it is not known: `REMAINDER_UNKNOWN` (a credit
