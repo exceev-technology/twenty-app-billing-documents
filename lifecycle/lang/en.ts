@@ -113,7 +113,7 @@ export const en: LifecyclePack = {
     alreadyCredited: (invoiceNumber) => `${invoiceNumber} is cancelled: its credit notes already credit all of it.`,
     invoiceNowCancelled: (invoiceNumber) => `Invoice ${invoiceNumber} is now cancelled.`,
     cancellationReason: (invoiceNumber) => `Cancellation of invoice ${invoiceNumber}`,
-    invoicedTimeline: (subject) => (subject ? `Draft invoice "${subject}" created from this quote.` : 'Draft invoice created from this quote.'),
+    invoicedTimeline: (subject) => (subject ? `Draft invoice “${subject}” created from this quote.` : 'Draft invoice created from this quote.'),
     creditedTimeline: (creditNoteNumber, total) => `Credit note ${creditNoteNumber} issued against this invoice, for ${total}.`,
     cancelledTimeline: (creditNoteNumber) => `Cancelled by credit note ${creditNoteNumber}.`,
     quoteReopened: 'The draft invoice made from this quote was deleted: the quote is Accepted again.',

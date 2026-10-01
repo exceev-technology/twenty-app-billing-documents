@@ -97,6 +97,14 @@ test('a number held under another issuer or period is worded in both languages',
   );
 });
 
+test('OVER_CREDIT names the line when it can, and INVOICE_CANCELLED speaks of the corrected invoice from a credit note', () => {
+  assert.equal(PACKS.EN.problems.OVER_CREDIT({ value: '2' }), 'This credit note credits more than remains on its invoice (line 2).');
+  assert.equal(PACKS.EN.problems.OVER_CREDIT({}), 'This credit note credits more than remains on its invoice.');
+  assert.match(PACKS.EN.problems.INVOICE_CANCELLED({ field: 'invoiceId' }), /^The invoice this credit note corrects is cancelled/);
+  assert.match(PACKS.FR.problems.INVOICE_CANCELLED({}), /^Cette facture est annulée/);
+  assert.equal(PACKS.FR.messages.cancellationReason('F2026-0001'), 'Annulation de la facture F2026-0001');
+});
+
 test('a problem of each origin is worded, with the field it names', () => {
   assert.deepEqual(describe({ source: 'lifecycle', code: 'MISSING_IDENTIFIER', field: 'seller', value: 'SIREN' }, 'EN'), {
     code: 'MISSING_IDENTIFIER', message: 'The seller has no SIREN.', field: 'seller',

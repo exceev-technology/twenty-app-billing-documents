@@ -102,7 +102,7 @@ export const fr: LifecyclePack = {
         CANCEL: 'Une facture numérotée s’annule par un avoir.',
         INVOICED: 'Un devis passe au statut Facturé quand il devient une facture.',
         NOT_ISSUED: 'Seule une facture émise peut être Envoyée ou Payée.',
-        UNINVOICE: 'Ce devis a une facture et reste Facturé : supprimez la facture pour rouvrir le devis.',
+        UNINVOICE: 'Ce devis a une facture et reste Facturé\u00a0: supprimez la facture pour rouvrir le devis.',
       }[rule];
       return `${why} Le statut a été remis à ${back}.`;
     },
@@ -114,14 +114,14 @@ export const fr: LifecyclePack = {
     invoiceCreated: 'Facture brouillon créée à partir de ce devis.',
     creditNoteCreated: (invoiceNumber) => `Avoir brouillon créé pour ${invoiceNumber}.`,
     cancelledBy: (invoiceNumber, creditNoteNumber) => `${invoiceNumber} est annulée par l’avoir ${creditNoteNumber}.`,
-    alreadyCredited: (invoiceNumber) => `${invoiceNumber} est annulée : ses avoirs la créditent déjà entièrement.`,
+    alreadyCredited: (invoiceNumber) => `${invoiceNumber} est annulée\u00a0: ses avoirs la créditent déjà entièrement.`,
     invoiceNowCancelled: (invoiceNumber) => `La facture ${invoiceNumber} est maintenant annulée.`,
     cancellationReason: (invoiceNumber) => `Annulation de la facture ${invoiceNumber}`,
     invoicedTimeline: (subject) =>
-      subject ? `Facture brouillon « ${subject} » créée à partir de ce devis.` : 'Facture brouillon créée à partir de ce devis.',
+      subject ? `Facture brouillon «\u00a0${subject}\u00a0» créée à partir de ce devis.` : 'Facture brouillon créée à partir de ce devis.',
     creditedTimeline: (creditNoteNumber, total) => `Avoir ${creditNoteNumber} émis sur cette facture, pour ${total}.`,
     cancelledTimeline: (creditNoteNumber) => `Annulée par l’avoir ${creditNoteNumber}.`,
-    quoteReopened: 'La facture brouillon issue de ce devis a été supprimée : le devis est de nouveau Accepté.',
-    quoteReinvoiced: 'La facture issue de ce devis a été restaurée : le devis est de nouveau Facturé.',
+    quoteReopened: 'La facture brouillon issue de ce devis a été supprimée\u00a0: le devis est de nouveau Accepté.',
+    quoteReinvoiced: 'La facture issue de ce devis a été restaurée\u00a0: le devis est de nouveau Facturé.',
   },
 };
