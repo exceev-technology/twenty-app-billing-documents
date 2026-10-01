@@ -1,10 +1,10 @@
 import { build } from 'esbuild';
 
 /**
- * What twenty-sdk 2.41 passes esbuild for a logic function: one ES module for
- * Node, Node built-ins and two client modules left external, and `require`
- * shimmed by a banner. Nothing defines __dirname, and the bundle runs far from
- * node_modules.
+ * What twenty-sdk 2.43 passes esbuild for a logic function, as 2.41 did: one
+ * ES module for Node, Node built-ins and two client modules left external, and
+ * `require` shimmed by a banner. Nothing defines __dirname, and the bundle runs
+ * far from node_modules.
  */
 export const LOGIC_FUNCTION = {
   bundle: true,

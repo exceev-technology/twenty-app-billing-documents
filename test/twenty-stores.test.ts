@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { MetadataApiClient } from 'twenty-client-sdk/metadata';
 import { uploadWith } from '../src/lib/twenty-stores.ts';
 
 const FIELD = 'field:billingInvoice.pdf';
@@ -58,4 +59,10 @@ test('a PDF is uploaded through the options client of Twenty 2.42 and later', as
   assert.equal(received[0]?.size, PDF.length);
   assert.equal(received[0]?.filename, 'F2026-0001.pdf');
   assert.equal(received[0]?.fieldMetadataUniversalIdentifier, FIELD);
+});
+
+// uploadWith tells the two shapes apart by the declared parameter count, and the fakes above stand in for the
+// real clients: a pinned client SDK whose uploadFile changes shape must fail here, not on a server.
+test('the pinned client SDK’s uploadFile declares the one parameter of the options form', () => {
+  assert.equal(MetadataApiClient.prototype.uploadFile.length, 1);
 });

@@ -2,10 +2,10 @@ import { build } from 'esbuild';
 import { getFrontComponentBuildPlugins } from 'twenty-sdk/front-component-renderer/build';
 
 /**
- * What twenty-sdk 2.41 passes esbuild for a front component: one ES module for
- * the browser (no platform, so esbuild's browser default), JSX in automatic
- * mode, React and the SDK bundled, and the SDK's plugins, which turn the
- * defineFrontComponent default export into a render function.
+ * What twenty-sdk 2.43 passes esbuild for a front component, as 2.41 did: one
+ * ES module for the browser (no platform, so esbuild's browser default), JSX in
+ * automatic mode, React and the SDK bundled, and the SDK's plugins, which turn
+ * the defineFrontComponent default export into a render function.
  */
 const FRONT_COMPONENT = {
   bundle: true,

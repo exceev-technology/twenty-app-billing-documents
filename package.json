@@ -46,8 +46,8 @@
     "fontkit": "2.0.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "twenty-client-sdk": "2.41.0",
-    "twenty-sdk": "2.41.0",
+    "twenty-client-sdk": "2.43.0",
+    "twenty-sdk": "2.43.0",
     "typescript": "5.9.3"
   },
   "dependencies": {
