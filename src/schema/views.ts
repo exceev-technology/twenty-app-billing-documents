@@ -1,4 +1,5 @@
-import { defineView, getFieldUniversalIdentifier, ViewFilterOperand, ViewSortDirection, ViewType } from 'twenty-sdk/define';
+import { getFieldUniversalIdentifier, ViewFilterOperand, ViewType } from 'twenty-sdk/define';
+import type { ViewConfig, ViewSortDirection } from 'twenty-sdk/define';
 import { id } from '../lib/id.ts';
 import { fieldId, objectId, type Option } from './fields.ts';
 
@@ -33,9 +34,13 @@ export const statusIs = (...values: string[]): ViewFilter => ({ field: 'status',
 /** A date before today. The operand takes no value. */
 export const inPast = (field: string): ViewFilter => ({ field, operand: ViewFilterOperand.IS_IN_PAST, value: '' });
 
-/** One of the app's ready-made views (flows spec §9): the label first, its fields, its filters, one sort. */
-export function billingView(spec: ViewSpec) {
-  return defineView({
+/**
+ * One of the app's ready-made views (flows spec §9): the label first, its fields, its filters, one sort.
+ * The view files wrap it in `defineView` themselves: the CLI finds an entity by that call in the file's
+ * default export, so a helper that calls `defineView` for them would hide the view from it.
+ */
+export function viewConfig(spec: ViewSpec): ViewConfig {
+  return {
     universalIdentifier: id(`view.${spec.key}`),
     name: spec.name,
     objectUniversalIdentifier: objectId(spec.object),
@@ -70,5 +75,5 @@ export function billingView(spec: ViewSpec) {
       fieldMetadataUniversalIdentifier: viewFieldId(spec.object, spec.sort.field),
       direction: spec.sort.direction,
     }],
-  });
+  };
 }
