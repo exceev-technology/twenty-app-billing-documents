@@ -3,7 +3,7 @@ import { renderDocument } from '../render/document.ts';
 import { RenderError, type RenderInput, type RenderResult } from '../render/types.ts';
 import { checkGate, resetOf } from './gate.ts';
 import { describeAll, LifecycleError, packFor, PACKS, type AnyProblem, type LifecyclePack, type WordedProblem } from './lang/pack.ts';
-import { isIssued, kindOf, LINE_FIELDS, loadDocument, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
+import { isIssued, kindOf, loadDocument, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
 import { effectiveCurrency, fileInputs, idOf, languageOf, moneyOf, textOf, toDocumentInput, toRenderInput } from './map.ts';
 import { claimNumber, heldNumberOf, latestIssueDate, nextNumber, raiseLedger, scopeOf, type Scope } from './numbering.ts';
 import { leaveMessage, NotAllowedError, reasonOf, type CallerStore, type Row, type Store } from './store.ts';
@@ -99,7 +99,7 @@ export function recordOf(kind: Kind, loaded: Loaded): { document: Record<string,
   const pick = (row: Row, fields: readonly string[]) => Object.fromEntries(fields.map((field) => [field, row[field] ?? null]));
   return {
     document: { id: loaded.document.id, ...pick(loaded.document, kind.lockedFields) },
-    lines: Object.fromEntries(loaded.lines.map((line) => [line.id, { ...pick(line, LINE_FIELDS), [kind.parentKey]: loaded.document.id }])),
+    lines: Object.fromEntries(loaded.lines.map((line) => [line.id, { ...pick(line, kind.lineFields), [kind.parentKey]: loaded.document.id }])),
   };
 }
 

@@ -27,12 +27,16 @@ export type FileRef = { fileId: string; label: string };
 /** A PDF to store: its bytes, and the object and field it is uploaded for. */
 export type Upload = { bytes: Uint8Array; name: string; mime: string; object: string; field: string };
 
+/** The timeline activity types the app leaves rows of, by what the collapsed row says. */
+export type TimelineKind = 'ISSUED' | 'CORRECTION' | 'INVOICED' | 'CREDITED' | 'CANCELLED';
+
 /**
  * A message left on a record's timeline, in the document's language. `kind` picks the
- * timeline activity type, whose label is what the collapsed row says: "issued" or
- * "put back a change to"; the text shows when the row is expanded.
+ * timeline activity type, whose label is what the collapsed row says ("issued",
+ * "put back a change to", "invoiced", "credited", "cancelled"); the text shows when
+ * the row is expanded.
  */
-export type TimelineEntry = { object: string; recordId: string; kind: 'ISSUED' | 'CORRECTION'; text: string };
+export type TimelineEntry = { object: string; recordId: string; kind: TimelineKind; text: string };
 
 /** A database event, as a trigger hands it to Lifecycle. */
 export type RecordEvent = {

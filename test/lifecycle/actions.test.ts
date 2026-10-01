@@ -578,3 +578,15 @@ test('with the real Renderer, the issued PDF is a PDF and its hash is the hash o
   assert.equal(Buffer.from(uploads[0]!.slice(0, 5)).toString('latin1'), '%PDF-');
   assert.equal(invoiceRow(w).documentHash, await sha(uploads[0]!));
 });
+
+test('an issued credit note’s snapshot keeps the invoice line each of its lines credits', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  assert.equal((await runAction(request(w), deps)).status, 200);
+  const note = w.addCreditNote({ invoiceId: w.invoice.id });
+  w.addLine(KINDS.billingCreditNote, note.id, { invoiceLineId: w.lines[2]!.id, description: 'Atelier', quantity: 1, unitPrice: money(1_200_000_000) });
+  const outcome = await runAction(request(w, { object: 'billingCreditNote', recordId: note.id }), deps);
+  assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
+  const lines = (w.db.row('billingCreditNotes', note.id)!.snapshot as { record: { lines: Record<string, Record<string, unknown>> } }).record.lines;
+  assert.deepEqual(Object.values(lines).map((line) => line.invoiceLineId), [w.lines[2]!.id]);
+});

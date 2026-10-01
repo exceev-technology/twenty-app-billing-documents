@@ -16,7 +16,10 @@ const PLURAL: Record<string, string> = {
 export const UNIQUE = {
   billingQuotes: ['numberKey'], billingInvoices: ['numberKey'], billingCreditNotes: ['numberKey'], billingSequences: ['scopeKey'],
 };
-export const APP_ONLY = Object.fromEntries(Object.entries(APP_ONLY_FIELDS).map(([object, fields]) => [PLURAL[object]!, fields]));
+/** Twenty refuses an app-only relation by its REST name, `<name>Id`, as well. */
+export const APP_ONLY = Object.fromEntries(
+  Object.entries(APP_ONLY_FIELDS).map(([object, fields]) => [PLURAL[object]!, fields.flatMap((name) => [name, `${name}Id`])]),
+);
 
 export const money = (amountMicros: number | null, currencyCode = 'EUR') => ({ amountMicros, currencyCode });
 export const markdown = (text: string) => ({ blocknote: null, markdown: text });
@@ -95,7 +98,7 @@ export function workspace() {
   });
   const addQuote = (over: Record<string, unknown> = {}): Row => db.seed('billingQuotes', {
     ...DOCUMENT, subject: 'Identité visuelle, proposition', issuerId: issuer.id, companyId: company.id, validUntil: null,
-    acceptedAt: null, opportunityId: null, version: null, ...over,
+    acceptedAt: null, sentAt: null, opportunityId: null, version: null, ...over,
   });
 
   const invoice = addInvoice();

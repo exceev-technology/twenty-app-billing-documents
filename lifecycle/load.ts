@@ -17,7 +17,18 @@ export type Kind = {
   titleField: 'invoiceTitle' | 'creditNoteTitle' | null;
   /** What an issued document depends on (spec §7): a guard puts back any change. Quotes lock nothing. */
   lockedFields: readonly FieldKey[];
+  /** The line fields an issued document's snapshot keeps, and a guard puts back. */
+  lineFields: readonly string[];
 };
+
+/** A line's fields a person edits: the snapshot keeps them, and a guard puts them back. */
+export const LINE_FIELDS = [
+  'description', 'sortOrder', 'catalogItemId', 'quantity', 'unit', 'unitPrice', 'discountPercent', 'taxCodeId',
+  'periodStart', 'periodEnd',
+] as const;
+
+/** A credit note's lines also keep the invoice line each one credits (flows spec §3). */
+export const CREDIT_LINE_FIELDS = [...LINE_FIELDS, 'invoiceLineId'] as const;
 
 const SHARED_LOCKS = ['subject', 'issuerId', 'companyId', 'personId', 'issueDate', 'currencyCode', 'pricesIncludeTax', 'language', 'notes'] as const;
 
@@ -25,29 +36,23 @@ export const KINDS: Record<DocumentObject, Kind> = {
   billingQuote: {
     kind: 'QUOTE', object: 'billingQuote', plural: 'billingQuotes', lineObject: 'billingQuoteLine',
     linePlural: 'billingQuoteLines', parentKey: 'quoteId', patternField: 'quoteNumberPattern',
-    mentionsField: 'quoteMentions', titleField: null, lockedFields: [],
+    mentionsField: 'quoteMentions', titleField: null, lockedFields: [], lineFields: LINE_FIELDS,
   },
   billingInvoice: {
     kind: 'INVOICE', object: 'billingInvoice', plural: 'billingInvoices', lineObject: 'billingInvoiceLine',
     linePlural: 'billingInvoiceLines', parentKey: 'invoiceId', patternField: 'invoiceNumberPattern',
-    mentionsField: 'invoiceMentions', titleField: 'invoiceTitle', lockedFields: [...SHARED_LOCKS, 'dueDate', 'buyerReference'],
+    mentionsField: 'invoiceMentions', titleField: 'invoiceTitle', lockedFields: [...SHARED_LOCKS, 'dueDate', 'buyerReference'], lineFields: LINE_FIELDS,
   },
   billingCreditNote: {
     kind: 'CREDIT_NOTE', object: 'billingCreditNote', plural: 'billingCreditNotes', lineObject: 'billingCreditNoteLine',
     linePlural: 'billingCreditNoteLines', parentKey: 'creditNoteId', patternField: 'creditNoteNumberPattern',
-    mentionsField: 'creditNoteMentions', titleField: 'creditNoteTitle', lockedFields: [...SHARED_LOCKS, 'invoiceId', 'reason'],
+    mentionsField: 'creditNoteMentions', titleField: 'creditNoteTitle', lockedFields: [...SHARED_LOCKS, 'invoiceId', 'reason'], lineFields: CREDIT_LINE_FIELDS,
   },
 };
 
 export const kindOf = (object: string): Kind | undefined => KINDS[object as DocumentObject];
 export const kindOfLine = (lineObject: string): Kind | undefined =>
   Object.values(KINDS).find((kind) => kind.lineObject === lineObject);
-
-/** A line's fields a person edits: the snapshot keeps them, and a guard puts them back. */
-export const LINE_FIELDS = [
-  'description', 'sortOrder', 'catalogItemId', 'quantity', 'unit', 'unitPrice', 'discountPercent', 'taxCodeId',
-  'periodStart', 'periodEnd',
-] as const;
 
 /** An invoice or credit note is issued once it holds a snapshot (spec §7). */
 export const isIssued = (kind: Kind, document: Row): boolean => kind.kind !== 'QUOTE' && Boolean(document.snapshot);

@@ -1,6 +1,6 @@
 import { MetadataApiClient } from 'twenty-client-sdk/metadata';
 import { RestApiClient } from 'twenty-client-sdk/rest';
-import type { CallerStore, Store } from '../../lifecycle/store.ts';
+import type { CallerStore, Store, TimelineKind } from '../../lifecycle/store.ts';
 import { TIMELINE_TYPE_KEYS } from '../front-components/timeline-message.ts';
 import { fieldId } from '../schema/fields.ts';
 import { id } from './id.ts';
@@ -51,7 +51,9 @@ export function appStore(log: (entry: Record<string, unknown>) => void): Store {
       return result.timelineActivityTypes as TimelineType[];
     },
     fieldId,
-    timelineTypeIds: { ISSUED: id(TIMELINE_TYPE_KEYS.ISSUED), CORRECTION: id(TIMELINE_TYPE_KEYS.CORRECTION) },
+    timelineTypeIds: Object.fromEntries(
+      Object.entries(TIMELINE_TYPE_KEYS).map(([kind, key]) => [kind, id(key)]),
+    ) as Record<TimelineKind, string>,
     log,
   });
 }
