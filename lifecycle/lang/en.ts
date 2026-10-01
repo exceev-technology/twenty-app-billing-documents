@@ -99,6 +99,7 @@ export const en: LifecyclePack = {
         INVOICED: 'A quote becomes Invoiced when it is turned into an invoice.',
         NOT_ISSUED: 'Only an issued invoice can be Sent or Paid.',
         UNINVOICE: 'This quote has an invoice, so it stays Invoiced: delete the invoice to reopen the quote.',
+        UNCANCEL: 'This invoice is cancelled by its credit notes, so it stays Cancelled.',
       }[rule];
       return `${why} The status was put back to ${back}.`;
     },

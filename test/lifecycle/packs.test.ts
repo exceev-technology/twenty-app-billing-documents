@@ -29,7 +29,7 @@ function everyMessage(pack: LifecyclePack): string[] {
       m.statusPutBack('ISSUE', kind, 'Draft'), m.statusPutBack('DRAFT', kind, 'Issued'), m.statusPutBack('CANCEL', kind, 'Paid'),
     ]),
     m.documentRestored('QUOTE', 'D2026-0001'), m.createdAsDraft('QUOTE', 'Sent'), m.statusPutBack('INVOICED', 'QUOTE', 'Accepted'),
-    m.statusPutBack('NOT_ISSUED', 'INVOICE', 'Draft'), m.statusPutBack('UNINVOICE', 'QUOTE', 'Invoiced'),
+    m.statusPutBack('NOT_ISSUED', 'INVOICE', 'Draft'), m.statusPutBack('UNINVOICE', 'QUOTE', 'Invoiced'), m.statusPutBack('UNCANCEL', 'INVOICE', 'Cancelled'),
     m.invoiceCreated, m.creditNoteCreated('F2026-0001'), m.cancelledBy('F2026-0001', 'AV2026-0002'),
     m.alreadyCredited('F2026-0001'), m.invoiceNowCancelled('F2026-0001'), m.cancellationReason('F2026-0001'),
     m.invoicedTimeline('Identité visuelle'), m.invoicedTimeline(''), m.creditedTimeline('AV2026-0001', '120.00 EUR'),

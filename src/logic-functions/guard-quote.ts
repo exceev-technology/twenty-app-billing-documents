@@ -10,5 +10,5 @@ export default defineLogicFunction({
   description: 'Keeps a quote’s totals current, and keeps a numbered quote from being deleted.',
   timeoutSeconds: 30,
   databaseEventTriggerSettings: { eventName: 'billingQuote.*' },
-  handler: runTrigger((store, event) => onDocumentEvent(store, KINDS.billingQuote, event)),
+  handler: runTrigger((store, event) => onDocumentEvent(store, KINDS.billingQuote, event, () => new Date())),
 });

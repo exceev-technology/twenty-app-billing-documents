@@ -10,5 +10,5 @@ export default defineLogicFunction({
   description: 'Keeps a draft invoice’s totals current, and puts back any change to an issued invoice.',
   timeoutSeconds: 30,
   databaseEventTriggerSettings: { eventName: 'billingInvoice.*' },
-  handler: runTrigger((store, event) => onDocumentEvent(store, KINDS.billingInvoice, event)),
+  handler: runTrigger((store, event) => onDocumentEvent(store, KINDS.billingInvoice, event, () => new Date())),
 });

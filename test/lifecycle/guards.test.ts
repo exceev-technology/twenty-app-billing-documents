@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { runAction } from '../../lifecycle/actions.ts';
-import { onDocumentEvent, onLineEvent, sameField, statusRuleBroken } from '../../lifecycle/guards.ts';
+import { onDocumentEvent, onLineEvent, sameField, stampsFor, statusRuleBroken } from '../../lifecycle/guards.ts';
 import { KINDS } from '../../lifecycle/load.ts';
 import { numberKeyOf } from '../../lifecycle/numbering.ts';
 import type { Store } from '../../lifecycle/store.ts';
@@ -50,6 +50,11 @@ test('the status rules, for each kind of document', () => {
   assert.equal(statusRuleBroken(credit, 'PAID', 'DRAFT', numberedDraft), null);
   assert.equal(statusRuleBroken(INVOICE, 'DRAFT', 'CANCELLED', draft), null);
   assert.equal(statusRuleBroken(INVOICE, 'CANCELLED', 'DRAFT', draft), null);
+  assert.equal(statusRuleBroken(INVOICE, 'CANCELLED', 'PAID', done), 'UNCANCEL');
+  assert.equal(statusRuleBroken(INVOICE, 'CANCELLED', 'ISSUED', done), 'UNCANCEL');
+  assert.equal(statusRuleBroken(INVOICE, 'CANCELLED', 'SENT', numberedDraft), 'UNCANCEL');
+  assert.equal(statusRuleBroken(INVOICE, 'CANCELLED', 'SENT', draft), 'NOT_ISSUED', 'an unnumbered draft a person cancelled may be revived, but not sent');
+  assert.equal(statusRuleBroken(credit, 'CANCELLED', 'ISSUED', done), null, 'only an invoice is revived');
   assert.equal(statusRuleBroken(credit, 'DRAFT', 'ISSUED', draft), 'ISSUE');
   assert.equal(statusRuleBroken(credit, 'ISSUED', 'DRAFT', done), 'DRAFT');
   assert.equal(statusRuleBroken(quote, 'ACCEPTED', 'INVOICED', numberedDraft), 'INVOICED');
@@ -146,18 +151,30 @@ test('only the app issues or cancels; a person’s move there is put back', asyn
   assert.equal(invoice(w).status, 'CANCELLED', 'the app cancels (sub-project 4b, through a credit note)');
 });
 
+test('an invoice its credit notes cancelled stays Cancelled: a person’s move out of it is put back', async () => {
+  const w = workspace();
+  await issued(w);
+  await w.app.update('billingInvoices', w.invoice.id, { status: 'CANCELLED' });
+  await settle(w);
+  await w.user.update('billingInvoices', w.invoice.id, { status: 'PAID' });
+  await settle(w);
+  assert.deepEqual([invoice(w).status, invoice(w).paidAt ?? null], ['CANCELLED', null]);
+  assert.deepEqual(corrections(w), ['Cette facture est annulée par ses avoirs\u00a0: elle reste Annulée. Le statut a été remis à Annulée.']);
+});
+
 test('a numbered draft moved to Sent returns to Draft, and the next Issue gives it the number it holds', async () => {
   const w = workspace();
   w.db.failNext((op) => op === 'upload');
   assert.equal((await issue(w)).status, 500);
   await settle(w);
   assert.equal(invoice(w).number, 'F2026-0001');
+  // Sent is put back, as an unissued invoice cannot be Sent; Draft is then where it already stands.
   for (const status of ['SENT', 'DRAFT']) {
     await w.user.update('billingInvoices', w.invoice.id, { status });
     await settle(w);
-    assert.equal(invoice(w).status, status);
+    assert.equal(invoice(w).status, 'DRAFT', status);
   }
-  assert.deepEqual(corrections(w), []);
+  assert.deepEqual(corrections(w), ['Seule une facture émise peut être Envoyée ou Payée. Le statut a été remis à Brouillon.']);
   await issued(w);
   assert.deepEqual([invoice(w).status, invoice(w).number], ['ISSUED', 'F2026-0001']);
   assert.equal(w.db.rows('billingSequences')[0]?.lastValue, 1);
@@ -273,7 +290,7 @@ test('a retried event changes nothing', async () => {
   const seen = await settle(w);
   const writes = w.db.writes.length;
   const personal = seen.find((event) => event.plural === 'billingInvoices' && event.after?.subject === 'Autre chose')!;
-  await onDocumentEvent(w.app, INVOICE, personal);
+  await onDocumentEvent(w.app, INVOICE, personal, now);
   await settle(w);
   assert.equal(w.db.writes.length, writes);
   assert.equal(corrections(w).length, 1);
@@ -424,7 +441,7 @@ test('an event for a record that no longer exists changes nothing', async () => 
   const writes = w.db.writes.length;
   const gone = { recordId: '00000000-0000-4000-8000-00000000ffff', before: null, after: null, updatedFields: [] };
   for (const name of ['created', 'updated', 'deleted', 'restored'] as const) {
-    await onDocumentEvent(w.app, INVOICE, { ...gone, name });
+    await onDocumentEvent(w.app, INVOICE, { ...gone, name }, now);
     await onLineEvent(w.app, INVOICE, { ...gone, name });
   }
   assert.equal(w.db.writes.length, writes);
@@ -583,4 +600,119 @@ test('a line created with no invoice and moved into an issued one is removed onc
     await deliver(w, [creation!, move!]);
     assert.deepEqual(corrections(w), [ADDED_REMOVED], where);
   }
+});
+
+test('an invoice is Sent or Paid only once issued, and a quote leaves Invoiced only while it has no invoice', () => {
+  const quote = KINDS.billingQuote;
+  const draft = { numbered: false, issued: false };
+  const done = { numbered: true, issued: true };
+  for (const to of ['SENT', 'PAID']) {
+    assert.equal(statusRuleBroken(INVOICE, 'DRAFT', to, draft), 'NOT_ISSUED', to);
+    assert.equal(statusRuleBroken(INVOICE, 'DRAFT', to, { numbered: true, issued: false }), 'NOT_ISSUED', to);
+    assert.equal(statusRuleBroken(INVOICE, 'ISSUED', to, done), null, to);
+  }
+  assert.equal(statusRuleBroken(quote, 'INVOICED', 'ACCEPTED', { ...draft, invoiced: true }), 'UNINVOICE');
+  assert.equal(statusRuleBroken(quote, 'INVOICED', 'ACCEPTED', { ...draft, invoiced: false }), null);
+});
+
+test('a person’s move stamps the empty dates, and leaving Paid empties the paid date', () => {
+  const at = now();
+  const issuedRow = { id: 'i', sentAt: null, paidAt: null };
+  assert.deepEqual(stampsFor(INVOICE, 'ISSUED', 'SENT', issuedRow, at), { sentAt: '2026-09-26T09:30:00.000Z' });
+  assert.deepEqual(stampsFor(INVOICE, 'SENT', 'PAID', issuedRow, at), { paidAt: TODAY });
+  assert.deepEqual(stampsFor(INVOICE, 'SENT', 'PAID', { ...issuedRow, paidAt: '2026-09-20' }, at), {});
+  assert.deepEqual(stampsFor(INVOICE, 'PAID', 'SENT', { ...issuedRow, sentAt: 'x', paidAt: '2026-09-20' }, at), { paidAt: null });
+  assert.deepEqual(stampsFor(INVOICE, 'PAID', 'CANCELLED', { ...issuedRow, paidAt: '2026-09-20' }, at), {});
+  assert.deepEqual(stampsFor(KINDS.billingQuote, 'DRAFT', 'SENT', { id: 'q', sentAt: null }, at), { sentAt: '2026-09-26T09:30:00.000Z' });
+  assert.deepEqual(stampsFor(KINDS.billingQuote, 'SENT', 'ACCEPTED', { id: 'q', acceptedAt: null }, at), { acceptedAt: TODAY });
+  assert.deepEqual(stampsFor(KINDS.billingCreditNote, 'DRAFT', 'ISSUED', { id: 'c' }, at), {});
+});
+
+test('a draft invoice set to Paid is put back, with a message in the invoice’s language', async () => {
+  const w = workspace();
+  await w.user.update('billingInvoices', w.invoice.id, { status: 'PAID' });
+  await settle(w);
+  assert.equal(invoice(w).status, 'DRAFT');
+  assert.deepEqual(corrections(w), ['Seule une facture émise peut être Envoyée ou Payée. Le statut a été remis à Brouillon.']);
+});
+
+test('on an issued invoice, Sent and Paid stamp their dates as the app, and Paid undone empties its date', async () => {
+  const w = workspace();
+  await issued(w);
+  await w.user.update('billingInvoices', w.invoice.id, { status: 'SENT' });
+  await settle(w);
+  assert.equal(invoice(w).sentAt, '2026-09-26T09:30:00.000Z');
+  await w.user.update('billingInvoices', w.invoice.id, { status: 'PAID' });
+  await settle(w);
+  assert.deepEqual([invoice(w).status, invoice(w).paidAt], ['PAID', TODAY]);
+  await w.user.update('billingInvoices', w.invoice.id, { status: 'SENT' });
+  await settle(w);
+  assert.deepEqual([invoice(w).status, invoice(w).paidAt, invoice(w).sentAt], ['SENT', null, '2026-09-26T09:30:00.000Z']);
+  assert.deepEqual(corrections(w), []);
+});
+
+test('an app move stamps nothing', async () => {
+  const w = workspace();
+  await issued(w);
+  await w.app.update('billingInvoices', w.invoice.id, { status: 'PAID' });
+  await settle(w);
+  assert.equal(invoice(w).paidAt ?? null, null);
+});
+
+/** A quote invoiced through the action, its events settled. */
+async function invoicedQuote(w: Workspace) {
+  const quote = w.addQuote({ status: 'ACCEPTED' });
+  w.addLine(KINDS.billingQuote, quote.id);
+  const outcome = await runAction({ action: 'invoiceQuote', object: 'billingQuote', recordId: quote.id, localDate: TODAY, locale: 'en' }, {
+    app: w.app, caller: w.db.store('MANUAL'), now, reference: () => 'ref', log: () => {}, sha256: async () => 'x',
+  });
+  assert.ok(outcome.body.ok, JSON.stringify(outcome.body));
+  await settle(w);
+  return { quote, invoiceId: outcome.body.created!.recordId };
+}
+
+const quoteRow = (w: Workspace, id: string) => w.db.row('billingQuotes', id)!;
+
+test('a quote stays Invoiced while its invoice lives: a person’s move away is put back', async () => {
+  const w = workspace();
+  const { quote } = await invoicedQuote(w);
+  await w.user.update('billingQuotes', quote.id, { status: 'ACCEPTED' });
+  await settle(w);
+  assert.equal(quoteRow(w, quote.id).status, 'INVOICED');
+  assert.match(corrections(w).at(-1)!, /^Ce devis a une facture et reste Facturé/);
+});
+
+test('deleting the draft invoice reopens its quote; restoring it invoices the quote again', async () => {
+  const w = workspace();
+  const { quote, invoiceId } = await invoicedQuote(w);
+  await w.user.softDelete('billingInvoices', invoiceId);
+  await settle(w);
+  assert.equal(quoteRow(w, quote.id).status, 'ACCEPTED');
+  await w.user.update('billingQuotes', quote.id, { status: 'SENT' });
+  await settle(w);
+  assert.equal(quoteRow(w, quote.id).status, 'SENT', 'free again');
+  await w.user.restore('billingInvoices', invoiceId);
+  await settle(w);
+  assert.equal(quoteRow(w, quote.id).status, 'INVOICED');
+  assert.deepEqual(w.db.timeline.filter((entry) => entry.recordId === quote.id).map((entry) => entry.kind), ['INVOICED', 'CORRECTION', 'INVOICED']);
+});
+
+test('a quote with another live invoice stays Invoiced when one of them is deleted', async () => {
+  const w = workspace();
+  const { quote, invoiceId } = await invoicedQuote(w);
+  w.addInvoice({ quoteId: quote.id });
+  await w.user.softDelete('billingInvoices', invoiceId);
+  await settle(w);
+  assert.equal(quoteRow(w, quote.id).status, 'INVOICED');
+});
+
+test('a person moving a quote to Sent or Accepted stamps the dates', async () => {
+  const w = workspace();
+  const quote = w.addQuote();
+  await w.user.update('billingQuotes', quote.id, { status: 'SENT' });
+  await settle(w);
+  assert.equal(quoteRow(w, quote.id).sentAt, '2026-09-26T09:30:00.000Z');
+  await w.user.update('billingQuotes', quote.id, { status: 'ACCEPTED' });
+  await settle(w);
+  assert.equal(quoteRow(w, quote.id).acceptedAt, TODAY);
 });

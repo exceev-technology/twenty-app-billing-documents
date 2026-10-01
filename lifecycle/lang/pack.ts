@@ -55,10 +55,11 @@ export type StatusKey = 'DRAFT' | 'ISSUED' | 'SENT' | 'PAID' | 'CANCELLED' | 'AC
 
 /**
  * Which status rule a move broke (spec §7, flows spec §8): issuing, returning to draft,
- * cancelling, invoicing a quote, sending or paying an invoice that is not issued, or
- * moving a quote out of Invoiced while its invoice lives.
+ * cancelling, invoicing a quote, sending or paying an invoice that is not issued,
+ * moving a quote out of Invoiced while its invoice lives, or reviving a cancelled
+ * numbered invoice.
  */
-export type StatusRule = 'ISSUE' | 'DRAFT' | 'CANCEL' | 'INVOICED' | 'NOT_ISSUED' | 'UNINVOICE';
+export type StatusRule = 'ISSUE' | 'DRAFT' | 'CANCEL' | 'INVOICED' | 'NOT_ISSUED' | 'UNINVOICE' | 'UNCANCEL';
 
 type Details = { field?: string; value?: string; documentType?: DocumentKind };
 

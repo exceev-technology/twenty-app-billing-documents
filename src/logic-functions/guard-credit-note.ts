@@ -10,5 +10,5 @@ export default defineLogicFunction({
   description: 'Keeps a draft credit note’s totals current, and puts back any change to an issued credit note.',
   timeoutSeconds: 30,
   databaseEventTriggerSettings: { eventName: 'billingCreditNote.*' },
-  handler: runTrigger((store, event) => onDocumentEvent(store, KINDS.billingCreditNote, event)),
+  handler: runTrigger((store, event) => onDocumentEvent(store, KINDS.billingCreditNote, event, () => new Date())),
 });

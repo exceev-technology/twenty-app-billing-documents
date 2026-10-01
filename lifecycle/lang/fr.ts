@@ -103,6 +103,7 @@ export const fr: LifecyclePack = {
         INVOICED: 'Un devis passe au statut Facturé quand il devient une facture.',
         NOT_ISSUED: 'Seule une facture émise peut être Envoyée ou Payée.',
         UNINVOICE: 'Ce devis a une facture et reste Facturé\u00a0: supprimez la facture pour rouvrir le devis.',
+        UNCANCEL: 'Cette facture est annulée par ses avoirs\u00a0: elle reste Annulée.',
       }[rule];
       return `${why} Le statut a été remis à ${back}.`;
     },
