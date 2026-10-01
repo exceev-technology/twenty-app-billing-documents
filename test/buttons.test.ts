@@ -5,16 +5,19 @@ import { loadEntities } from './helpers/entities.ts';
 import { bundleFrontComponent } from './helpers/front-component-build.ts';
 import { objectId } from '../src/schema/fields.ts';
 import { IDS } from '../src/ids.ts';
-import { DRAFT_ONE, ONE, callRoute, feedbackFor, localDateOf, type ButtonRequest } from '../src/front-components/action-feedback.ts';
+import { DRAFT_ONE, ONE, OPEN_QUOTE_ONE, ISSUED_ONE, cancelConfirmation, callRoute, feedbackFor, localDateOf, type ButtonRequest } from '../src/front-components/action-feedback.ts';
 
 const COMPONENTS = fileURLToPath(new URL('../src/front-components/', import.meta.url));
 
 const BUTTONS = [
-  { file: 'preview-invoice', label: 'Preview PDF', shortLabel: 'Preview', object: 'billingInvoice', expression: DRAFT_ONE },
-  { file: 'issue-invoice', label: 'Issue invoice', shortLabel: 'Issue', object: 'billingInvoice', expression: DRAFT_ONE },
-  { file: 'preview-credit-note', label: 'Preview PDF', shortLabel: 'Preview', object: 'billingCreditNote', expression: DRAFT_ONE },
-  { file: 'issue-credit-note', label: 'Issue credit note', shortLabel: 'Issue', object: 'billingCreditNote', expression: DRAFT_ONE },
-  { file: 'quote-pdf', label: 'Generate PDF', shortLabel: 'PDF', object: 'billingQuote', expression: ONE },
+  { file: 'preview-invoice', label: 'Preview PDF', shortLabel: 'Preview', object: 'billingInvoice', expression: DRAFT_ONE, pinned: true },
+  { file: 'issue-invoice', label: 'Issue invoice', shortLabel: 'Issue', object: 'billingInvoice', expression: DRAFT_ONE, pinned: true },
+  { file: 'preview-credit-note', label: 'Preview PDF', shortLabel: 'Preview', object: 'billingCreditNote', expression: DRAFT_ONE, pinned: true },
+  { file: 'issue-credit-note', label: 'Issue credit note', shortLabel: 'Issue', object: 'billingCreditNote', expression: DRAFT_ONE, pinned: true },
+  { file: 'quote-pdf', label: 'Generate PDF', shortLabel: 'PDF', object: 'billingQuote', expression: ONE, pinned: true },
+  { file: 'create-invoice', label: 'Create invoice', shortLabel: 'Invoice', object: 'billingQuote', expression: OPEN_QUOTE_ONE, pinned: true },
+  { file: 'credit-note', label: 'Credit note', shortLabel: 'Credit', object: 'billingInvoice', expression: ISSUED_ONE, pinned: true },
+  { file: 'cancel-invoice', label: 'Cancel invoice', shortLabel: 'Cancel', object: 'billingInvoice', expression: ISSUED_ONE, pinned: false },
 ] as const;
 
 const camel = (file: string) => file.replace(/-(\w)/g, (_, letter: string) => letter.toUpperCase());
@@ -26,7 +29,7 @@ test('the two availability expressions are the ones the front end evaluates', ()
   assert.equal(ONE, 'numberOfSelectedRecords == 1 and noneDefined(selectedRecords, "deletedAt")');
 });
 
-test('the five buttons validate, each on one record of its object, opening its own component', async () => {
+test('every button validates, each on one record of its object, opening its own component', async () => {
   const items = await loadEntities('command-menu-items');
   assert.deepEqual(items.map((item) => item.file), BUTTONS.map((button) => `${button.file}.command-menu-item.ts`).sort());
   for (const button of BUTTONS) {
@@ -37,13 +40,37 @@ test('the five buttons validate, each on one record of its object, opening its o
       universalIdentifier: IDS[`commandMenuItem.${camel(button.file)}`],
       label: button.label,
       shortLabel: button.shortLabel,
-      isPinned: true,
+      isPinned: button.pinned,
       availabilityType: 'RECORD_SELECTION',
       availabilityObjectUniversalIdentifier: objectId(button.object),
       frontComponentUniversalIdentifier: IDS[`frontComponent.${camel(button.file)}`],
       conditionalAvailabilityExpression: button.expression,
     });
   }
+});
+
+test('the flows’ availability expressions are the ones the front end evaluates', () => {
+  assert.equal(OPEN_QUOTE_ONE, 'numberOfSelectedRecords == 1 and noneDefined(selectedRecords, "deletedAt") and noneEquals(selectedRecords, "status", "DECLINED") and noneEquals(selectedRecords, "status", "EXPIRED") and noneEquals(selectedRecords, "status", "INVOICED")');
+  assert.equal(ISSUED_ONE, 'numberOfSelectedRecords == 1 and noneDefined(selectedRecords, "deletedAt") and noneEquals(selectedRecords, "status", "DRAFT") and noneEquals(selectedRecords, "status", "CANCELLED")');
+});
+
+test('an answer that names the document it made carries it, on success and on refusal', () => {
+  const created = { object: 'billingInvoice', recordId: 'inv-9' };
+  assert.deepEqual(feedbackFor({ status: 200, body: { ok: true, message: 'Draft invoice created from this quote.', created } }, 'en'), {
+    message: 'Draft invoice created from this quote.', variant: 'success', created,
+  });
+  const refusal = { ok: false, problems: [{ code: 'MISSING_IDENTIFIER', message: 'The buyer has no SIREN.' }], created: { object: 'billingCreditNote', recordId: 'cn-1' } };
+  assert.deepEqual(feedbackFor({ status: 422, body: refusal }, 'en').created, { object: 'billingCreditNote', recordId: 'cn-1' });
+  assert.equal(feedbackFor({ status: 200, body: { ok: true, message: 'x', created: { object: 'company', recordId: 'c' } } }, 'en').created, undefined);
+});
+
+test('Cancel asks first, in the person’s language', () => {
+  assert.deepEqual(cancelConfirmation('en'), {
+    title: 'Cancel this invoice?',
+    subtitle: 'A credit note for everything that remains is issued, and the invoice is marked Cancelled. This cannot be undone.',
+    confirm: 'Cancel invoice',
+  });
+  assert.equal(cancelConfirmation('fr-FR').title, 'Annuler cette facture ?');
 });
 
 test('the date sent is the person’s own calendar date, not UTC’s', () => {
