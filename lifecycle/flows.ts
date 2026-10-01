@@ -45,12 +45,39 @@ const pick = (row: Readonly<Record<string, unknown>>, fields: readonly string[])
 
 export const lineView = (row: Row): LineView => ({ id: row.id, fields: row });
 
-/** The lines a document was issued with, from its snapshot, in the order they were printed. */
+const compare = <T extends number | string>(a: T, b: T): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** A line's sortOrder; a line without one sorts after every line that has one. */
+const sortOrderOf = (fields: Readonly<Record<string, unknown>>): number =>
+  typeof fields.sortOrder === 'number' && Number.isFinite(fields.sortOrder) ? fields.sortOrder : Number.POSITIVE_INFINITY;
+
+/** The position each line was printed at, by record id: the snapshot's printed lines carry it as their `key`. */
+function printedPositions(document: Row): Map<string, number> {
+  const printed = isObject(document.snapshot) ? document.snapshot.printed : undefined;
+  const lines = isObject(printed) ? printed.lines : undefined;
+  const positions = new Map<string, number>();
+  if (!Array.isArray(lines)) return positions;
+  for (const line of lines) {
+    if (isObject(line) && typeof line.key === 'string' && !positions.has(line.key)) positions.set(line.key, positions.size);
+  }
+  return positions;
+}
+
+/**
+ * The lines a document was issued with, from its snapshot, in the order they were printed. The record's
+ * lines are an object keyed by id, and Postgres keeps no key order in JSON, so the order is the one of the
+ * printed lines. A line they do not list comes after them, by sortOrder (none last), then by id; so does
+ * every line when the snapshot has no printed lines.
+ */
 export function issuedLinesOf(document: Row): LineView[] {
   const record = isObject(document.snapshot) ? document.snapshot.record : undefined;
   const lines = isObject(record) ? record.lines : undefined;
   if (!isObject(lines)) return [];
-  return Object.entries(lines).flatMap(([id, fields]) => (isObject(fields) ? [{ id, fields }] : []));
+  const positions = printedPositions(document);
+  const position = (id: string): number => positions.get(id) ?? Number.POSITIVE_INFINITY;
+  return Object.entries(lines)
+    .flatMap(([id, fields]) => (isObject(fields) ? [{ id, fields }] : []))
+    .sort((a, b) => compare(position(a.id), position(b.id)) || compare(sortOrderOf(a.fields), sortOrderOf(b.fields)) || compare(a.id, b.id));
 }
 
 const samePrice = (a: unknown, b: unknown): boolean => {
@@ -62,12 +89,23 @@ const samePrice = (a: unknown, b: unknown): boolean => {
 const discountOf = (value: unknown): bigint | null =>
   value === null || value === undefined || value === '' ? 0n : typeof value === 'number' ? toScaled(value, 2) : null;
 
-/** Whether a credit-note line credits this invoice line, at its own price, discount and tax code (spec §6). */
+const signOf = (value: bigint): -1 | 0 | 1 => (value > 0n ? 1 : value < 0n ? -1 : 0);
+const absOf = (value: bigint): bigint => (value < 0n ? -value : value);
+
+/**
+ * Whether a credit-note line credits this invoice line, at its own price, discount and tax code (spec §6),
+ * and by a quantity of the invoice line's sign: a rebate line (a negative quantity) is credited by a negative one.
+ */
 export function matches(line: LineView, invoiceLine: LineView): boolean {
   const [credit, invoiced] = [line.fields, invoiceLine.fields];
   const discount = discountOf(credit.discountPercent);
+  const [creditQuantity, invoiceQuantity] = [thousandths(credit.quantity), thousandths(invoiced.quantity)];
   return (
     idOf(credit.invoiceLineId) === invoiceLine.id &&
+    creditQuantity !== null &&
+    invoiceQuantity !== null &&
+    signOf(creditQuantity) !== 0 &&
+    signOf(creditQuantity) === signOf(invoiceQuantity) &&
     samePrice(credit.unitPrice, invoiced.unitPrice) &&
     discount !== null &&
     discount === discountOf(invoiced.discountPercent) &&
@@ -96,8 +134,10 @@ export function remainderOf(invoiceLines: readonly LineView[], credited: readonl
   if (!totals) return { known: false };
   const lines: RemainingLine[] = [];
   for (const invoiceLine of invoiceLines) {
-    const left = (thousandths(invoiceLine.fields.quantity) ?? 0n) - (totals.get(invoiceLine.id) ?? 0n);
-    if (left > 0n) lines.push({ invoiceLine, quantity: fromThousandths(left) });
+    const invoiced = thousandths(invoiceLine.fields.quantity) ?? 0n;
+    const left = invoiced - (totals.get(invoiceLine.id) ?? 0n);
+    // What is left keeps the sign of the line: a rebate with nothing credited stays, a line credited past its quantity goes.
+    if (left !== 0n && signOf(left) === signOf(invoiced)) lines.push({ invoiceLine, quantity: fromThousandths(left) });
   }
   return { known: true, lines };
 }
@@ -114,10 +154,11 @@ const totalOf = (credits: readonly Row[]): number =>
 
 /** Fully credited (spec §6): nothing remains, or its issued credit notes' totals reach the invoice's. */
 export function fullyCredited(invoice: Row, credits: readonly Row[]): boolean {
+  if (credits.length === 0) return false;
   const remainder = invoiceRemainder(invoice, credits);
   if (remainder.known && remainder.lines.length === 0) return true;
   const total = microsOf(invoice.total);
-  return credits.length > 0 && !Number.isNaN(total) && totalOf(credits) >= total;
+  return !Number.isNaN(total) && totalOf(credits) >= total;
 }
 
 /** A credit note as the gate weighs it: its live lines in print order, and the Engine's figures. */
@@ -140,11 +181,12 @@ export function overCredit(invoice: Row, credits: readonly Row[], draft: DraftCr
       const target = invoiceLines.find((candidate) => candidate.id === idOf(line.fields.invoiceLineId))!;
       const sum = (running.get(target.id) ?? 0n) + thousandths(line.fields.quantity)!;
       running.set(target.id, sum);
-      if (sum > (thousandths(target.fields.quantity) ?? 0n)) return index + 1;
+      if (absOf(sum) > absOf(thousandths(target.fields.quantity) ?? 0n)) return index + 1;
     }
     return null;
   }
   const total = microsOf(invoice.total);
+  // An issued invoice always carries its total; the gate's other checks report one that does not.
   if (Number.isNaN(total)) return null;
   const margin = draft.components * 10 ** (6 - minorDigits(draft.currencyCode));
   return draft.totalMicros > total - totalOf(credits) + margin ? 0 : null;

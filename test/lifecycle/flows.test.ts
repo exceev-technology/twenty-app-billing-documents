@@ -42,6 +42,34 @@ test('the lines a document was issued with come from its snapshot, in print orde
   assert.deepEqual(issuedLinesOf({ id: 'draft', snapshot: null }), []);
 });
 
+/** A document whose snapshot keeps its record's lines under their ids, and optionally the lines as they were printed. */
+const snapshotOf = (lines: Record<string, Record<string, unknown>>, printed: Record<string, unknown> = {}): Row => ({
+  id: 'doc', snapshot: { printed, record: { document: { id: 'doc' }, lines } },
+});
+
+test('the printed lines give the order, whatever order the stored record comes back in', () => {
+  // jsonb keeps no key order: the record's keys come back in any order, here a-second first.
+  const document = snapshotOf(
+    { 'a-second': fields({ sortOrder: 1 }), 'z-first': fields({ sortOrder: 3 }) },
+    { lines: [{ key: 'z-first' }, { key: 'a-second' }] },
+  );
+  assert.deepEqual(issuedLinesOf(document).map((line) => line.id), ['z-first', 'a-second']);
+});
+
+test('a line the printed lines do not list comes after them, by sortOrder with none last, then by id', () => {
+  const document = snapshotOf(
+    { 'a-late': fields({ sortOrder: null }), 'c-late': fields({ sortOrder: null }), 'b-late': fields({ sortOrder: 1 }), 'z-first': fields({ sortOrder: 9 }) },
+    { lines: [{ key: 'z-first' }, { key: 'gone' }] },
+  );
+  assert.deepEqual(issuedLinesOf(document).map((line) => line.id), ['z-first', 'b-late', 'a-late', 'c-late']);
+});
+
+test('without printed lines, the lines fall back to sortOrder, then id', () => {
+  const stored = { y: fields({ sortOrder: 3 }), z: fields({ sortOrder: 2 }), w: fields({ sortOrder: null }), x: fields({ sortOrder: 1 }), v: fields({ sortOrder: 2 }) };
+  assert.deepEqual(issuedLinesOf(snapshotOf(stored)).map((line) => line.id), ['x', 'v', 'z', 'y', 'w']);
+  assert.deepEqual(issuedLinesOf(snapshotOf(stored, { lines: 'not a list' })).map((line) => line.id), ['x', 'v', 'z', 'y', 'w']);
+});
+
 test('a credit line matches its invoice line at the same price, discount and tax code', () => {
   assert.equal(matches(credit('c1', 'line-a', 1), A), true);
   assert.equal(matches(credit('c1', 'line-a', 1, { discountPercent: 0 }), A), true, 'an empty discount is none');
@@ -88,6 +116,7 @@ test('an invoice is fully credited when nothing remains, or when its credit note
   const short = issued('note-4', [view('h1', { quantity: 1 })], { total: money(3_839_990_000) });
   assert.equal(fullyCredited(invoice, [short]), false);
   assert.equal(fullyCredited(invoice, []), false);
+  assert.equal(fullyCredited(issued('invoice-empty', []), []), false, 'no line and no credit note is not a credited invoice');
 });
 
 const draftOf = (lines: Row[], totalMicros = 0, components = 1) => ({ lines, totalMicros, components, currencyCode: 'EUR' });
@@ -109,6 +138,36 @@ test('otherwise its total may not exceed what remains by more than one minor uni
   assert.equal(overCredit(invoice, [byHand], draftOf([liveLine('d1', null, 1)], left + 10_000, 1)), null);
   assert.equal(overCredit(invoice, [byHand], draftOf([liveLine('d1', null, 1)], left + 20_000, 1)), 0);
   assert.equal(overCredit(invoice, [byHand], draftOf([liveLine('d1', null, 1)], left + 20_000, 2)), null);
+});
+
+const R = view('line-r', { quantity: -1, unitPrice: money(300_000_000) });
+const rebate = issued('invoice-r', [A, R], { total: money(1_700_000_000) });
+const R_PRICE = { unitPrice: money(300_000_000) };
+
+test('a rebate line is credited by a negative quantity, and stays in the remainder until it is', () => {
+  assert.deepEqual(remainderOf([A, R], []), { known: true, lines: [{ invoiceLine: A, quantity: 4 }, { invoiceLine: R, quantity: -1 }] });
+  assert.deepEqual(remainderOf([A, R], [credit('c1', 'line-r', -1, R_PRICE)]), { known: true, lines: [{ invoiceLine: A, quantity: 4 }] });
+  assert.deepEqual(remainderOf([A, R], [credit('c1', 'line-r', -0.4, R_PRICE)]), { known: true, lines: [{ invoiceLine: A, quantity: 4 }, { invoiceLine: R, quantity: -0.6 }] });
+  assert.equal(matches(credit('c1', 'line-r', -1, R_PRICE), R), true);
+  assert.equal(matches(credit('c1', 'line-r', 1, R_PRICE), R), false, 'a positive credit does not undo a rebate');
+  assert.equal(matches(credit('c1', 'line-a', -1), A), false, 'a negative credit does not undo a charge');
+  assert.equal(matches(credit('c1', 'line-a', 0), A), false, 'a credit of nothing credits nothing');
+  assert.deepEqual(remainderOf([A, R], [credit('c1', 'line-r', 1, R_PRICE)]), { known: false });
+  assert.deepEqual(remainderOf([A, R], [credit('c1', 'line-a', 0)]), { known: false });
+});
+
+test('a rebate line may not be credited by more than its own quantity', () => {
+  assert.equal(overCredit(rebate, [], draftOf([liveLine('d1', 'line-r', -1, R_PRICE)])), null);
+  assert.equal(overCredit(rebate, [], draftOf([liveLine('d1', 'line-r', -2, R_PRICE)])), 1);
+  assert.equal(overCredit(rebate, [], draftOf([liveLine('d1', 'line-a', 4), liveLine('d2', 'line-r', -2, R_PRICE)])), 2);
+  const earlier = issued('note-1', [credit('c1', 'line-r', -1, R_PRICE)]);
+  assert.equal(overCredit(rebate, [earlier], draftOf([liveLine('d1', 'line-r', -1, R_PRICE)])), 1);
+});
+
+test('a credit note of a rebate line takes it at its negative quantity', () => {
+  const [line] = creditLines(rebate, { known: true, lines: [{ invoiceLine: R, quantity: -1 }] });
+  assert.equal(line!.quantity, -1);
+  assert.equal(line!.invoiceLineId, 'line-r');
 });
 
 test('an invoice made from a quote copies its parties, currency, basis, language and notes, and nothing issued', () => {
