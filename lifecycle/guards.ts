@@ -29,18 +29,30 @@ export function statusRuleBroken(kind: Kind, from: string, to: string, state: { 
 
 const empty = (value: unknown): boolean => value === null || value === undefined || value === '';
 
-/** The dates a person's status move stamps (flows spec §8), into empty fields only; leaving Paid empties the paid date. */
+/**
+ * The server's date, or the document's issue date when that is later: the issue date is the person's own
+ * calendar date, which past midnight east of UTC is a day ahead of the server's.
+ */
+function notBeforeIssue(today: string, document: Row): string {
+  const issueDate = /^\d{4}-\d{2}-\d{2}/.exec(textOf(document.issueDate))?.[0] ?? '';
+  return issueDate > today ? issueDate : today;
+}
+
+/**
+ * The dates a person's status move stamps (flows spec §8), into empty fields only, the paid and accepted
+ * dates never before the issue date; leaving Paid empties the paid date.
+ */
 export function stampsFor(kind: Kind, from: string, to: string, document: Row, now: Date): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
   const today = now.toISOString().slice(0, 10);
   if (kind.kind === 'INVOICE') {
     if (to === 'SENT' && empty(document.sentAt)) patch.sentAt = now.toISOString();
-    if (to === 'PAID' && empty(document.paidAt)) patch.paidAt = today;
+    if (to === 'PAID' && empty(document.paidAt)) patch.paidAt = notBeforeIssue(today, document);
     if (from === 'PAID' && (to === 'ISSUED' || to === 'SENT') && !empty(document.paidAt)) patch.paidAt = null;
   }
   if (kind.kind === 'QUOTE') {
     if (to === 'SENT' && empty(document.sentAt)) patch.sentAt = now.toISOString();
-    if (to === 'ACCEPTED' && empty(document.acceptedAt)) patch.acceptedAt = today;
+    if (to === 'ACCEPTED' && empty(document.acceptedAt)) patch.acceptedAt = notBeforeIssue(today, document);
   }
   return patch;
 }
@@ -134,9 +146,11 @@ export async function onDocumentEvent(store: Store, kind: Kind, event: RecordEve
   const patch: Record<string, unknown> = {};
   const messages: ((pack: LifecyclePack) => string)[] = [];
 
-  if (sourceOf(event.after) !== 'APPLICATION' && event.updatedFields.includes('status')) {
+  // A person's move is judged as the event made it. When the record has moved since (a later move, or the
+  // app's own, such as Cancelled), the later event handles where it stands: this one puts back and stamps nothing.
+  const to = textOf(event.after?.status);
+  if (sourceOf(event.after) !== 'APPLICATION' && event.updatedFields.includes('status') && textOf(document.status) === to) {
     const from = textOf(event.before?.status) || 'DRAFT';
-    const to = textOf(document.status);
     const invoiced = kind.kind === 'QUOTE' && from === 'INVOICED'
       ? (await store.list('billingInvoices', { quoteId: document.id }, { limit: 1 })).length > 0
       : false;

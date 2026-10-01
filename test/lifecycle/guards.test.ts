@@ -401,6 +401,17 @@ test('a status move whose event comes twice is put back once', async () => {
   assert.equal(corrections(w).length, 1);
 });
 
+test('a person’s status move whose event comes after the app moved the invoice on undoes nothing', async () => {
+  const w = workspace();
+  await issued(w);
+  await w.user.update('billingInvoices', w.invoice.id, { status: 'SENT' });
+  const [move] = w.db.takeEvents();
+  await w.app.update('billingInvoices', w.invoice.id, { status: 'CANCELLED' });
+  await deliver(w, [move!]);
+  assert.deepEqual([invoice(w).status, invoice(w).sentAt ?? null], ['CANCELLED', null]);
+  assert.deepEqual(corrections(w), []);
+});
+
 test('a creation whose event comes twice is set to Draft once', async () => {
   const w = workspace();
   await w.user.create('billingInvoices', { subject: 'Importée', status: 'PAID', issuerId: w.issuer.id, companyId: w.company.id, currencyCode: 'EUR' });
@@ -626,6 +637,15 @@ test('a person’s move stamps the empty dates, and leaving Paid empties the pai
   assert.deepEqual(stampsFor(KINDS.billingQuote, 'DRAFT', 'SENT', { id: 'q', sentAt: null }, at), { sentAt: '2026-09-26T09:30:00.000Z' });
   assert.deepEqual(stampsFor(KINDS.billingQuote, 'SENT', 'ACCEPTED', { id: 'q', acceptedAt: null }, at), { acceptedAt: TODAY });
   assert.deepEqual(stampsFor(KINDS.billingCreditNote, 'DRAFT', 'ISSUED', { id: 'c' }, at), {});
+});
+
+test('the paid and accepted dates are never earlier than the document’s issue date', () => {
+  // Past midnight east of UTC: the person issued on their 2 October, the server is still on 1 October.
+  const lateNight = new Date('2026-10-01T23:30:00.000Z');
+  assert.deepEqual(stampsFor(INVOICE, 'SENT', 'PAID', { id: 'i', paidAt: null, issueDate: '2026-10-02' }, lateNight), { paidAt: '2026-10-02' });
+  assert.deepEqual(stampsFor(INVOICE, 'SENT', 'PAID', { id: 'i', paidAt: null, issueDate: '2026-09-20' }, lateNight), { paidAt: '2026-10-01' });
+  assert.deepEqual(stampsFor(KINDS.billingQuote, 'SENT', 'ACCEPTED', { id: 'q', acceptedAt: null, issueDate: '2026-10-02' }, lateNight), { acceptedAt: '2026-10-02' });
+  assert.deepEqual(stampsFor(KINDS.billingQuote, 'SENT', 'ACCEPTED', { id: 'q', acceptedAt: null, issueDate: null }, lateNight), { acceptedAt: '2026-10-01' });
 });
 
 test('a draft invoice set to Paid is put back, with a message in the invoice’s language', async () => {
