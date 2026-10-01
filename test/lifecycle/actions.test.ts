@@ -590,3 +590,97 @@ test('an issued credit note’s snapshot keeps the invoice line each of its line
   const lines = (w.db.row('billingCreditNotes', note.id)!.snapshot as { record: { lines: Record<string, Record<string, unknown>> } }).record.lines;
   assert.deepEqual(Object.values(lines).map((line) => line.invoiceLineId), [w.lines[2]!.id]);
 });
+
+const quoteRequest = (w: Workspace, quoteId: string, over: Record<string, unknown> = {}) =>
+  request(w, { action: 'invoiceQuote', object: 'billingQuote', recordId: quoteId, ...over });
+
+/** An accepted quote with two lines, the second printed first. */
+function acceptedQuote(w: Workspace, over: Record<string, unknown> = {}) {
+  const quote = w.addQuote({ status: 'ACCEPTED', number: 'D2026-0001', personId: w.person.id, language: 'FR', ...over });
+  const second = w.addLine(KINDS.billingQuote, quote.id, { sortOrder: 2, description: 'Système de design', quantity: 6, unitPrice: money(640_000_000) });
+  const first = w.addLine(KINDS.billingQuote, quote.id, { sortOrder: 1, description: 'Direction artistique', quantity: 4, unitPrice: money(780_000_000) });
+  return { quote, lines: [first, second] };
+}
+
+test('the three flows are actions on their own kind of document only', () => {
+  const id = '00000000-0000-4000-8000-000000000001';
+  assert.equal(parseRequest({ action: 'invoiceQuote', object: 'billingQuote', recordId: id, localDate: TODAY })?.action, 'invoiceQuote');
+  assert.equal(parseRequest({ action: 'invoiceQuote', object: 'billingInvoice', recordId: id, localDate: TODAY }), null);
+});
+
+test('a quote becomes a draft invoice made with the caller’s token, its lines copied in order, and is marked Invoiced', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w);
+  const { deps } = setup(w);
+  const outcome = await runAction(quoteRequest(w, quote.id), deps);
+  assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
+  assert.ok(outcome.body.ok);
+  assert.equal(outcome.body.message, 'Draft invoice created from this quote.');
+  const created = outcome.body.created!;
+  assert.equal(created.object, 'billingInvoice');
+  assert.deepEqual([w.db.writes[0]?.op, w.db.writes[0]?.plural, w.db.writes[0]?.id, w.db.writes[0]?.source], ['create', 'billingInvoices', created.recordId, 'MANUAL']);
+  const invoice = w.db.row('billingInvoices', created.recordId)!;
+  assert.deepEqual(
+    [invoice.status, invoice.quoteId, invoice.subject, invoice.issuerId, invoice.companyId, invoice.personId, invoice.language, invoice.number ?? null],
+    ['DRAFT', quote.id, 'Identité visuelle, proposition', w.issuer.id, w.company.id, w.person.id, 'FR', null],
+  );
+  const lines = w.db.rows('billingInvoiceLines').filter((line) => line.invoiceId === created.recordId);
+  assert.deepEqual(lines.map((line) => [line.description, line.quantity]), [['Direction artistique', 4], ['Système de design', 6]]);
+  assert.ok(lines.every((line) => w.db.writes.some((write) => write.id === line.id && write.source === 'APPLICATION')));
+  const after = w.db.row('billingQuotes', quote.id)!;
+  assert.deepEqual([after.status, after.acceptedAt], ['INVOICED', TODAY]);
+  assert.deepEqual(w.db.timeline.map((entry) => [entry.kind, entry.recordId, entry.text]), [
+    ['INVOICED', quote.id, 'Facture brouillon «\u00a0Identité visuelle, proposition\u00a0» créée à partir de ce devis.'],
+  ]);
+});
+
+test('a quote already accepted keeps its date of acceptance', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w, { acceptedAt: '2026-09-10' });
+  await runAction(quoteRequest(w, quote.id), setup(w).deps);
+  assert.equal(w.db.row('billingQuotes', quote.id)!.acceptedAt, '2026-09-10');
+});
+
+test('a caller who cannot create invoices gets NOT_ALLOWED, and nothing is written', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w);
+  const { deps } = setup(w, { caller: w.db.store('MANUAL', { canUpdate: () => false }) });
+  const outcome = await runAction(quoteRequest(w, quote.id), deps);
+  assert.equal(outcome.status, 403);
+  assert.deepEqual(problemCodes(outcome), ['NOT_ALLOWED']);
+  assert.deepEqual(w.db.writes, []);
+});
+
+test('a declined, expired or invoiced quote does not become an invoice', async () => {
+  for (const status of ['DECLINED', 'EXPIRED', 'INVOICED']) {
+    const w = workspace();
+    const { quote } = acceptedQuote(w, { status });
+    const outcome = await runAction(quoteRequest(w, quote.id), setup(w).deps);
+    assert.deepEqual(problemCodes(outcome), ['QUOTE_NOT_OPEN'], status);
+    assert.deepEqual(w.db.writes, [], status);
+  }
+});
+
+test('a quote with a live invoice answers ALREADY_INVOICED; a deleted invoice frees it', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w);
+  const existing = w.addInvoice({ quoteId: quote.id, subject: 'Déjà là' });
+  const refused = await runAction(quoteRequest(w, quote.id), setup(w).deps);
+  assert.deepEqual(refused.body.ok ? [] : refused.body.problems.map((problem) => problem.message), [
+    'This quote already has an invoice, Déjà là: finish it, or delete it to start again.',
+  ]);
+  await w.app.softDelete('billingInvoices', existing.id);
+  assert.equal((await runAction(quoteRequest(w, quote.id), setup(w).deps)).status, 200);
+});
+
+test('a failure while copying the lines leaves the draft, and the next click names it', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w);
+  const { deps, logs } = setup(w);
+  w.db.failNext((op, plural) => op === 'create' && plural === 'billingInvoiceLines');
+  const failed = await runAction(quoteRequest(w, quote.id), deps);
+  assert.equal(failed.status, 500);
+  assert.equal(logs[0]?.step, 'lines');
+  assert.equal(w.db.row('billingQuotes', quote.id)!.status, 'ACCEPTED');
+  assert.deepEqual(problemCodes(await runAction(quoteRequest(w, quote.id), deps)), ['ALREADY_INVOICED']);
+});

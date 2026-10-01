@@ -184,3 +184,11 @@ test('a muted or missing timeline type, or a failed write, is logged and never t
     error: 'Request failed with status 400', messages: ['Active timeline activity type was not found'],
   }]);
 });
+
+test('the caller creates a record with their own token, and a refusal is NOT_ALLOWED', async () => {
+  const { rest, calls } = fakeRest(() => ({ data: { createBillingInvoice: { id: 'inv-9', status: 'DRAFT' } } }));
+  assert.deepEqual(await restCallerStore(rest).create('billingInvoices', { status: 'DRAFT' }), { id: 'inv-9', status: 'DRAFT' });
+  assert.deepEqual(calls, [{ method: 'POST', path: '/rest/billingInvoices', body: { status: 'DRAFT' }, query: undefined }]);
+  const refused = fakeRest(() => restError(400, { statusCode: 400, error: 'Error', messages: ['Entity performing the request does not have permission'], code: 'PERMISSION_DENIED' }));
+  await assert.rejects(restCallerStore(refused.rest).create('billingInvoices', {}), NotAllowedError);
+});

@@ -43,7 +43,7 @@ function recordOf(document: Row): SnapshotRecord {
 }
 
 /** Messages are in the document's language, else its issuer's profile's. */
-async function packForDocument(store: Store, document: Row): Promise<LifecyclePack> {
+export async function packForDocument(store: Store, document: Row): Promise<LifecyclePack> {
   return PACKS[textOf(document.language) as Language] ?? packForIssuer(store, document.issuerId);
 }
 

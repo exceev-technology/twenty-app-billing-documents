@@ -187,7 +187,7 @@ export function restStore(deps: RestStoreDeps): Store {
   };
 }
 
-/** The caller's side: one write with their delegated token. A record hidden from them is refused as well. */
+/** The caller's side: their delegated token. A record hidden from them is refused as well. */
 export function restCallerStore(rest: RestLike): CallerStore {
   return {
     async update(plural, id, data) {
@@ -198,5 +198,6 @@ export function restCallerStore(rest: RestLike): CallerStore {
         throw translate(error);
       }
     },
+    create: async (plural, data) => single(await call(() => rest.post(`/rest/${plural}`, data)), `created ${plural} record`),
   };
 }

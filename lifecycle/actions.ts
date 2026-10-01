@@ -1,18 +1,28 @@
 import { computeDocument, EngineError } from '../engine/index.ts';
 import { renderDocument } from '../render/document.ts';
 import { RenderError, type RenderInput, type RenderResult } from '../render/types.ts';
-import { checkGate, resetOf } from './gate.ts';
+import { checkGate, resetOf, type GateAction } from './gate.ts';
+import { invoiceFromQuote, lineCopy, OPEN_QUOTE } from './flows.ts';
+import { packForDocument } from './guards.ts';
 import { describeAll, LifecycleError, packFor, PACKS, type AnyProblem, type LifecyclePack, type WordedProblem } from './lang/pack.ts';
-import { isIssued, kindOf, loadDocument, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
+import { isIssued, KINDS, kindOf, loadDocument, loadFigures, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
 import { effectiveCurrency, fileInputs, idOf, languageOf, moneyOf, textOf, toDocumentInput, toRenderInput } from './map.ts';
 import { claimNumber, heldNumberOf, latestIssueDate, nextNumber, raiseLedger, scopeOf, type Scope } from './numbering.ts';
 import { leaveMessage, NotAllowedError, reasonOf, type CallerStore, type Row, type Store } from './store.ts';
 import { sameMoney } from './totals.ts';
 
-export type ActionName = 'preview' | 'issue' | 'quotePdf';
+export type ActionName = 'preview' | 'issue' | 'quotePdf' | 'invoiceQuote';
 export type ActionRequest = { action: ActionName; object: DocumentObject; recordId: string; localDate: string; locale: string };
-export type ActionResponse = { ok: true; number?: string; version?: number; message: string } | { ok: false; problems: WordedProblem[] };
+/** The document an action made, for the button to open. */
+export type Created = { object: DocumentObject; recordId: string };
+export type ActionResponse =
+  | { ok: true; number?: string; version?: number; message: string; created?: Created }
+  | { ok: false; problems: WordedProblem[]; created?: Created };
 export type ActionOutcome = { status: 200 | 403 | 422 | 500; body: ActionResponse };
+
+/** The actions that run on one document through the gate (issue path spec §6). */
+type DocumentRequest = ActionRequest & { action: GateAction };
+type Step = (name: string) => void;
 
 export type ActionDeps = {
   /** Reads and every write after the first, as the app. */
@@ -33,6 +43,7 @@ const OBJECTS: Record<ActionName, readonly DocumentObject[]> = {
   preview: ['billingInvoice', 'billingCreditNote'],
   issue: ['billingInvoice', 'billingCreditNote'],
   quotePdf: ['billingQuote'],
+  invoiceQuote: ['billingQuote'],
 };
 
 const RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -115,7 +126,7 @@ type Run = {
   step: (name: string) => void;
 };
 
-const ok = (message: string, extra: { number?: string; version?: number } = {}): ActionOutcome => ({ status: 200, body: { ok: true, ...extra, message } });
+const ok = (message: string, extra: { number?: string; version?: number; created?: Created } = {}): ActionOutcome => ({ status: 200, body: { ok: true, ...extra, message } });
 
 function refuse(status: 403 | 422, pack: LifecyclePack, problems: readonly AnyProblem[], lineNumbers?: ReadonlyMap<string, number>): ActionOutcome {
   return { status, body: { ok: false, problems: describeAll(problems, pack.code, lineNumbers) } };
@@ -256,12 +267,90 @@ async function quotePdf(run: Run): Promise<ActionOutcome> {
   return ok(run.pack.messages.quotePdf(claim.number, version), { number: claim.number, version });
 }
 
+/** A refusal raised part-way (a sequence too far behind, the Renderer, the Engine), worded; null for anything else. */
+function expectedRefusal(error: unknown, pack: LifecyclePack): ActionOutcome | null {
+  if (error instanceof LifecycleError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'lifecycle', ...problem })));
+  if (error instanceof RenderError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'render', problem })));
+  if (error instanceof EngineError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'engine', problem })));
+  return null;
+}
+
+/** Preview, Issue and Quote PDF (issue path spec §6): the caller's write, the gate, then the action. */
+async function documentAction(request: DocumentRequest, deps: ActionDeps, pack: LifecyclePack, step: Step): Promise<ActionOutcome> {
+  const kind = kindOf(request.object)!;
+
+  step('read');
+  const document = await deps.app.get(kind.plural, request.recordId);
+  if (!document) throw new Error('The document no longer exists');
+  if (isIssued(kind, document)) return alreadyIssued(pack, document);
+
+  step('defaults');
+  const defaults = await defaultsFor(deps.app, kind, document, request.localDate);
+  try {
+    await deps.caller.update(kind.plural, document.id, defaults);
+  } catch (error) {
+    if (error instanceof NotAllowedError) return refuse(403, pack, [{ source: 'lifecycle', code: 'NOT_ALLOWED' }]);
+    throw error;
+  }
+
+  step('load');
+  const loaded = await loadDocument(deps.app, kind, document.id);
+  if (!loaded) throw new Error('The document no longer exists');
+  // Another request may have issued it meanwhile: a double click is answered as the first read would have been.
+  if (isIssued(kind, loaded.document)) return alreadyIssued(pack, loaded.document);
+  const lineNumbers = new Map(loaded.lines.map((line, index) => [line.id, index + 1]));
+
+  step('gate');
+  const issueDate = textOf(loaded.document.issueDate);
+  const scope = loaded.issuer && loaded.profile ? scopeOf(kind, loaded.issuer.id, resetOf(loaded.profile), issueDate) : null;
+  const latest = request.action === 'issue' && scope ? await latestIssueDate(deps.app, scope, document.id) : null;
+  const problems = checkGate(loaded, { action: request.action, localDate: request.localDate, latestIssueDate: latest });
+  if (problems.length > 0) return refuse(422, pack, problems, lineNumbers);
+
+  const run: Run = { request, kind, loaded, scope: scope!, issueDate, pack, deps, render: deps.render ?? renderDocument, step };
+  if (request.action === 'preview') return await preview(run);
+  if (request.action === 'issue') return await issue(run);
+  return await quotePdf(run);
+}
+
+/** A quote becomes a draft invoice (flows spec §5). */
+async function invoiceQuote(request: ActionRequest, deps: ActionDeps, pack: LifecyclePack, step: Step): Promise<ActionOutcome> {
+  step('read');
+  const quote = await deps.app.get('billingQuotes', request.recordId);
+  if (!quote) throw new Error('The document no longer exists');
+  const [existing] = await deps.app.list('billingInvoices', { quoteId: quote.id }, { limit: 1 });
+  if (existing) return refuse(422, pack, [{ source: 'lifecycle', code: 'ALREADY_INVOICED', value: textOf(existing.number) || textOf(existing.subject) }]);
+  if (!OPEN_QUOTE.includes(textOf(quote.status))) return refuse(422, pack, [{ source: 'lifecycle', code: 'QUOTE_NOT_OPEN', value: textOf(quote.status) }]);
+
+  step('create');
+  let invoice: Row;
+  try {
+    invoice = await deps.caller.create('billingInvoices', invoiceFromQuote(quote));
+  } catch (error) {
+    if (error instanceof NotAllowedError) return refuse(403, pack, [{ source: 'lifecycle', code: 'NOT_ALLOWED' }]);
+    throw error;
+  }
+
+  step('lines');
+  const figures = await loadFigures(deps.app, KINDS.billingQuote, quote.id);
+  for (const line of figures?.lines ?? []) await deps.app.create('billingInvoiceLines', lineCopy(line, 'invoiceId', invoice.id));
+
+  step('quote');
+  await deps.app.update('billingQuotes', quote.id, { status: 'INVOICED', ...(textOf(quote.acceptedAt) === '' ? { acceptedAt: request.localDate } : {}) });
+  const quotePack = await packForDocument(deps.app, quote);
+  await leaveMessage(deps.app, { object: 'billingQuote', recordId: quote.id, kind: 'INVOICED', text: quotePack.messages.invoicedTimeline(textOf(quote.subject)) });
+  return ok(pack.messages.invoiceCreated, { created: { object: 'billingInvoice', recordId: invoice.id } });
+}
+
 /** What a button asked for, answered: never a thrown error, always an outcome the route can send. */
 export async function runAction(raw: unknown, deps: ActionDeps): Promise<ActionOutcome> {
   const locale = (raw as { locale?: unknown } | null)?.locale;
   const pack = packFor(typeof locale === 'string' ? locale : null);
   let request: ActionRequest | null = null;
   let step = 'request';
+  const setStep: Step = (name) => {
+    step = name;
+  };
   try {
     request = parseRequest(raw);
     if (!request) throw new Error('The request is not one of the actions this route runs');
@@ -269,50 +358,11 @@ export async function runAction(raw: unknown, deps: ActionDeps): Promise<ActionO
     if (Math.abs(dayNumber(request.localDate) - dayNumber(serverDate)) > 1) {
       return refuse(422, pack, [{ source: 'lifecycle', code: 'CLOCK_SKEW', field: 'localDate', value: request.localDate }]);
     }
-    const kind = kindOf(request.object)!;
-
-    step = 'read';
-    const document = await deps.app.get(kind.plural, request.recordId);
-    if (!document) throw new Error('The document no longer exists');
-    if (isIssued(kind, document)) return alreadyIssued(pack, document);
-
-    step = 'defaults';
-    const defaults = await defaultsFor(deps.app, kind, document, request.localDate);
-    try {
-      await deps.caller.update(kind.plural, document.id, defaults);
-    } catch (error) {
-      if (error instanceof NotAllowedError) return refuse(403, pack, [{ source: 'lifecycle', code: 'NOT_ALLOWED' }]);
-      throw error;
-    }
-
-    step = 'load';
-    const loaded = await loadDocument(deps.app, kind, document.id);
-    if (!loaded) throw new Error('The document no longer exists');
-    // Another request may have issued it meanwhile: a double click is answered as the first read would have been.
-    if (isIssued(kind, loaded.document)) return alreadyIssued(pack, loaded.document);
-    const lineNumbers = new Map(loaded.lines.map((line, index) => [line.id, index + 1]));
-
-    step = 'gate';
-    const issueDate = textOf(loaded.document.issueDate);
-    const scope = loaded.issuer && loaded.profile ? scopeOf(kind, loaded.issuer.id, resetOf(loaded.profile), issueDate) : null;
-    const latest = request.action === 'issue' && scope ? await latestIssueDate(deps.app, scope, document.id) : null;
-    const problems = checkGate(loaded, { action: request.action, localDate: request.localDate, latestIssueDate: latest });
-    if (problems.length > 0) return refuse(422, pack, problems, lineNumbers);
-
-    const run: Run = {
-      request, kind, loaded, scope: scope!, issueDate, pack, deps,
-      render: deps.render ?? renderDocument,
-      step: (name) => {
-        step = name;
-      },
-    };
-    if (request.action === 'preview') return await preview(run);
-    if (request.action === 'issue') return await issue(run);
-    return await quotePdf(run);
+    if (request.action === 'invoiceQuote') return await invoiceQuote(request, deps, pack, setStep);
+    return await documentAction(request as DocumentRequest, deps, pack, setStep);
   } catch (error) {
-    if (error instanceof LifecycleError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'lifecycle', ...problem })));
-    if (error instanceof RenderError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'render', problem })));
-    if (error instanceof EngineError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'engine', problem })));
+    const refusal = expectedRefusal(error, pack);
+    if (refusal) return refusal;
     const reference = deps.reference();
     deps.log({
       reference, object: request?.object ?? null, recordId: request?.recordId ?? null, action: request?.action ?? null, step,
