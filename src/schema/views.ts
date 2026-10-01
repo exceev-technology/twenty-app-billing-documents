@@ -1,6 +1,6 @@
 import { defineView, getFieldUniversalIdentifier, ViewFilterOperand, ViewSortDirection, ViewType } from 'twenty-sdk/define';
 import { id } from '../lib/id.ts';
-import { fieldId, objectId } from './fields.ts';
+import { fieldId, objectId, type Option } from './fields.ts';
 
 /** The system fields a view may sort by: Twenty declares them on every object, under identifiers the SDK derives. */
 const SYSTEM_FIELDS: readonly string[] = ['createdAt', 'updatedAt'];
@@ -19,8 +19,8 @@ export type ViewSpec = {
   name: string;
   icon: string;
   position: number;
-  /** A kanban grouped by this select field; a table otherwise. */
-  kanbanBy?: string;
+  /** A kanban with a column per option of this select field, in the options' order; a table otherwise. */
+  kanbanBy?: { field: string; options: readonly Option[] };
   /** Shown after the label, in order. */
   fields: readonly string[];
   filters?: readonly ViewFilter[];
@@ -42,7 +42,17 @@ export function billingView(spec: ViewSpec) {
     type: spec.kanbanBy ? ViewType.KANBAN : ViewType.TABLE,
     icon: spec.icon,
     position: spec.position,
-    ...(spec.kanbanBy ? { mainGroupByFieldMetadataUniversalIdentifier: fieldId(spec.object, spec.kanbanBy) } : {}),
+    ...(spec.kanbanBy
+      ? {
+          mainGroupByFieldMetadataUniversalIdentifier: fieldId(spec.object, spec.kanbanBy.field),
+          groups: spec.kanbanBy.options.map(([value], position) => ({
+            universalIdentifier: id(`viewGroup.${spec.key}.${value}`),
+            fieldValue: value,
+            position,
+            isVisible: true,
+          })),
+        }
+      : {}),
     fields: ['subject', ...spec.fields].map((field, position) => ({
       universalIdentifier: id(`viewField.${spec.key}.${field}`),
       fieldMetadataUniversalIdentifier: viewFieldId(spec.object, field),
