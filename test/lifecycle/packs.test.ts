@@ -8,6 +8,7 @@ const LIFECYCLE_CODES = [
   'INVOICE_NOT_ISSUED', 'INVOICE_MISMATCH', 'DATE_IN_FUTURE', 'DATE_BEFORE_LAST', 'DUE_BEFORE_ISSUE',
   'CLOCK_SKEW', 'LEDGER_BEHIND', 'HELD_NUMBER_ELSEWHERE',
   'QUOTE_NOT_OPEN', 'ALREADY_INVOICED', 'NOT_ISSUED', 'INVOICE_CANCELLED', 'NOTHING_TO_CREDIT', 'REMAINDER_UNKNOWN', 'OVER_CREDIT',
+  'NUMBERED_CREDIT_NOTE_PENDING',
 ];
 const RENDER_CODES = [
   'UNSUPPORTED_SCRIPT', 'UNSUPPORTED_IMAGE', 'UNKNOWN_TEMPLATE', 'UNKNOWN_LANGUAGE', 'QR_PAYLOAD_TOO_LONG',
@@ -103,6 +104,17 @@ test('OVER_CREDIT names the line when it can, and INVOICE_CANCELLED speaks of th
   assert.match(PACKS.EN.problems.INVOICE_CANCELLED({ field: 'invoiceId' }), /^The invoice this credit note corrects is cancelled/);
   assert.match(PACKS.FR.problems.INVOICE_CANCELLED({}), /^Cette facture est annulée/);
   assert.equal(PACKS.FR.messages.cancellationReason('F2026-0001'), 'Annulation de la facture F2026-0001');
+});
+
+test('a numbered credit note left unissued is named, to be finished before another is made', () => {
+  assert.equal(
+    PACKS.EN.problems.NUMBERED_CREDIT_NOTE_PENDING({ value: 'AV2026-0001' }),
+    'Credit note AV2026-0001 already holds a number: finish it (or correct it) before making another.',
+  );
+  assert.equal(
+    PACKS.FR.problems.NUMBERED_CREDIT_NOTE_PENDING({ value: 'AV2026-0001' }),
+    'L’avoir AV2026-0001 porte déjà un numéro\u00a0: terminez-le (ou corrigez-le) avant d’en créer un autre.',
+  );
 });
 
 test('a problem of each origin is worded, with the field it names', () => {

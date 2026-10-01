@@ -152,11 +152,15 @@ const totalOf = (credits: readonly Row[]): number =>
     return Number.isNaN(micros) ? sum : sum + micros;
   }, 0);
 
-/** Fully credited (spec §6): nothing remains, or its issued credit notes' totals reach the invoice's. */
+/**
+ * Fully credited (spec §6): when the remainder is known, nothing is left of any line, so totals that reach the
+ * invoice's while a rebate line is left do not count; when it is not (credit notes made by hand), the issued
+ * credit notes' totals reach the invoice's.
+ */
 export function fullyCredited(invoice: Row, credits: readonly Row[]): boolean {
   if (credits.length === 0) return false;
   const remainder = invoiceRemainder(invoice, credits);
-  if (remainder.known && remainder.lines.length === 0) return true;
+  if (remainder.known) return remainder.lines.length === 0;
   const total = microsOf(invoice.total);
   return !Number.isNaN(total) && totalOf(credits) >= total;
 }
@@ -164,11 +168,35 @@ export function fullyCredited(invoice: Row, credits: readonly Row[]): boolean {
 /** A credit note as the gate weighs it: its live lines in print order, and the Engine's figures. */
 export type DraftCredit = { lines: readonly Row[]; totalMicros: number; components: number; currencyCode: string };
 
+/** A line's unit price in micros; null when it is not a whole number of them. */
+const priceOf = (line: LineView): bigint | null => {
+  const micros = microsOf(line.fields.unitPrice);
+  return Number.isSafeInteger(micros) ? BigInt(micros) : null;
+};
+
+/**
+ * The value left on an invoice, before tax, once `credited` thousandths are taken from its lines: each line's
+ * quantity left × its unit price × (10000 − its discount in hundredths of a percent). It is the value in micros
+ * scaled by 1000 × 10000, kept undivided so that its sign is exact: matched credit lines share their invoice
+ * line's price and discount, so nothing is rounded. Null when a line's quantity, price or discount cannot be read.
+ */
+function scaledValueLeft(invoiceLines: readonly LineView[], credited: ReadonlyMap<string, bigint>): bigint | null {
+  let value = 0n;
+  for (const line of invoiceLines) {
+    const [quantity, price, discount] = [thousandths(line.fields.quantity), priceOf(line), discountOf(line.fields.discountPercent)];
+    if (quantity === null || price === null || discount === null) return null;
+    value += (quantity - (credited.get(line.id) ?? 0n)) * price * (10000n - discount);
+  }
+  return value;
+}
+
 /**
  * OVER_CREDIT (spec §6): null when the credit note fits what remains of its
  * invoice; else the position (from 1) of the first line that takes more than its
- * invoice line has left, or 0 when its total does. The margin of one minor unit
- * per tax component absorbs two documents rounding each component on their own.
+ * invoice line has left, or 0 when the credit note as a whole takes more: linked,
+ * it would leave the invoice with less than nothing (a charge credited without the
+ * rebate that lowered it); unlinked, its total exceeds what remains. The margin of
+ * one minor unit per tax component absorbs two documents rounding each component on their own.
  */
 export function overCredit(invoice: Row, credits: readonly Row[], draft: DraftCredit): number | null {
   const invoiceLines = issuedLinesOf(invoice);
@@ -183,7 +211,8 @@ export function overCredit(invoice: Row, credits: readonly Row[], draft: DraftCr
       running.set(target.id, sum);
       if (absOf(sum) > absOf(thousandths(target.fields.quantity) ?? 0n)) return index + 1;
     }
-    return null;
+    const left = scaledValueLeft(invoiceLines, running);
+    return left !== null && left < 0n ? 0 : null;
   }
   const total = microsOf(invoice.total);
   // An issued invoice always carries its total; the gate's other checks report one that does not.

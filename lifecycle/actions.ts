@@ -134,6 +134,9 @@ function refuse(status: 403 | 422, pack: LifecyclePack, problems: readonly AnyPr
   return { status, body: { ok: false, problems: describeAll(problems, pack.code, lineNumbers) } };
 }
 
+/** A refusal that names a document for the button to open: a draft to fix, or a credit note to finish. */
+const opening = (outcome: ActionOutcome, created: Created): ActionOutcome => ({ ...outcome, body: { ...outcome.body, created } });
+
 const alreadyIssued = (pack: LifecyclePack, document: Row): ActionOutcome =>
   refuse(422, pack, [{ source: 'lifecycle', code: 'ALREADY_ISSUED', value: textOf(document.number) }]);
 
@@ -419,6 +422,19 @@ async function draftCreditNote(deps: ActionDeps, invoice: Row, lines: Record<str
 
 const notAllowed = (pack: LifecyclePack): ActionOutcome => refuse(403, pack, [{ source: 'lifecycle', code: 'NOT_ALLOWED' }]);
 
+/**
+ * The newest credit note against the invoice that holds a number but was never issued, as an Issue that
+ * failed after its claim, or that the recheck refused, leaves it. Another credit note issued meanwhile
+ * could cancel the invoice and strand it with its number: it is finished (or corrected) first.
+ */
+async function numberedPending(store: Store, invoiceId: string): Promise<Row | null> {
+  const notes = await store.list('billingCreditNotes', { invoiceId }, { orderBy: { field: 'createdAt', direction: 'desc' } });
+  return notes.find((note) => Boolean(note.numberKey) && !isIssued(KINDS.billingCreditNote, note)) ?? null;
+}
+
+const pendingRefusal = (pack: LifecyclePack, note: Row): ActionOutcome =>
+  opening(refuse(422, pack, [{ source: 'lifecycle', code: 'NUMBERED_CREDIT_NOTE_PENDING', value: textOf(note.number) }]), { object: 'billingCreditNote', recordId: note.id });
+
 /** The Credit note button (flows spec §6): a draft holding what remains, for the person to edit down. */
 async function creditNote(request: ActionRequest, deps: ActionDeps, pack: LifecyclePack, step: Step): Promise<ActionOutcome> {
   step('read');
@@ -429,6 +445,8 @@ async function creditNote(request: ActionRequest, deps: ActionDeps, pack: Lifecy
   step('credits');
   const remainder = invoiceRemainder(invoice, await issuedCreditNotes(deps.app, invoice.id));
   if (remainder.known && remainder.lines.length === 0) return refuse(422, pack, [{ source: 'lifecycle', code: 'NOTHING_TO_CREDIT' }]);
+  const pending = await numberedPending(deps.app, invoice.id);
+  if (pending) return pendingRefusal(pack, pending);
   let note: Row;
   try {
     note = await draftCreditNote(deps, invoice, creditLines(invoice, remainder), '', step);
@@ -444,15 +462,18 @@ const newestNumber = (credits: readonly Row[]): string =>
   textOf([...credits].sort((a, b) => textOf(b.issuedAt).localeCompare(textOf(a.issuedAt)))[0]?.number);
 
 /**
- * The newest draft credit note against the invoice that Cancel made and left: its reason is Cancel's,
- * and it holds exactly the remainder, as a Cancel that stopped at the gate left it. A person's own
- * credit note that happens to hold the remainder is theirs, not Cancel's.
+ * Whether Cancel made this credit note and left it: its reason is Cancel's, and it holds exactly the
+ * remainder, as a Cancel that stopped at the gate left it. A person's own credit note that happens to
+ * hold the remainder is theirs, not Cancel's.
  */
+async function leftByCancel(store: Store, note: Row, reason: string, remaining: readonly RemainingLine[]): Promise<boolean> {
+  return textOf(note.reason) === reason && holdsExactly(await store.list('billingCreditNoteLines', { creditNoteId: note.id }), remaining);
+}
+
+/** The newest draft credit note against the invoice that Cancel made and left. */
 async function stoppedCancel(store: Store, invoiceId: string, reason: string, remaining: readonly RemainingLine[]): Promise<Row | null> {
   const drafts = await store.list('billingCreditNotes', { invoiceId, status: 'DRAFT' }, { orderBy: { field: 'createdAt', direction: 'desc' } });
-  for (const draft of drafts) {
-    if (textOf(draft.reason) === reason && holdsExactly(await store.list('billingCreditNoteLines', { creditNoteId: draft.id }), remaining)) return draft;
-  }
+  for (const draft of drafts) if (await leftByCancel(store, draft, reason, remaining)) return draft;
   return null;
 }
 
@@ -479,7 +500,10 @@ async function cancelInvoice(request: ActionRequest, deps: ActionDeps, pack: Lif
 
   step('draft');
   const reason = (await packForDocument(deps.app, invoice)).messages.cancellationReason(invoiceNumber);
-  let note = await stoppedCancel(deps.app, invoice.id, reason, remainder.lines);
+  // A numbered credit note never issued is resumed only when it is Cancel's own: any other is finished first.
+  const pending = await numberedPending(deps.app, invoice.id);
+  if (pending && !(await leftByCancel(deps.app, pending, reason, remainder.lines))) return pendingRefusal(pack, pending);
+  let note = pending ?? (await stoppedCancel(deps.app, invoice.id, reason, remainder.lines));
   if (!note) {
     try {
       note = await draftCreditNote(deps, invoice, creditLines(invoice, remainder), reason, step);
@@ -499,7 +523,7 @@ async function cancelInvoice(request: ActionRequest, deps: ActionDeps, pack: Lif
     outcome = stopped;
   }
   // Refused: the button opens the draft, for the person to fix what the gate found.
-  if (!outcome.body.ok) return { ...outcome, body: { ...outcome.body, created } };
+  if (!outcome.body.ok) return opening(outcome, created);
   const after = await deps.app.get('billingInvoices', invoice.id);
   if (after?.status !== 'CANCELLED') return outcome;
   return ok(pack.messages.cancelledBy(invoiceNumber, outcome.body.number ?? ''), { number: outcome.body.number });

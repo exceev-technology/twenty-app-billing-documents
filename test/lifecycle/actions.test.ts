@@ -1021,3 +1021,42 @@ test('Cancel issues only its own draft: a person’s credit note that holds the 
   assert.equal(w.db.row('billingCreditNotes', theirs)!.status, 'DRAFT');
   assert.equal(linesOf(w, theirs).length, 3, 'their lines are not touched');
 });
+
+const PENDING = 'Credit note AV2026-0001 already holds a number: finish it (or correct it) before making another.';
+
+test('Credit note and Cancel refuse while a credit note holds a number it was never issued with, and open that note', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const pending = await draftNote(w, deps, [w.lines[2]!.id]);
+  w.db.failNext((op) => op === 'upload');
+  assert.equal((await runAction(request(w, { object: 'billingCreditNote', recordId: pending }), deps)).status, 500);
+  assert.deepEqual([w.db.row('billingCreditNotes', pending)!.status, w.db.row('billingCreditNotes', pending)!.number], ['DRAFT', 'AV2026-0001']);
+  const before = w.db.writes.length;
+  for (const action of ['creditNote', 'cancelInvoice'] as const) {
+    const outcome = await runAction(creditRequest(w, action), deps);
+    assert.equal(outcome.status, 422, action);
+    assert.deepEqual(outcome.body, {
+      ok: false, problems: [{ code: 'NUMBERED_CREDIT_NOTE_PENDING', message: PENDING }], created: { object: 'billingCreditNote', recordId: pending },
+    }, action);
+  }
+  assert.equal(w.db.writes.length, before, 'nothing is written');
+  assert.deepEqual(notesOf(w).map((note) => note.id), [pending]);
+  assert.equal(invoiceRow(w).status, 'ISSUED');
+  assert.equal((await runAction(request(w, { object: 'billingCreditNote', recordId: pending }), deps)).status, 200, 'finished, it is issued');
+  assert.equal((await runAction(creditRequest(w, 'creditNote'), deps)).status, 200, 'and the next credit note can be made');
+});
+
+test('a Cancel that failed once its credit note was numbered issues that same note next time, with its number', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  w.db.failNext((op) => op === 'upload');
+  assert.equal((await runAction(creditRequest(w, 'cancelInvoice'), deps)).status, 500);
+  const [stopped] = notesOf(w);
+  assert.deepEqual([stopped!.status, stopped!.number], ['DRAFT', 'AV2026-0001']);
+  const done = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  assert.deepEqual(notesOf(w).map((note) => [note.id, note.status, note.number]), [[stopped!.id, 'ISSUED', 'AV2026-0001']]);
+  assert.equal(invoiceRow(w).status, 'CANCELLED');
+});

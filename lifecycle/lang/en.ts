@@ -52,6 +52,7 @@ export const en: LifecyclePack = {
       'A credit note against this invoice changed a price or added a line, so what remains cannot be worked out: use Credit note and adjust it.',
     OVER_CREDIT: ({ value }) =>
       value ? `This credit note credits more than remains on its invoice (line ${value}).` : 'This credit note credits more than remains on its invoice.',
+    NUMBERED_CREDIT_NOTE_PENDING: ({ value }) => `Credit note ${value} already holds a number: finish it (or correct it) before making another.`,
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Some characters cannot be printed with the PDF’s font (${field}): ${value}`,

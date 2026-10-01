@@ -164,6 +164,24 @@ test('a rebate line may not be credited by more than its own quantity', () => {
   assert.equal(overCredit(rebate, [earlier], draftOf([liveLine('d1', 'line-r', -1, R_PRICE)])), 1);
 });
 
+test('a credit note may not leave its invoice with less than nothing: a rebate is credited with what it rebates', () => {
+  assert.equal(overCredit(rebate, [], draftOf([liveLine('d1', 'line-a', 4)])), 0, 'A × 4 alone credits 2 000 of an invoice of 1 700');
+  assert.equal(overCredit(rebate, [], draftOf([liveLine('d1', 'line-a', 4), liveLine('d2', 'line-r', -1, R_PRICE)])), null);
+  assert.equal(overCredit(rebate, [], draftOf([liveLine('d1', 'line-a', 1)])), null, 'a partial credit leaves 1 200');
+  const earlier = issued('note-1', [credit('c1', 'line-a', 1)]);
+  const cancel = creditLines(rebate, invoiceRemainder(rebate, [earlier])).map((line, index): Row => ({ id: `d${index}`, ...line }));
+  assert.deepEqual(cancel.map((line) => [line.invoiceLineId, line.quantity]), [['line-a', 3], ['line-r', -1]]);
+  assert.equal(overCredit(rebate, [earlier], draftOf(cancel)), null, 'the exact remainder, as Cancel makes it');
+  assert.equal(overCredit(rebate, [earlier], draftOf(cancel.slice(0, 1))), 0, 'the rest of A without R');
+});
+
+test('an invoice whose remainder is known is fully credited only when nothing is left of any line', () => {
+  const chargeAlone = issued('note-1', [credit('c1', 'line-a', 4)], { total: money(2_000_000_000) });
+  assert.equal(fullyCredited(rebate, [chargeAlone]), false, 'the rebate is left, though the totals reach the invoice’s');
+  const both = issued('note-2', [credit('c1', 'line-a', 4), credit('c2', 'line-r', -1, R_PRICE)], { total: money(1_700_000_000) });
+  assert.equal(fullyCredited(rebate, [both]), true);
+});
+
 test('a credit note of a rebate line takes it at its negative quantity', () => {
   const [line] = creditLines(rebate, { known: true, lines: [{ invoiceLine: R, quantity: -1 }] });
   assert.equal(line!.quantity, -1);

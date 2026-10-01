@@ -55,6 +55,7 @@ export const fr: LifecyclePack = {
       'Un avoir sur cette facture a changé un prix ou ajouté une ligne\u00a0: ce qui reste ne peut pas être calculé. Utilisez Credit note et ajustez l\u2019avoir.',
     OVER_CREDIT: ({ value }) =>
       value ? `Cet avoir crédite plus qu\u2019il ne reste sur sa facture (ligne ${value}).` : 'Cet avoir crédite plus qu\u2019il ne reste sur sa facture.',
+    NUMBERED_CREDIT_NOTE_PENDING: ({ value }) => `L’avoir ${value} porte déjà un numéro\u00a0: terminez-le (ou corrigez-le) avant d’en créer un autre.`,
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Certains caractères ne peuvent pas être imprimés avec la police du PDF (${field})\u00a0: ${value}`,
