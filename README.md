@@ -3,10 +3,9 @@
 Quotes, invoices and credit notes, issued as PDFs, inside [Twenty](https://twenty.com).
 Your clients are already in Twenty, so your documents can be too.
 
-> **Status: under construction.** Invoices and credit notes can be previewed
-> and issued, and quotes printed; turning a quote into an invoice, the
-> ready-made views and sending by email are still to come. Do not use it for
-> real invoices until the first release.
+> **Status: under construction.** Quotes, invoices and credit notes can be
+> issued, turned into one another and followed to payment; sending by email is
+> still to come. Do not use it for real invoices until the first release.
 
 ## What it will do
 
@@ -89,7 +88,39 @@ issued or numbered document restores it. Its status can still move between
 issued, sent and paid, and the sent date, paid date, opportunity and quote stay
 free. To correct an issued invoice, issue a credit note that names it.
 
-### Do not let users destroy billing records
+## From a quote to a paid invoice
+
+**Create invoice**, on a quote in Draft, Sent or Accepted, makes a draft
+invoice that copies it: issuer, buyer, opportunity, currency, price basis,
+language, notes and every line. The draft opens in the side panel, and the
+quote becomes Invoiced. A quote has one invoice: delete that draft (before it
+is issued) and the quote is Accepted again.
+
+**Credit note**, on an issued invoice, makes a draft credit note holding what
+remains to credit, each line linked to the invoice line it credits. Lower a
+quantity or remove a line for a partial correction, then issue it.
+
+**Cancel invoice**, in the invoice's command menu, asks for a confirmation,
+then issues a credit note for everything that remains and marks the invoice
+Cancelled. When a credit note made earlier changed a price, what remains cannot
+be worked out: use Credit note and adjust it.
+
+An invoice whose issued credit notes credit all of it is marked Cancelled,
+whichever way they were made. A numbered invoice that its credit notes
+cancelled stays Cancelled: a move out of Cancelled is put back. No credit note
+may credit more than remains.
+
+**Payment.** Set an issued invoice to Sent or Paid: the app fills *Sent at* and
+*Paid on* when they are empty (you can change them). Setting it back from Paid
+empties *Paid on*. A draft cannot be Sent or Paid. Overdue is not a status: the
+**Overdue invoices** view, in the Billing folder, lists the issued or sent
+invoices whose due date has passed.
+
+**Views.** Invoices: Drafts, Unpaid, Overdue, Paid. Quotes: Open, To invoice,
+and a Pipeline board by status. Credit notes: Drafts. They add up no amounts:
+documents in several currencies cannot be summed.
+
+## Do not let users destroy billing records
 
 Twenty can delete a record permanently ("destroy" it, for example by emptying
 the deleted records). The app brings back a deleted invoice, but it cannot
@@ -137,6 +168,7 @@ npm run typecheck
 - [Foundation plan](docs/superpowers/plans/2026-09-21-foundation.md)
 - [Engine plan](docs/superpowers/plans/2026-09-22-engine.md)
 - [Issue path plan](docs/superpowers/plans/2026-09-26-issue-path.md)
+- [Flows plan](docs/superpowers/plans/2026-10-01-flows.md)
 
 ## Author
 
