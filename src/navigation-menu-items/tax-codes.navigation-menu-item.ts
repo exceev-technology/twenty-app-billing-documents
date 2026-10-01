@@ -7,5 +7,5 @@ export default defineNavigationMenuItem({
   type: NavigationMenuItemType.OBJECT,
   targetObjectUniversalIdentifier: objectId('billingTaxCode'),
   folderUniversalIdentifier: id('navigationMenuItem.billing'),
-  position: 4,
+  position: 5,
 });

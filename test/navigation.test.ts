@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { NavigationMenuItemType } from 'twenty-sdk/define';
 import { loadEntities } from './helpers/entities.ts';
 import { objectId } from '../src/schema/fields.ts';
+import { IDS } from '../src/ids.ts';
 
 const items = await loadEntities('navigation-menu-items');
 const configs = items.map(({ result }) => result.config);
@@ -22,4 +23,13 @@ test('the folder holds quotes, invoices, credit notes, the catalog, tax codes an
   const targets = ['billingQuote', 'billingInvoice', 'billingCreditNote', 'billingCatalogItem', 'billingTaxCode', 'billingProfile'];
   assert.deepEqual(entries.map((e) => e.targetObjectUniversalIdentifier), targets.map(objectId));
   for (const entry of entries) assert.equal(entry.folderUniversalIdentifier, folders[0].universalIdentifier);
+});
+
+test('Overdue invoices opens the Overdue view, from the Billing folder, right after Invoices', () => {
+  const view = configs.find((c) => c.type === NavigationMenuItemType.VIEW);
+  assert.ok(view);
+  assert.deepEqual([view.name, view.viewUniversalIdentifier, view.folderUniversalIdentifier], ['Overdue invoices', IDS['view.invoicesOverdue'], folders[0].universalIdentifier]);
+  const invoices = entries.find((e) => e.targetObjectUniversalIdentifier === objectId('billingInvoice'));
+  const creditNotes = entries.find((e) => e.targetObjectUniversalIdentifier === objectId('billingCreditNote'));
+  assert.ok(invoices.position < view.position && view.position < creditNotes.position);
 });
