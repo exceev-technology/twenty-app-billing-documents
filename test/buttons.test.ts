@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { build, type Plugin } from 'esbuild';
 import { loadEntities } from './helpers/entities.ts';
 import { bundleFrontComponent } from './helpers/front-component-build.ts';
 import { objectId } from '../src/schema/fields.ts';
@@ -70,7 +72,62 @@ test('Cancel asks first, in the person’s language', () => {
     subtitle: 'A credit note for everything that remains is issued, and the invoice is marked Cancelled. This cannot be undone.',
     confirm: 'Cancel invoice',
   });
-  assert.equal(cancelConfirmation('fr-FR').title, 'Annuler cette facture ?');
+  assert.deepEqual(cancelConfirmation('fr-FR'), {
+    title: 'Annuler cette facture\u00a0?',
+    subtitle: 'Un avoir pour tout ce qui reste est émis, et la facture passe au statut Annulée. C’est définitif.',
+    confirm: 'Annuler la facture',
+  });
+});
+
+test('the buttons’ French words don’t take a plain space before : ; ? ! or inside « »', () => {
+  const problems = Array.from({ length: 6 }, (_, index) => ({ code: 'X', message: `Problème ${index + 1}.` }));
+  const texts = [
+    ...Object.values(cancelConfirmation('fr')),
+    ...[{ status: 404, body: null }, { status: 502, body: null }, { status: null, body: null }, { status: 422, body: { ok: false, problems } }]
+      .map((answer) => feedbackFor(answer, 'fr').message),
+  ];
+  for (const text of texts) assert.doesNotMatch(text, / [:;?!]|« | »/, text);
+  assert.equal(
+    feedbackFor({ status: 404, body: null }, 'fr').message,
+    'Les actions de facturation ont besoin des fonctions logiques, désactivées sur ce serveur. Voir «\u00a0Issuing documents\u00a0» dans le README de l’app.',
+  );
+});
+
+/**
+ * What a button's component renders, read from its bundle: React's JSX runtime, the SDK's
+ * defineFrontComponent and ActionCommand are stand-ins that keep what they are given, and
+ * action-feedback.ts is left to Node, so the props hold the very functions this test imports.
+ */
+async function rendered(file: string): Promise<{ type: unknown; props: Record<string, unknown> }> {
+  const standIns: Record<string, string> = {
+    'react/jsx-runtime': 'export const jsx = (type, props) => ({ type, props }); export const jsxs = jsx; export const Fragment = "Fragment";',
+    'twenty-sdk/define': 'export const defineFrontComponent = (config) => config;',
+    './action-command.tsx': 'export const ActionCommand = "ActionCommand";',
+  };
+  const plugin: Plugin = {
+    name: 'stand-ins',
+    setup(builder) {
+      builder.onResolve({ filter: /^(react\/jsx-runtime|twenty-sdk\/define|\.\/action-command\.tsx)$/ }, ({ path }) => ({ path, namespace: 'stand-in' }));
+      builder.onLoad({ filter: /.*/, namespace: 'stand-in' }, ({ path }) => ({ contents: standIns[path], loader: 'js' }));
+      builder.onResolve({ filter: /\/action-feedback\.ts$/ }, ({ path, resolveDir }) => ({ path: pathToFileURL(resolve(resolveDir, path)).href, external: true }));
+    },
+  };
+  const { outputFiles } = await build({
+    entryPoints: [`${COMPONENTS}${file}.tsx`], bundle: true, format: 'esm', jsx: 'automatic', write: false, logLevel: 'silent', plugins: [plugin],
+  });
+  const bundled = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0]!.text).toString('base64')}`);
+  return bundled.default.component();
+}
+
+test('Cancel invoice asks first, with its confirmation, and opens what it made; no other button asks', async () => {
+  const opens = ['create-invoice', 'credit-note', 'cancel-invoice'];
+  for (const { file } of BUTTONS) {
+    const { type, props } = await rendered(file);
+    assert.equal(type, 'ActionCommand', file);
+    assert.equal(props.opensCreated ?? false, opens.includes(file), `${file} opensCreated`);
+    if (file === 'cancel-invoice') assert.equal(props.confirm, cancelConfirmation);
+    else assert.equal('confirm' in props, false, `${file} asks for a confirmation`);
+  }
 });
 
 test('the date sent is the person’s own calendar date, not UTC’s', () => {

@@ -671,8 +671,22 @@ test('a quote with a live invoice answers ALREADY_INVOICED; a deleted invoice fr
   assert.deepEqual(refused.body.ok ? [] : refused.body.problems.map((problem) => problem.message), [
     'This quote already has an invoice, Déjà là: finish it, or delete it to start again.',
   ]);
+  assert.deepEqual(refused.body.created, { object: 'billingInvoice', recordId: existing.id }, 'Create invoice opens it');
   await w.app.softDelete('billingInvoices', existing.id);
   assert.equal((await runAction(quoteRequest(w, quote.id), setup(w).deps)).status, 200);
+});
+
+test('an invoice of the quote with neither number nor subject is refused without a name, and opened', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w);
+  const existing = w.addInvoice({ quoteId: quote.id, subject: '' });
+  const refused = await runAction(quoteRequest(w, quote.id), setup(w).deps);
+  assert.equal(refused.status, 422);
+  assert.deepEqual(refused.body, {
+    ok: false,
+    problems: [{ code: 'ALREADY_INVOICED', message: 'This quote already has an invoice: finish it, or delete it to start again.' }],
+    created: { object: 'billingInvoice', recordId: existing.id },
+  });
 });
 
 test('a failure while copying the lines leaves the draft, and the next click names it', async () => {

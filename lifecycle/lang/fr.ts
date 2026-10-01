@@ -44,7 +44,10 @@ export const fr: LifecyclePack = {
     HELD_NUMBER_ELSEWHERE: ({ value }) =>
       `Ce document porte déjà le numéro ${value}, attribué pour un autre émetteur ou une autre période\u00a0: rétablissez son émetteur et sa date d’émission pour l’utiliser.`,
     QUOTE_NOT_OPEN: ({ value }) => `Ce devis est au statut ${statusName(value)}\u00a0: seul un devis brouillon, envoyé ou accepté devient une facture.`,
-    ALREADY_INVOICED: ({ value }) => `Ce devis a déjà une facture, ${value}\u00a0: terminez-la, ou supprimez-la pour recommencer.`,
+    ALREADY_INVOICED: ({ value }) =>
+      value
+        ? `Ce devis a déjà une facture, ${value}\u00a0: terminez-la, ou supprimez-la pour recommencer.`
+        : 'Ce devis a déjà une facture\u00a0: terminez-la, ou supprimez-la pour recommencer.',
     NOT_ISSUED: () => 'Cette facture n\u2019est pas émise\u00a0: un brouillon se corrige en le modifiant.',
     INVOICE_CANCELLED: ({ field }) =>
       field === 'invoiceId'

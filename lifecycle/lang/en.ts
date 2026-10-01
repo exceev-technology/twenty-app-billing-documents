@@ -41,7 +41,10 @@ export const en: LifecyclePack = {
     HELD_NUMBER_ELSEWHERE: ({ value }) =>
       `This document already holds the number ${value}, given under another issuer or period: put its issuer and issue date back to use it.`,
     QUOTE_NOT_OPEN: ({ value }) => `This quote is ${statusName(value)}: only a draft, sent or accepted quote becomes an invoice.`,
-    ALREADY_INVOICED: ({ value }) => `This quote already has an invoice, ${value}: finish it, or delete it to start again.`,
+    ALREADY_INVOICED: ({ value }) =>
+      value
+        ? `This quote already has an invoice, ${value}: finish it, or delete it to start again.`
+        : 'This quote already has an invoice: finish it, or delete it to start again.',
     NOT_ISSUED: () => 'This invoice is not issued: a draft is corrected by editing it.',
     INVOICE_CANCELLED: ({ field }) =>
       field === 'invoiceId'

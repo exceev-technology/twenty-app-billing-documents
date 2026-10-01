@@ -381,7 +381,12 @@ async function invoiceQuote(request: ActionRequest, deps: ActionDeps, pack: Life
   const quote = await deps.app.get('billingQuotes', request.recordId);
   if (!quote) throw new Error('The document no longer exists');
   const [existing] = await deps.app.list('billingInvoices', { quoteId: quote.id }, { limit: 1 });
-  if (existing) return refuse(422, pack, [{ source: 'lifecycle', code: 'ALREADY_INVOICED', value: textOf(existing.number) || textOf(existing.subject) }]);
+  if (existing) {
+    // Named by its number or subject when it has one; opened either way, for the person to finish or delete it.
+    const name = textOf(existing.number) || textOf(existing.subject);
+    const problem: AnyProblem = { source: 'lifecycle', code: 'ALREADY_INVOICED', ...(name ? { value: name } : {}) };
+    return opening(refuse(422, pack, [problem]), { object: 'billingInvoice', recordId: existing.id });
+  }
   if (!OPEN_QUOTE.includes(textOf(quote.status))) return refuse(422, pack, [{ source: 'lifecycle', code: 'QUOTE_NOT_OPEN', value: textOf(quote.status) }]);
 
   step('create');

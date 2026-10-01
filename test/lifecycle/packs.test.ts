@@ -117,6 +117,12 @@ test('a numbered credit note left unissued is named, to be finished before anoth
   );
 });
 
+test('ALREADY_INVOICED names the invoice when it has a number or a subject, and words it without one otherwise', () => {
+  assert.equal(PACKS.EN.problems.ALREADY_INVOICED({ value: 'F2026-0001' }), 'This quote already has an invoice, F2026-0001: finish it, or delete it to start again.');
+  assert.equal(PACKS.EN.problems.ALREADY_INVOICED({}), 'This quote already has an invoice: finish it, or delete it to start again.');
+  assert.equal(PACKS.FR.problems.ALREADY_INVOICED({}), 'Ce devis a déjà une facture\u00a0: terminez-la, ou supprimez-la pour recommencer.');
+});
+
 test('a problem of each origin is worded, with the field it names', () => {
   assert.deepEqual(describe({ source: 'lifecycle', code: 'MISSING_IDENTIFIER', field: 'seller', value: 'SIREN' }, 'EN'), {
     code: 'MISSING_IDENTIFIER', message: 'The seller has no SIREN.', field: 'seller',

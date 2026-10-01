@@ -44,11 +44,11 @@ const WORDS = {
   },
   fr: {
     more: (count: number) => `Et ${count} de plus.`,
-    off: 'Les actions de facturation ont besoin des fonctions logiques, désactivées sur ce serveur. Voir « Issuing documents » dans le README de l’app.',
+    off: 'Les actions de facturation ont besoin des fonctions logiques, désactivées sur ce serveur. Voir «\u00a0Issuing documents\u00a0» dans le README de l’app.',
     failed: (status: number) => `L’action de facturation a échoué (HTTP ${status}).`,
     unreachable: 'L’action de facturation n’a pas pu joindre le serveur. Vérifiez votre connexion et réessayez.',
     cancel: {
-      title: 'Annuler cette facture ?',
+      title: 'Annuler cette facture\u00a0?',
       subtitle: 'Un avoir pour tout ce qui reste est émis, et la facture passe au statut Annulée. C’est définitif.',
       confirm: 'Annuler la facture',
     },
