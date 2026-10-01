@@ -38,6 +38,9 @@ export function uploadWith(client: UploadClient, bytes: Uint8Array, name: string
     : client.uploadFile(fileBuffer, name, mime, fieldUniversalIdentifier);
 }
 
+/** Typed by kind, so tsc refuses a timeline kind that has no registry key (its rows would be skipped at runtime). */
+const TIMELINE_KEYS: Record<TimelineKind, string> = TIMELINE_TYPE_KEYS;
+
 /** The app's store: reads, and every write after the caller's first. */
 export function appStore(log: (entry: Record<string, unknown>) => void): Store {
   const rest = new RestApiClient({ runAs: 'application' });
@@ -51,9 +54,7 @@ export function appStore(log: (entry: Record<string, unknown>) => void): Store {
       return result.timelineActivityTypes as TimelineType[];
     },
     fieldId,
-    timelineTypeIds: Object.fromEntries(
-      Object.entries(TIMELINE_TYPE_KEYS).map(([kind, key]) => [kind, id(key)]),
-    ) as Record<TimelineKind, string>,
+    timelineTypeIds: Object.fromEntries(Object.entries(TIMELINE_KEYS).map(([kind, key]) => [kind, id(key)])) as Record<TimelineKind, string>,
     log,
   });
 }
