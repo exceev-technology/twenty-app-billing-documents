@@ -1,4 +1,5 @@
-import { checkDocument, validatePattern, type NumberingReset } from '../engine/index.ts';
+import { checkDocument, computeDocument, validatePattern, type NumberingReset } from '../engine/index.ts';
+import { overCredit } from './flows.ts';
 import type { AnyProblem, LifecycleProblemCode } from './lang/pack.ts';
 import type { Loaded } from './load.ts';
 import { countryCode, idOf, textOf, toDocumentInput } from './map.ts';
@@ -113,6 +114,7 @@ export function checkGate(loaded: Loaded, context: GateContext): AnyProblem[] {
     if (!invoice) problems.push(lifecycle('MISSING_INVOICE', { field: 'invoiceId' }));
     else {
       if (!invoice.snapshot) problems.push(lifecycle('INVOICE_NOT_ISSUED', { field: 'invoiceId' }));
+      if (invoice.status === 'CANCELLED') problems.push(lifecycle('INVOICE_CANCELLED', { field: 'invoiceId' }));
       if (idOf(invoice.issuerId) !== idOf(document.issuerId)) problems.push(lifecycle('INVOICE_MISMATCH', { field: 'issuerId' }));
       if (textOf(invoice.currencyCode).trim() !== currencyCode) problems.push(lifecycle('INVOICE_MISMATCH', { field: 'currencyCode' }));
     }
@@ -122,7 +124,17 @@ export function checkGate(loaded: Loaded, context: GateContext): AnyProblem[] {
   problems.push(...identifierProblems(loaded));
 
   // 6. The Engine. Without a currency every line would also mismatch it: MISSING_CURRENCY says it once.
-  if (currencyCode !== '') problems.push(...checkDocument(toDocumentInput(loaded)).map((problem): AnyProblem => ({ source: 'engine', problem })));
+  const engineProblems = currencyCode !== '' ? checkDocument(toDocumentInput(loaded)) : [];
+  problems.push(...engineProblems.map((problem): AnyProblem => ({ source: 'engine', problem })));
+
+  // 6b. A credit note credits no more than remains of its invoice (flows spec §6). Its figures need a sound document.
+  if (kind.kind === 'CREDIT_NOTE' && loaded.invoice?.snapshot && currencyCode !== '' && engineProblems.length === 0) {
+    const result = computeDocument(toDocumentInput(loaded));
+    const position = overCredit(loaded.invoice, loaded.credits, {
+      lines: loaded.lines, totalMicros: result.totalMicros, components: result.recap.length, currencyCode,
+    });
+    if (position !== null) problems.push(lifecycle('OVER_CREDIT', position > 0 ? { field: 'lines', value: String(position) } : {}));
+  }
 
   // 7. Dates.
   if (context.action === 'issue' && issueDate !== '') {

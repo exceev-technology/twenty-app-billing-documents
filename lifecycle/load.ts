@@ -74,6 +74,8 @@ export type Loaded = Figures & {
   person: Row | null;
   /** A credit note's invoice. */
   invoice: Row | null;
+  /** A credit note's invoice's issued credit notes, this one left out (flows spec §6). */
+  credits: Row[];
   sellerIdentifiers: Row[];
   /** The printed buyer's: the company's when one is billed, else the person's. */
   buyerIdentifiers: Row[];
@@ -114,6 +116,12 @@ export async function loadFigures(store: Store, kind: Kind, id: string, options:
   return { kind, document, lines, taxCodes, issuer, profile };
 }
 
+/** The issued credit notes of an invoice, one left out when named (flows spec §6). */
+export async function issuedCreditNotes(store: Store, invoiceId: string, exceptId?: string): Promise<Row[]> {
+  const notes = await store.list('billingCreditNotes', { invoiceId });
+  return notes.filter((note) => note.id !== exceptId && isIssued(KINDS.billingCreditNote, note));
+}
+
 /** Everything an action needs: the figures, the parties, their identifiers and the identifier types. */
 export async function loadDocument(store: Store, kind: Kind, id: string): Promise<Loaded | null> {
   const figures = await loadFigures(store, kind, id);
@@ -122,6 +130,7 @@ export async function loadDocument(store: Store, kind: Kind, id: string): Promis
   const company = await getLive(store, 'companies', document.companyId);
   const person = await getLive(store, 'people', document.personId);
   const invoice = kind.kind === 'CREDIT_NOTE' ? await getLive(store, 'billingInvoices', document.invoiceId) : null;
+  const credits = invoice ? await issuedCreditNotes(store, invoice.id, document.id) : [];
   const sellerIdentifiers = issuer ? await store.list('billingIdentifiers', { issuerId: issuer.id }) : [];
   const buyerIdentifiers = company
     ? await store.list('billingIdentifiers', { companyId: company.id })
@@ -134,7 +143,7 @@ export async function loadDocument(store: Store, kind: Kind, id: string): Promis
     const type = await store.get('billingIdentifierTypes', typeId);
     if (type) identifierTypes.set(typeId, type);
   }
-  return { ...figures, company, person, invoice, sellerIdentifiers, buyerIdentifiers, identifierTypes, profileTypes };
+  return { ...figures, company, person, invoice, credits, sellerIdentifiers, buyerIdentifiers, identifierTypes, profileTypes };
 }
 
 /** The issuer's logo: its first file's bytes, with the type the Renderer knows ('image/jpg' read as 'image/jpeg'). */
