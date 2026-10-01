@@ -2,6 +2,7 @@ import { checkDocument, validatePattern, type NumberingReset } from '../engine/i
 import type { AnyProblem, LifecycleProblemCode } from './lang/pack.ts';
 import type { Loaded } from './load.ts';
 import { countryCode, idOf, textOf, toDocumentInput } from './map.ts';
+import { heldNumberOf } from './numbering.ts';
 import type { Row } from './store.ts';
 
 export type GateAction = 'preview' | 'issue' | 'quotePdf';
@@ -82,18 +83,24 @@ function identifierProblems(loaded: Loaded): AnyProblem[] {
 export function checkGate(loaded: Loaded, context: GateContext): AnyProblem[] {
   const { document, kind, issuer, profile } = loaded;
   const problems: AnyProblem[] = [];
+  const issueDate = textOf(document.issueDate);
 
   // 1. The status allows the action.
   if (context.action !== 'quotePdf' && document.status !== 'DRAFT') problems.push(lifecycle('WRONG_STATUS', { value: textOf(document.status) }));
 
-  // 2. Issuer, profile, currency, pattern.
+  // 2. Issuer, profile, currency, pattern; a held number still this issuer's, and an invoice's or credit note's this period's.
   if (!issuer) problems.push(lifecycle('MISSING_ISSUER', { field: 'issuerId' }));
   else if (!profile) problems.push(lifecycle('MISSING_PROFILE', { field: 'profileId' }));
   const currencyCode = textOf(document.currencyCode).trim();
   if (currencyCode === '') problems.push(lifecycle('MISSING_CURRENCY', { field: 'currencyCode' }));
-  if (profile) {
-    for (const problem of validatePattern(textOf(profile[kind.patternField]), resetOf(profile))) {
-      problems.push({ source: 'engine', problem, field: kind.patternField });
+  if (issuer && profile) {
+    const pattern = textOf(profile[kind.patternField]);
+    const patternProblems = validatePattern(pattern, resetOf(profile));
+    for (const problem of patternProblems) problems.push({ source: 'engine', problem, field: kind.patternField });
+    // A preview numbers nothing. Issue and a quote PDF reuse a held number: refused here, before the claim writes anything.
+    if (context.action !== 'preview' && patternProblems.length === 0 && issueDate !== '') {
+      const held = heldNumberOf(kind, document, issuer.id, pattern, issueDate);
+      if (held && !held.belongs) problems.push(lifecycle('HELD_NUMBER_ELSEWHERE', { value: held.number }));
     }
   }
 
@@ -118,7 +125,6 @@ export function checkGate(loaded: Loaded, context: GateContext): AnyProblem[] {
   if (currencyCode !== '') problems.push(...checkDocument(toDocumentInput(loaded)).map((problem): AnyProblem => ({ source: 'engine', problem })));
 
   // 7. Dates.
-  const issueDate = textOf(document.issueDate);
   if (context.action === 'issue' && issueDate !== '') {
     if (issueDate > context.localDate) problems.push(lifecycle('DATE_IN_FUTURE', { field: 'issueDate', value: issueDate }));
     else if (context.latestIssueDate !== null && issueDate < context.latestIssueDate) {

@@ -4,7 +4,7 @@ import { EngineError } from '../../engine/index.ts';
 import { LifecycleError } from '../../lifecycle/lang/pack.ts';
 import { KINDS } from '../../lifecycle/load.ts';
 import {
-  claimNumber, ensureLedger, latestIssueDate, nextNumber, numberKeyOf, raiseLedger, scopeHasNumbers, scopeKeyOf,
+  claimNumber, ensureLedger, heldNumberOf, latestIssueDate, nextNumber, numberKeyOf, raiseLedger, scopeHasNumbers, scopeKeyOf,
   scopeOf, type ClaimInput,
 } from '../../lifecycle/numbering.ts';
 import type { Store } from '../../lifecycle/store.ts';
@@ -89,6 +89,49 @@ test('a document that already holds a number keeps it', async () => {
   const w = workspace();
   const held = numbered(w, 'F2026-0007', { status: 'DRAFT' });
   assert.deepEqual(await claim(w, held.id), { number: 'F2026-0007', n: 7, reused: true });
+});
+
+test('a held number belongs to the issuer it was given under and to its issue date’s period', () => {
+  const w = workspace();
+  const document = { id: 'doc', number: 'F2026-0007', numberKey: numberKeyOf(w.issuer.id, 'F2026-0007') };
+  assert.equal(heldNumberOf(INVOICE, { id: 'doc', number: '', numberKey: '' }, w.issuer.id, PATTERN, TODAY), null);
+  assert.equal(heldNumberOf(INVOICE, { ...document, numberKey: '' }, w.issuer.id, PATTERN, TODAY), null, 'a number without its key is not held');
+  assert.deepEqual(heldNumberOf(INVOICE, document, w.issuer.id, PATTERN, '2026-01-02'), { number: 'F2026-0007', n: 7, belongs: true });
+  assert.deepEqual(heldNumberOf(INVOICE, document, 'another-issuer', PATTERN, TODAY), { number: 'F2026-0007', n: 7, belongs: false });
+  assert.deepEqual(heldNumberOf(INVOICE, document, w.issuer.id, PATTERN, '2027-01-05'), { number: 'F2026-0007', n: 7, belongs: false });
+  assert.deepEqual(heldNumberOf(INVOICE, document, w.issuer.id, 'F{YYYY}{MM}-{SEQ:4}', TODAY), { number: 'F2026-0007', n: null, belongs: true }, 'a pattern changed since: kept by its key');
+  assert.deepEqual(heldNumberOf(INVOICE, document, 'another-issuer', 'F{YYYY}{MM}-{SEQ:4}', TODAY), { number: 'F2026-0007', n: null, belongs: false });
+});
+
+test('a quote’s held number belongs to its issuer whatever its date: a quote’s date may change before each version', async () => {
+  const w = workspace();
+  const QUOTE = KINDS.billingQuote;
+  const document = { id: 'doc', number: 'D2026-0042', numberKey: numberKeyOf(w.issuer.id, 'D2026-0042') };
+  assert.deepEqual(heldNumberOf(QUOTE, document, w.issuer.id, 'D{YYYY}-{SEQ:4}', '2027-01-08'), { number: 'D2026-0042', n: 42, belongs: true });
+  assert.deepEqual(heldNumberOf(QUOTE, document, 'another-issuer', 'D{YYYY}-{SEQ:4}', TODAY), { number: 'D2026-0042', n: 42, belongs: false });
+  const moved = w.addQuote({ number: document.number, numberKey: document.numberKey, issueDate: '2027-01-08' });
+  assert.deepEqual(await claim(w, moved.id, { kind: QUOTE, pattern: 'D{YYYY}-{SEQ:4}', issueDate: '2027-01-08' }), { number: 'D2026-0042', n: 42, reused: true });
+  const other = w.db.seed('billingIssuers', { name: 'Second', profileId: w.profile.id });
+  await assert.rejects(claim(w, moved.id, { kind: QUOTE, issuerId: other.id, pattern: 'D{YYYY}-{SEQ:4}' }), (error: unknown) => {
+    assert.ok(error instanceof LifecycleError);
+    assert.deepEqual(error.problems, [{ code: 'HELD_NUMBER_ELSEWHERE', value: 'D2026-0042' }]);
+    return true;
+  });
+});
+
+test('a held number given under another issuer or period is refused, and the document keeps it', async () => {
+  const w = workspace();
+  const other = w.db.seed('billingIssuers', { name: 'Second', profileId: w.profile.id });
+  const moved = numbered(w, 'F2026-0001', { issuerId: other.id });
+  for (const over of [{ issuerId: other.id }, { issueDate: '2027-01-05' }]) {
+    await assert.rejects(claim(w, moved.id, over), (error: unknown) => {
+      assert.ok(error instanceof LifecycleError);
+      assert.deepEqual(error.problems, [{ code: 'HELD_NUMBER_ELSEWHERE', value: 'F2026-0001' }]);
+      return true;
+    }, JSON.stringify(over));
+  }
+  assert.deepEqual([w.db.row('billingInvoices', moved.id)?.number, w.db.row('billingInvoices', moved.id)?.numberKey], ['F2026-0001', numberKeyOf(w.issuer.id, 'F2026-0001')]);
+  assert.ok(w.db.rows('billingSequences').every((row) => row.lastValue === 0), 'no ledger raised');
 });
 
 test('two requests for the same draft, interleaved step by step, end with one number', async () => {

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readPlan, readRemoteStatus } from '../src/lib/deploy-checks.ts';
 
-// Trimmed from real `twenty` 2.41 output.
+// Trimmed from real `twenty` 2.41 output; 2.43 prints these lines unchanged.
 const STATUS = `Using remote: billing-test
   Remote:  billing-test
   Server:  https://example.test

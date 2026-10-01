@@ -1,7 +1,7 @@
 import { EngineError, formatNumber, periodBounds, periodKey, sequenceOf, validatePattern, type NumberingReset } from '../engine/index.ts';
-import { LifecycleError, type DocumentKind } from './lang/pack.ts';
+import { LifecycleError, PACKS, type DocumentKind, type Language, type LifecyclePack } from './lang/pack.ts';
 import { KINDS, type Kind } from './load.ts';
-import { DuplicateError, type Row, type Store, type Where } from './store.ts';
+import { DuplicateError, leaveMessage, sourceOf, type RecordEvent, type Row, type Store, type Where } from './store.ts';
 
 /**
  * Allocation (spec §5). The unique numberKey is the guarantee that no number is
@@ -127,6 +127,31 @@ export type ClaimInput = { kind: Kind; documentId: string; issuerId: string; pat
 export type Claim = { number: string; n: number | null; reused: boolean };
 
 /**
+ * A number a document holds. `belongs` says whether it was given under this
+ * issuer and, for an invoice or credit note, prints this issue date's period:
+ * a draft whose issuer or date changed after its claim must not carry it into
+ * another sequence, where the unique key (which names the first issuer) would
+ * not catch a duplicate, nor raise another period's ledger.
+ */
+export type HeldNumber = { number: string; n: number | null; belongs: boolean };
+
+/**
+ * The number a document holds, or null. When the pattern no longer reads it
+ * back (it changed since the claim), the number is its issuer's by its key
+ * alone, with no sequence (`n` null). A quote's is its issuer's by its key
+ * alone too: its date may change before each version (spec §5, "Dates"), and
+ * no quote PDF raises a ledger. The pattern must be valid.
+ */
+export function heldNumberOf(kind: Kind, document: Row, issuerId: string, pattern: string, issueDate: string): HeldNumber | null {
+  const { number, numberKey } = document;
+  if (typeof number !== 'string' || number === '' || !numberKey) return null;
+  const read = sequenceOf(pattern, number);
+  const n = read !== null && Number.isSafeInteger(read) && read > 0 ? read : null;
+  const inPeriod = kind.kind === 'QUOTE' || n === null || formatNumber(pattern, n, issueDate) === number;
+  return { number, n, belongs: numberKey === numberKeyOf(issuerId, number) && inPeriod };
+}
+
+/**
  * Spec §5, steps 1 to 6. The ledger is read before the document, so two
  * requests for the same draft converge: whichever reads the document second
  * sees the first one's claim, or claims the same number on the same record.
@@ -139,8 +164,11 @@ export async function claimNumber(store: Store, input: ClaimInput): Promise<Clai
   const ledger = await ensureLedger(store, scope);
   const document = await store.get(kind.plural, documentId);
   if (!document) throw new Error(`${kind.object} ${documentId} no longer exists`);
-  if (typeof document.number === 'string' && document.number !== '' && document.numberKey) {
-    return { number: document.number, n: sequenceOf(pattern, document.number), reused: true };
+  const held = heldNumberOf(kind, document, issuerId, pattern, issueDate);
+  if (held) {
+    // The gate refuses this first; refused here too, so that no caller can reuse it elsewhere.
+    if (!held.belongs) throw new LifecycleError([{ code: 'HELD_NUMBER_ELSEWHERE', value: held.number }]);
+    return { number: held.number, n: held.n, reused: true };
   }
   let refusals = 0;
   for (let n = lastValueOf(ledger) + 1; ; n += 1) {
@@ -195,4 +223,107 @@ export async function latestIssueDate(store: Store, scope: Scope, exceptId: stri
 export async function scopeHasNumbers(store: Store, scope: Scope): Promise<boolean> {
   const rows = await store.list(kindOfType(scope.documentType).plural, numberedIn(scope), { deleted: 'include', limit: 1 });
   return rows.length > 0;
+}
+
+const TYPES: readonly DocumentKind[] = ['QUOTE', 'INVOICE', 'CREDIT_NOTE'];
+const PERIOD = /^(?:ALL|\d{4}|\d{4}-(?:0[1-9]|1[0-2]))$/;
+
+/** The scope a ledger row names; null while one of its three fields is empty or malformed. */
+export function scopeOfRow(row: Row): Scope | null {
+  const { issuerId, documentType, periodKey: period } = row;
+  if (typeof issuerId !== 'string' || issuerId === '') return null;
+  if (!TYPES.includes(documentType as DocumentKind)) return null;
+  if (typeof period !== 'string' || !PERIOD.test(period)) return null;
+  return { issuerId, documentType: documentType as DocumentKind, periodKey: period };
+}
+
+/** The pack of an issuer's profile language: a ledger row has no language of its own. */
+export async function packForIssuer(store: Store, issuerId: unknown): Promise<LifecyclePack> {
+  const issuer = typeof issuerId === 'string' && issuerId !== '' ? await store.get('billingIssuers', issuerId) : null;
+  const profileId = issuer?.profileId;
+  const profile = typeof profileId === 'string' && profileId !== '' ? await store.get('billingProfiles', profileId) : null;
+  return PACKS[profile?.language as Language] ?? PACKS.EN;
+}
+
+async function tellLedger(store: Store, row: Row, text: (pack: LifecyclePack) => string): Promise<void> {
+  const pack = await packForIssuer(store, row.issuerId);
+  await leaveMessage(store, { object: 'billingSequence', recordId: row.id, kind: 'CORRECTION', text: text(pack) });
+}
+
+/**
+ * Frees the scope's key from a deleted row whose scope never gave out a
+ * number: the key is cleared on the row while it stays deleted, as
+ * resolveDuplicateLedger does, so its stale lastValue never comes back.
+ * True when it did. A live holder, or a deleted one whose scope has numbers
+ * (its own guard restores it), keeps the key.
+ */
+async function freeDeletedKey(store: Store, scope: Scope): Promise<boolean> {
+  const [holder] = await store.list(LEDGER, { scopeKey: scopeKeyOf(scope) }, { deleted: 'include', limit: 1 });
+  if (!holder?.deletedAt || (await scopeHasNumbers(store, scope))) return false;
+  await store.update(LEDGER, holder.id, { scopeKey: null });
+  return true;
+}
+
+/** Gives a live row its scope's key; a live holder makes this row the duplicate, a deleted numberless one gives way. */
+async function keyRow(store: Store, row: Row, scope: Scope): Promise<void> {
+  const key = scopeKeyOf(scope);
+  if (row.scopeKey === key) return;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await store.update(LEDGER, row.id, { scopeKey: key });
+      return;
+    } catch (error) {
+      if (!(error instanceof DuplicateError)) throw error;
+      if (attempt === 0 && (await freeDeletedKey(store, scope))) continue;
+      await store.softDelete(LEDGER, row.id);
+      await tellLedger(store, row, (pack) => pack.messages.ledgerDuplicateRemoved);
+      return;
+    }
+  }
+}
+
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
+ * The ledger's trigger (spec §5). The app's own writes are left alone. A row
+ * created or restored gets its scope's key. Once the scope has given out its
+ * first number, a change to the row's issuer, type or period, or a lower last
+ * value, is put back, and a deletion is restored; until then the row is free.
+ * It reads the row afresh: events may arrive late or twice.
+ */
+export async function guardSequence(store: Store, event: RecordEvent): Promise<void> {
+  if (event.name === 'destroyed' || event.name === 'upserted') return;
+  if ((event.name === 'created' || event.name === 'updated') && sourceOf(event.after) === 'APPLICATION') return;
+  const row = await store.get(LEDGER, event.recordId, { deleted: true });
+  if (!row) return;
+  const scope = scopeOfRow(row);
+
+  if (event.name === 'created' || event.name === 'restored') {
+    if (!row.deletedAt && scope) await keyRow(store, row, scope);
+    return;
+  }
+
+  if (event.name === 'deleted') {
+    if (row.deletedAt && scope && row.scopeKey === scopeKeyOf(scope) && (await scopeHasNumbers(store, scope))) {
+      await store.restore(LEDGER, row.id);
+      await tellLedger(store, row, (pack) => pack.messages.ledgerRestored);
+    }
+    return;
+  }
+
+  // updated
+  if (row.deletedAt) return;
+  const before = event.before;
+  const was = before ? scopeOfRow(before) : null;
+  if (before && was && before.scopeKey === scopeKeyOf(was) && (await scopeHasNumbers(store, was))) {
+    const patch: Record<string, unknown> = {};
+    for (const field of ['issuerId', 'documentType', 'periodKey'] as const) if (!same(row[field], before[field])) patch[field] = before[field];
+    if (lastValueOf(row) < lastValueOf(before)) patch.lastValue = before.lastValue;
+    const fields = Object.keys(patch);
+    if (fields.length === 0) return;
+    await store.update(LEDGER, row.id, patch);
+    await tellLedger(store, row, (pack) => pack.messages.ledgerChangePutBack(fields.map((name) => pack.fields[name as keyof LifecyclePack['fields']])));
+    return;
+  }
+  if (scope) await keyRow(store, row, scope);
 }

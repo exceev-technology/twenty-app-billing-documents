@@ -138,16 +138,26 @@ when nobody discounted, no tax column when the document uses a single code.
 
 | Key | Page | Arrangement |
 |---|---|---|
-| `classic` | A4, 14 mm side margins | Seller left, buyer right, ruled lines table, totals boxed bottom right. The default. |
-| `modern` | A4 | Accent band across the top carrying the title and number, borderless table, totals in a tinted panel. |
-| `compact` | A4, smaller header and row padding | Roughly twice as many lines before the first page break. |
-| `letterhead` | A4, top 45 mm reserved | Nothing printed in the reserved band; the seller block moves to the footer. |
-| `receipt` | 80 mm wide roll, height grows with content | Single column, no buyer block, totals stacked, QR at the end. |
+| `classic` | A4, 14 mm side margins | The logo top left, the title and the facts top right over a rule, the number larger. Seller left, buyer right, the notes in a grey callout, a framed lines table with a grey header and every other row grey, totals boxed bottom right. The default. |
+| `modern` | A4 | An accent banner across the top carrying the title and the seller's name, the logo and the facts in a row of small labels, seller and buyer split by a rule. The lines table's header row and the total's row in the accent, the other totals on a tint of it. |
+| `compact` | A4, smaller header and row padding | The title over a heavy accent rule, the number and dates in a framed stamp beside it; tight rows under a grey header, totals with rules only. Roughly twice as many lines before the first page break. |
+| `letterhead` | A4, top 45 mm reserved | Nothing printed in the reserved band. The title with the facts as a list beside the buyer, a framed lines table with a grey header, totals on a grey card; the seller block moves to the end, above the legal text. |
+| `receipt` | 80 mm wide roll, height grows with content | Single column, no buyer block, totals stacked, QR at the end. Black rules only, no fills: a thermal printer drops pale greys. |
 
-**Colour.** The seller's accent colours headings, rules and panels. Accent text
-on white paper needs a 4.5:1 contrast (WCAG AA), or it prints in the default
-ink; text on the modern accent band is white or the default ink, whichever
-stands out more. A pale brand colour never leaves a heading nobody can read.
+**Look.** The five share one set of tokens (`render/tokens.ts`): neutral greys
+for text, rules and panels, a type scale derived from each layout's body size,
+small letter-spaced labels over each block, and a grand total set larger than
+the rows above it. They follow the invoice designs of pdfcn (MIT, credited in
+`THIRD_PARTY_NOTICES.md`), redrawn with the embedded Roboto: no other font, no
+rounded corners, and no upper-casing, so a label copies out of the PDF as the
+pack spells it.
+
+**Colour.** The seller's accent colours the title, rules and panels. Accent text
+needs a 4.5:1 contrast against its paper (WCAG AA), or it prints in the default
+ink; text on an accent fill (modern's banner, header row and total) is white or
+the default ink, whichever stands out more. Grey text is darker on a grey panel
+than on white, so it keeps 4.5:1 on both. A pale brand colour never leaves a
+heading nobody can read.
 
 **Pagination.** The lines table repeats its header row on every page. The tax
 recap and the totals (blocks 6 and 7) stay together; payment and legal text
@@ -159,8 +169,11 @@ nothing that long is ever unbreakable.
 **Long words.** pdfmake sizes a column to its widest unbreakable run, so one
 very long word (a URL, an unspaced IBAN) would push the columns beside it off
 the page. A run wider than the space it lands in (a cell of the lines table or
-the recap, 60 pt on the receipt and 150 pt on A4; any other block, 190 pt and
-240 pt) is handed to pdfmake as adjacent pieces, cut after a `/ . - @ _` where
+the recap, 60 pt on the receipt and 150 pt on A4; a column of modern's facts,
+its own width, what the logo and the gutters leave shared among the facts
+(about 84 pt for a quote's four beside a logo); compact's stamp and
+letterhead's list of facts, 150 pt; any other block, 190 pt and 240 pt) is
+handed to pdfmake as adjacent pieces, cut after a `/ . - @ _` where
 there is one, measured with Roboto's own advance widths. Nothing is inserted
 into the text, so it copies and searches whole, and a run that fits its space is
 never cut.
@@ -318,6 +331,7 @@ render/layouts/*.ts       classic, modern, compact, letterhead, receipt
 render/lang/en.ts, fr.ts  the packs
 render/lang/pack.ts       the LanguagePack type, describeProblem
 render/format.ts          dates, money, amounts in words
+render/tokens.ts          the greys and the type scale every layout shares
 render/pdf.ts             the only module that touches pdfmake
 render/qr.ts              what a QR code encodes, and its version and size
 render/glyphs.ts          what Roboto draws and how wide: generated, never edited

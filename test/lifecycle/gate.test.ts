@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkGate, resetOf, type GateContext } from '../../lifecycle/gate.ts';
 import { KINDS, loadDocument, type Loaded } from '../../lifecycle/load.ts';
+import { numberKeyOf } from '../../lifecycle/numbering.ts';
 import { TODAY, address, money, workspace, type Workspace } from './helpers/fixtures.ts';
 
 const INVOICE = KINDS.billingInvoice;
@@ -63,6 +64,28 @@ test('the profile’s pattern for the type is valid, and the problem names the p
     assert.equal(problem.source, 'engine');
     if (problem.source === 'engine') assert.equal(problem.field, 'invoiceNumberPattern');
   }
+});
+
+test('a number the document holds was given under its issuer and for its issue date’s period, to issue or make a quote PDF', async () => {
+  const w = workspace();
+  const other = w.db.seed('billingIssuers', { name: 'Second', profileId: w.profile.id });
+  w.db.seed('billingIdentifiers', { value: '333333333', identifierTypeId: w.siren.id, issuerId: other.id, companyId: null, personId: null });
+  const key = numberKeyOf(w.issuer.id, 'F2026-0001');
+  assert.deepEqual(codes(await draft(w, { number: 'F2026-0001', numberKey: key })), []);
+  const moved = await draft(w, { number: 'F2026-0001', numberKey: key, issuerId: other.id });
+  assert.deepEqual(checkGate(moved, ISSUE), [{ source: 'lifecycle', code: 'HELD_NUMBER_ELSEWHERE', value: 'F2026-0001' }]);
+  assert.deepEqual(codes(moved, { ...ISSUE, action: 'preview' }), [], 'a preview numbers nothing');
+  assert.deepEqual(codes(await draft(w, { number: 'F2026-0001', numberKey: key, issueDate: '2025-12-31' })), ['HELD_NUMBER_ELSEWHERE']);
+  const quote = w.addQuote({ number: 'D2026-0001', numberKey: numberKeyOf(w.issuer.id, 'D2026-0001'), issuerId: other.id, issueDate: TODAY });
+  w.addLine(KINDS.billingQuote, quote.id);
+  assert.deepEqual(codes(await loaded(w, quote.id, KINDS.billingQuote), { ...ISSUE, action: 'quotePdf' }), ['HELD_NUMBER_ELSEWHERE']);
+});
+
+test('a quote’s held number is refused under another issuer only: its date may move to another period', async () => {
+  const w = workspace();
+  const quote = w.addQuote({ number: 'D2026-0042', numberKey: numberKeyOf(w.issuer.id, 'D2026-0042'), issueDate: '2027-01-08' });
+  w.addLine(KINDS.billingQuote, quote.id);
+  assert.deepEqual(codes(await loaded(w, quote.id, KINDS.billingQuote), { ...ISSUE, action: 'quotePdf' }), []);
 });
 
 test('an empty numbering reset reads as the field’s default, yearly', () => {

@@ -144,6 +144,24 @@ test('the modern layout puts its header in an accent band, the classic one does 
   assert.ok(!classic.content[0].table, 'the classic header should not be a band');
 });
 
+test('a long number stays inside its column of the modern facts, beside a logo and three other facts', async () => {
+  const input = on('modern', mockQuote());
+  assert.ok(input.brand.logo && input.validUntil && input.version, 'the quote should carry a logo and four facts');
+  const number = `Q-2026-${'8'.repeat(70)}`;
+  const [page] = placed((await renderDocument({ ...input, number })).bytes);
+  // The top half of the page holds the facts; the footer repeats the number at the bottom.
+  const top = page!.pieces.filter((piece) => piece.y > page!.width / 2);
+  const column = (label: string) => top.find((piece) => piece.text.startsWith(label));
+  const [first, second, last] = [column('Number'), column('Issue'), column('Version')];
+  assert.ok(first && second && last, 'the columns of the facts were not found');
+  // The columns share the row equally, a 12 pt gutter apart.
+  const width = second.x - first.x - 12;
+  const pieces = top.filter((piece) => piece.text.length > 3 && number.includes(piece.text));
+  assert.ok(pieces.length > 1, 'the number was not cut into pieces');
+  for (const piece of pieces) assert.ok(piece.end <= first.x + width + 0.5, `"${piece.text}" runs past its column`);
+  assert.ok(last.x + width <= page!.width - 40 + 0.5, `the last column ends at ${(last.x + width).toFixed(1)} pt, past the margin at ${page!.width - 40} pt`);
+});
+
 /** The totals table: the one whose first row is the subtotal. Its layout callbacks are kept on the definition. */
 function totalsTable(template: TemplateKey): { layout: Record<string, (index: number, node: unknown) => unknown>; table: unknown } {
   const find = (node: unknown): unknown => {
@@ -159,7 +177,7 @@ function totalsTable(template: TemplateKey): { layout: Record<string, (index: nu
   return find((definitionFor(on(template, mockInvoice())) as { content: unknown }).content) as ReturnType<typeof totalsTable>;
 }
 
-test('classic boxes its totals, modern sets them on a tinted panel, the others leave them plain', () => {
+test('classic boxes its totals, modern tints them, letterhead sets them on a grey card, the others leave them plain', () => {
   const classic = totalsTable('classic');
   assert.equal(classic.layout.vLineWidth!(0, classic), 0.5, 'classic totals have no left border');
   assert.equal(classic.layout.hLineWidth!(0, classic), 0.5, 'classic totals have no top border');
@@ -167,14 +185,23 @@ test('classic boxes its totals, modern sets them on a tinted panel, the others l
   const fill = modern.layout.fillColor?.(0, modern);
   assert.match(String(fill), /^#[0-9a-f]{6}$/, 'modern totals have no panel');
   assert.notEqual(fill, '#ffffff');
-  const compact = totalsTable('compact');
-  assert.equal(compact.layout.fillColor, undefined);
-  assert.equal(compact.layout.vLineWidth!(0, compact), 0);
+  const letterhead = totalsTable('letterhead');
+  assert.equal(letterhead.layout.fillColor?.(0, letterhead), '#f4f4f5', 'letterhead totals have no grey card');
+  assert.equal(letterhead.layout.vLineWidth!(0, letterhead), 0);
+  for (const template of ['compact', 'receipt'] as const) {
+    const plain = totalsTable(template);
+    assert.equal(plain.layout.fillColor, undefined, `${template} totals have a panel`);
+    assert.equal(plain.layout.vLineWidth!(0, plain), 0, `${template} totals have a border`);
+  }
+  // A thermal printer drops a pale accent: the receipt's rule above the total is black.
+  const receipt = totalsTable('receipt');
+  assert.ok(Number(receipt.layout.hLineWidth!(2, receipt)) > 0, 'the receipt has no rule above its total');
+  assert.equal(receipt.layout.hLineColor!(2, receipt), '#18181b', 'the receipt rule above the total is not black');
 });
 
 test('a light accent never leaves text that cannot be read', () => {
   const yellow = '#f5d547';
-  for (const template of ['classic', 'modern'] as const) {
+  for (const template of TEMPLATES) {
     const input = on(template, mockInvoice());
     const json = JSON.stringify(definitionFor({ ...input, brand: { ...input.brand, accentColor: yellow } }));
     assert.ok(!json.includes(`"color":"${yellow}"`), `${template}: yellow text on white paper`);

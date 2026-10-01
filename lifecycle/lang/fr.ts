@@ -41,6 +41,8 @@ export const fr: LifecyclePack = {
     CLOCK_SKEW: () => 'La date de votre ordinateur s’écarte de plus d’un jour de celle du serveur\u00a0: vérifiez sa date et son heure.',
     LEDGER_BEHIND: ({ value, documentType }) =>
       `La séquence de numérotation de type ${documentType ? kinds[documentType] : 'document'}, pour ${value}, est très en retard sur les numéros déjà attribués\u00a0: augmentez son dernier numéro.`,
+    HELD_NUMBER_ELSEWHERE: ({ value }) =>
+      `Ce document porte déjà le numéro ${value}, attribué pour un autre émetteur ou une autre période\u00a0: rétablissez son émetteur et sa date d’émission pour l’utiliser.`,
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Certains caractères ne peuvent pas être imprimés avec la police du PDF (${field})\u00a0: ${value}`,
@@ -84,7 +86,7 @@ export const fr: LifecyclePack = {
     statusPutBack: (rule, kind, back) => {
       const why = {
         ISSUE: `Seule l’action Issue émet ${kind === 'INVOICE' ? 'une facture' : 'un avoir'}.`,
-        DRAFT: `${kind === 'INVOICE' ? 'Une facture numérotée' : 'Un avoir numéroté'} ne peut pas revenir au statut Brouillon.`,
+        DRAFT: `${kind === 'INVOICE' ? 'Une facture émise' : 'Un avoir émis'} ne peut pas revenir au statut Brouillon.`,
         CANCEL: 'Une facture numérotée s’annule par un avoir.',
         INVOICED: 'Un devis passe au statut Facturé quand il devient une facture.',
       }[rule];

@@ -126,9 +126,17 @@ their own sequence.
    creation is refused as a duplicate, someone created it at the same moment:
    read it again.
 3. Read the document. A number it already holds is reused, and allocation
-   ends. The ledger is read before the document, so two requests for the same
-   draft converge on the same number: whichever reads second sees the first
-   one's claim, or claims the same number on the same record.
+   ends, provided it still belongs there: its `numberKey` names this issuer,
+   and, for an invoice or credit note, the pattern, given the number's
+   sequence and the issue date, prints it again (a pattern that no longer
+   reads the number back keeps it by its key alone). A quote's number belongs
+   by its key alone, since its date may change before each version (see
+   "Dates" below). A number given under another issuer, or an invoice's or
+   credit note's given for another period, is refused with
+   `HELD_NUMBER_ELSEWHERE`, before anything is written (the gate, §6). The
+   ledger is read before the document, so two requests for the same draft
+   converge on the same number: whichever reads second sees the first one's
+   claim, or claims the same number on the same record.
 4. Take `n = lastValue + 1` and `number = formatNumber(pattern, n, issueDate)`.
 5. Claim it: write `number` and `numberKey` on the document, as the app. If the
    unique key refuses it, another document holds that number: try `n + 1`.
@@ -192,7 +200,9 @@ reported, not the first:
 
 1. The status allows the action: DRAFT for preview and issue.
 2. The issuer is set and has a profile; the currency is known; the profile's
-   pattern for the type is valid.
+   pattern for the type is valid; for an issue or a quote PDF, a number the
+   document already holds still belongs to its issuer and, for an invoice or
+   credit note, to its issue date's period (§5, step 3).
 3. A buyer is set: a company, a person, or both.
 4. A credit note names an invoice that is issued, with the same issuer and the
    same currency.
@@ -206,7 +216,9 @@ reported, not the first:
    preview; for an issue or a quote's first PDF, the number it is about to get
    (the next one in the ledger), in a trial run before that number is claimed.
    Unsupported characters, a bad logo or a QR code that cannot fit are refused
-   here.
+   here. A logo the issuer holds but that cannot be downloaded stops the
+   action as unexpected (HTTP 500) before any number is claimed: an issued PDF
+   is never rendered again, so it never goes out without its logo.
 
 **Issue** (invoices and credit notes), once the gate passes:
 
@@ -251,8 +263,8 @@ is an invoice or credit note with a `snapshot`.
 
 1. Only the app moves a document into ISSUED (invoices, credit notes) or
    INVOICED (quotes, done by 4b).
-2. A numbered invoice or credit note never returns to DRAFT, and only the app
-   cancels one (4b, through a credit note).
+2. An issued invoice or credit note never returns to DRAFT, and only the app
+   cancels a numbered one (4b, through a credit note).
 3. Every other move is free: ISSUED, SENT and PAID in any order, a quote's
    SENT, ACCEPTED, DECLINED and EXPIRED, cancelling or reviving a draft that
    has no number.
@@ -379,7 +391,8 @@ Lifecycle's problem codes: `NOT_ALLOWED`, `WRONG_STATUS`, `ALREADY_ISSUED`,
 `MISSING_ISSUER`, `MISSING_PROFILE`, `MISSING_BUYER`, `MISSING_CURRENCY`,
 `MISSING_IDENTIFIER`, `INVALID_IDENTIFIER`, `IDENTIFIER_OWNER`,
 `MISSING_INVOICE`, `INVOICE_NOT_ISSUED`, `INVOICE_MISMATCH`, `DATE_IN_FUTURE`,
-`DATE_BEFORE_LAST`, `DUE_BEFORE_ISSUE`, `CLOCK_SKEW`, `LEDGER_BEHIND`.
+`DATE_BEFORE_LAST`, `DUE_BEFORE_ISSUE`, `CLOCK_SKEW`, `LEDGER_BEHIND`,
+`HELD_NUMBER_ELSEWHERE`.
 
 | Failure | What the person sees |
 |---|---|

@@ -6,7 +6,7 @@ const LIFECYCLE_CODES = [
   'NOT_ALLOWED', 'WRONG_STATUS', 'ALREADY_ISSUED', 'MISSING_ISSUER', 'MISSING_PROFILE', 'MISSING_BUYER',
   'MISSING_CURRENCY', 'MISSING_IDENTIFIER', 'INVALID_IDENTIFIER', 'IDENTIFIER_OWNER', 'MISSING_INVOICE',
   'INVOICE_NOT_ISSUED', 'INVOICE_MISMATCH', 'DATE_IN_FUTURE', 'DATE_BEFORE_LAST', 'DUE_BEFORE_ISSUE',
-  'CLOCK_SKEW', 'LEDGER_BEHIND',
+  'CLOCK_SKEW', 'LEDGER_BEHIND', 'HELD_NUMBER_ELSEWHERE',
 ];
 const RENDER_CODES = [
   'UNSUPPORTED_SCRIPT', 'UNSUPPORTED_IMAGE', 'UNKNOWN_TEMPLATE', 'UNKNOWN_LANGUAGE', 'QR_PAYLOAD_TOO_LONG',
@@ -62,6 +62,14 @@ test('a French locale gets French, any other locale English', () => {
   for (const locale of ['en', 'en-US', 'de-DE', 'fra', '', null, undefined]) assert.equal(packFor(locale).code, 'EN', String(locale));
 });
 
+test('the Draft rule’s message speaks of an issued document, the only kind it now puts back', () => {
+  assert.equal(PACKS.EN.messages.statusPutBack('DRAFT', 'INVOICE', 'Issued'), 'An issued invoice cannot return to Draft. The status was put back to Issued.');
+  assert.equal(PACKS.EN.messages.statusPutBack('DRAFT', 'CREDIT_NOTE', 'Issued'), 'An issued credit note cannot return to Draft. The status was put back to Issued.');
+  assert.equal(PACKS.FR.messages.statusPutBack('DRAFT', 'INVOICE', 'Émise'), 'Une facture émise ne peut pas revenir au statut Brouillon. Le statut a été remis à Émise.');
+  assert.equal(PACKS.FR.messages.statusPutBack('DRAFT', 'CREDIT_NOTE', 'Émis'), 'Un avoir émis ne peut pas revenir au statut Brouillon. Le statut a été remis à Émis.');
+  assert.match(PACKS.EN.messages.statusPutBack('CANCEL', 'INVOICE', 'Draft'), /^A numbered invoice is cancelled through a credit note\./, 'cancelling is still refused to a numbered draft');
+});
+
 test('a guard’s message names the fields it put back and says how to correct', () => {
   assert.equal(
     PACKS.EN.messages.fieldsPutBack('INVOICE', ['Subject']),
@@ -69,6 +77,18 @@ test('a guard’s message names the fields it put back and says how to correct',
   );
   assert.match(PACKS.EN.messages.fieldsPutBack('INVOICE', ['Subject', 'Notes', 'Due date']), /the changes to Subject, Notes and Due date were put back/);
   assert.match(PACKS.FR.messages.fieldsPutBack('INVOICE', ['Objet']), /Cette facture est émise/);
+});
+
+test('a number held under another issuer or period is worded in both languages', () => {
+  const problem = { source: 'lifecycle', code: 'HELD_NUMBER_ELSEWHERE', value: 'F2026-0001' } as const;
+  assert.deepEqual(describe(problem, 'EN'), {
+    code: 'HELD_NUMBER_ELSEWHERE',
+    message: 'This document already holds the number F2026-0001, given under another issuer or period: put its issuer and issue date back to use it.',
+  });
+  assert.equal(
+    describe(problem, 'FR').message,
+    'Ce document porte déjà le numéro F2026-0001, attribué pour un autre émetteur ou une autre période\u00a0: rétablissez son émetteur et sa date d’émission pour l’utiliser.',
+  );
 });
 
 test('a problem of each origin is worded, with the field it names', () => {
