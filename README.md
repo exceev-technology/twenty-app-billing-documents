@@ -94,7 +94,9 @@ free. To correct an issued invoice, issue a credit note that names it.
 invoice that copies it: issuer, buyer, opportunity, currency, price basis,
 language, notes and every line. The draft opens in the side panel, and the
 quote becomes Invoiced. A quote has one invoice: delete that draft (before it
-is issued) and the quote is Accepted again.
+is numbered: a numbered draft is restored) and the quote is Accepted again. An
+invoiced quote stays Invoiced while its invoice lives. Moving a quote to Sent
+or Accepted fills its *Sent at* or *Accepted on* when it is empty.
 
 **Credit note**, on an issued invoice, makes a draft credit note holding what
 remains to credit, each line linked to the invoice line it credits. Lower a
@@ -108,7 +110,7 @@ be worked out: use Credit note and adjust it.
 An invoice whose issued credit notes credit all of it is marked Cancelled,
 whichever way they were made. A numbered invoice that its credit notes
 cancelled stays Cancelled: a move out of Cancelled is put back. No credit note
-may credit more than remains.
+may credit more than remains, nor leave the invoice with less than nothing.
 
 **Payment.** Set an issued invoice to Sent or Paid: the app fills *Sent at* and
 *Paid on* when they are empty (you can change them). Setting it back from Paid

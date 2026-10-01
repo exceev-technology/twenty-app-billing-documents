@@ -102,8 +102,10 @@ message component:
 **Action** `invoiceQuote`:
 
 1. Read the quote. Refused with `QUOTE_NOT_OPEN` when it is Declined, Expired
-   or Invoiced, and with `ALREADY_INVOICED`, naming the invoice, when a live
-   invoice already points to it.
+   or Invoiced, and with `ALREADY_INVOICED` when a live invoice already points
+   to it: the problem names it by its number, else its subject (without a name
+   when it has neither), and the answer names it in `created` so the button
+   opens it.
 2. Create the invoice **with the caller's own token**: this is the action's
    first write, so Twenty's role check decides who may act (`NOT_ALLOWED`
    otherwise, as in 4a). The invoice is a DRAFT and copies the quote's
@@ -122,8 +124,8 @@ message component:
 The answer names the new invoice, and the button opens it in the side panel.
 
 **A failure part-way** leaves a draft invoice holding the lines copied so far,
-and the quote as it was. A second click answers `ALREADY_INVOICED`, naming that
-draft: the person finishes it, or deletes it to start again.
+and the quote as it was. A second click answers `ALREADY_INVOICED` and opens
+that draft: the person finishes it, or deletes it to start again.
 
 **The quote follows its invoice.** When that invoice is deleted while it is an
 unnumbered draft, and the quote has no other live invoice, the guard sets the
@@ -145,10 +147,12 @@ thousandths (the Engine's scale), never on floating point.
 - The **remainder** of an invoice is known when every line of its issued credit
   notes matches. It is then, for each invoice line, its quantity less the
   quantities credited against it, leaving out the lines with nothing left.
-- An invoice is **fully credited** when its remainder is known and empty, or
-  when the totals of its issued credit notes add up to at least its own total.
-  The first test is exact whatever the rounding mode; the second catches credit
-  notes a person made by hand.
+- An invoice is **fully credited** when its remainder is known and empty, or,
+  when its remainder is not known, when the totals of its issued credit notes
+  add up to at least its own total. The first test is exact whatever the
+  rounding mode; the second catches credit notes a person made by hand. A known
+  remainder decides alone: totals that reach the invoice's while a rebate line
+  is left do not make it fully credited.
 
 The invoice's lines are read from its snapshot (`snapshot.record.lines`), which
 is what was issued.
@@ -161,6 +165,11 @@ Paid). Action `creditNote`:
 1. Refused with `NOT_ISSUED` for an invoice that is not issued, and
    `INVOICE_CANCELLED` for a cancelled one.
 2. Compute the remainder. When it is known and empty: `NOTHING_TO_CREDIT`.
+   When a credit note against the invoice holds a number but was never issued
+   (its Issue failed after the claim, or the recheck refused it):
+   `NUMBERED_CREDIT_NOTE_PENDING`, naming it in `created` so the button opens
+   it. It is finished (or corrected) first: another credit note issued
+   meanwhile could cancel the invoice and strand it with its number.
 3. Create the credit note with the caller's own token: a DRAFT that points to
    the invoice and copies, from its snapshot, `subject`, `issuer`, `company`,
    `person`, `currencyCode`, `pricesIncludeTax` and `language`. `reason` stays
@@ -188,7 +197,9 @@ selected record's id, so the question does not name the number.) Action
    exactly the remainder: a previous Cancel that stopped at the gate. Otherwise
    create one, with the caller's own token, as the Credit note button does,
    with `reason` set to "Cancellation of F2026-0001" in the invoice's language,
-   and add the remainder's lines as the app.
+   and add the remainder's lines as the app. A numbered credit note never
+   issued is reused only when it is such a previous Cancel's; any other is
+   refused with `NUMBERED_CREDIT_NOTE_PENDING`, as above.
 4. Issue it: 4a's issue action, from its read to its ledger, as the same
    caller, with the same date.
 5. When the issue is refused, answer its problems, and name the draft credit
@@ -216,7 +227,10 @@ Check 4 of 4a's gate (a credit note's invoice) gains two rules:
 - The invoice is not cancelled: `INVOICE_CANCELLED`.
 - The credit note does not credit more than remains, `OVER_CREDIT`:
   - when the remainder is known and every line of the credit note matches, no
-    line credits more than its invoice line has left (`field` names the line);
+    line credits more than its invoice line has left (`field` names the line).
+    When every line matches, the credit note also may not leave the invoice
+    with less than nothing (a rebate line credited away would credit more than
+    was billed);
   - otherwise, its total does not exceed the invoice's total less the totals of
     the issued credit notes by more than one minor unit per tax component it
     prints. That margin absorbs the rounding of two separate documents, which
@@ -262,13 +276,16 @@ field, and only for a person's move (an app move sets its own dates):
 | Move | Stamp |
 |---|---|
 | invoice to Sent | `sentAt`: now |
-| invoice to Paid | `paidAt`: the server's date (UTC) |
+| invoice to Paid | `paidAt`: the server's date (UTC), or the issue date when that is later |
 | invoice from Paid to Issued or Sent | `paidAt` emptied: it was not paid after all |
 | quote to Sent | `sentAt`: now |
-| quote to Accepted | `acceptedAt`: the server's date (UTC) |
+| quote to Accepted | `acceptedAt`: the server's date (UTC), or the quote's issue date when that is later |
 
 The stamped dates stay editable. A person who fills `paidAt` first and then
-sets Paid keeps their date. Overdue is not a status: it is a view (§9).
+sets Paid keeps their date. A person's move whose event is handled after the
+record moved again (a later move, or the app's own, such as Cancelled) is
+neither put back nor stamped: the later event handles where it stands.
+Overdue is not a status: it is a view (§9).
 
 **Cancelled.** 4a already refuses a person's move of a numbered invoice to
 Cancelled. The app's moves (§6) are allowed, as every app move is.
@@ -306,12 +323,13 @@ New Lifecycle problem codes, worded in English and French:
 | Code | What the person reads |
 |---|---|
 | `QUOTE_NOT_OPEN` | This quote is declined, expired or already invoiced: it cannot become an invoice. |
-| `ALREADY_INVOICED` | This quote already has an invoice, <subject or number>: finish it, or delete it to start again. |
+| `ALREADY_INVOICED` | This quote already has an invoice, <number or subject>: finish it, or delete it to start again. (Without either: This quote already has an invoice: finish it, or delete it to start again.) |
 | `NOT_ISSUED` | This invoice is not issued: a draft is corrected by editing it. |
 | `INVOICE_CANCELLED` | This invoice is cancelled: it has nothing left to credit. |
 | `NOTHING_TO_CREDIT` | Everything on this invoice is credited already. |
 | `REMAINDER_UNKNOWN` | A credit note against this invoice changed a price or added a line, so what remains cannot be worked out: use Credit note and adjust it. |
 | `OVER_CREDIT` | This credit note credits more than remains on the invoice (line 2). |
+| `NUMBERED_CREDIT_NOTE_PENDING` | Credit note AV2026-0001 already holds a number: finish it (or correct it) before making another. |
 
 New status rule messages: "Only an issued invoice can be Sent or Paid: the
 status was put back to Draft." and "This quote has an invoice: it stays
