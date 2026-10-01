@@ -130,6 +130,9 @@ npm run typecheck
 - [Engine design](docs/superpowers/specs/2026-09-22-engine-design.md)
 - [Rendering design](docs/superpowers/specs/2026-09-24-rendering-design.md)
 - [Issue path design](docs/superpowers/specs/2026-09-26-issue-path-design.md)
+- [Flows design](docs/superpowers/specs/2026-10-01-flows-design.md): quotes to invoices, credit notes, cancelling, payment status, views
+- [Email design](docs/superpowers/specs/2026-10-01-email-design.md)
+- [Publish design](docs/superpowers/specs/2026-10-01-publish-design.md)
 - [The five templates](docs/templates.md)
 - [Foundation plan](docs/superpowers/plans/2026-09-21-foundation.md)
 - [Engine plan](docs/superpowers/plans/2026-09-22-engine.md)
