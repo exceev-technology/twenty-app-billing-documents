@@ -11,7 +11,8 @@ export type LifecycleProblemCode =
   | 'MISSING_ISSUER' | 'MISSING_PROFILE' | 'MISSING_BUYER' | 'MISSING_CURRENCY'
   | 'MISSING_IDENTIFIER' | 'INVALID_IDENTIFIER' | 'IDENTIFIER_OWNER'
   | 'MISSING_INVOICE' | 'INVOICE_NOT_ISSUED' | 'INVOICE_MISMATCH'
-  | 'DATE_IN_FUTURE' | 'DATE_BEFORE_LAST' | 'DUE_BEFORE_ISSUE' | 'CLOCK_SKEW' | 'LEDGER_BEHIND' | 'HELD_NUMBER_ELSEWHERE';
+  | 'DATE_IN_FUTURE' | 'DATE_BEFORE_LAST' | 'DUE_BEFORE_ISSUE' | 'CLOCK_SKEW' | 'LEDGER_BEHIND' | 'HELD_NUMBER_ELSEWHERE'
+  | 'QUOTE_NOT_OPEN' | 'ALREADY_INVOICED' | 'NOT_ISSUED' | 'INVOICE_CANCELLED' | 'NOTHING_TO_CREDIT' | 'REMAINDER_UNKNOWN' | 'OVER_CREDIT';
 
 /**
  * A problem is data: `field` names what to fix, `value` what was found. The
@@ -52,8 +53,12 @@ export type FieldKey =
 
 export type StatusKey = 'DRAFT' | 'ISSUED' | 'SENT' | 'PAID' | 'CANCELLED' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'INVOICED';
 
-/** Which status rule a move broke (spec §7): issuing, returning to draft, cancelling, or invoicing a quote. */
-export type StatusRule = 'ISSUE' | 'DRAFT' | 'CANCEL' | 'INVOICED';
+/**
+ * Which status rule a move broke (spec §7, flows spec §8): issuing, returning to draft,
+ * cancelling, invoicing a quote, sending or paying an invoice that is not issued, or
+ * moving a quote out of Invoiced while its invoice lives.
+ */
+export type StatusRule = 'ISSUE' | 'DRAFT' | 'CANCEL' | 'INVOICED' | 'NOT_ISSUED' | 'UNINVOICE';
 
 type Details = { field?: string; value?: string; documentType?: DocumentKind };
 
@@ -81,6 +86,18 @@ export type LifecyclePack = {
     ledgerDuplicateRemoved: string;
     ledgerChangePutBack: (fields: readonly string[]) => string;
     ledgerRestored: string;
+    invoiceCreated: string;
+    creditNoteCreated: (invoiceNumber: string) => string;
+    cancelledBy: (invoiceNumber: string, creditNoteNumber: string) => string;
+    alreadyCredited: (invoiceNumber: string) => string;
+    invoiceNowCancelled: (invoiceNumber: string) => string;
+    /** Printed on the credit note Cancel issues, as its reason. */
+    cancellationReason: (invoiceNumber: string) => string;
+    invoicedTimeline: (subject: string) => string;
+    creditedTimeline: (creditNoteNumber: string, total: string) => string;
+    cancelledTimeline: (creditNoteNumber: string) => string;
+    quoteReopened: string;
+    quoteReinvoiced: string;
   };
 };
 

@@ -43,6 +43,18 @@ export const fr: LifecyclePack = {
       `La séquence de numérotation de type ${documentType ? kinds[documentType] : 'document'}, pour ${value}, est très en retard sur les numéros déjà attribués\u00a0: augmentez son dernier numéro.`,
     HELD_NUMBER_ELSEWHERE: ({ value }) =>
       `Ce document porte déjà le numéro ${value}, attribué pour un autre émetteur ou une autre période\u00a0: rétablissez son émetteur et sa date d’émission pour l’utiliser.`,
+    QUOTE_NOT_OPEN: ({ value }) => `Ce devis est au statut ${statusName(value)}\u00a0: seul un devis brouillon, envoyé ou accepté devient une facture.`,
+    ALREADY_INVOICED: ({ value }) => `Ce devis a déjà une facture, ${value}\u00a0: terminez-la, ou supprimez-la pour recommencer.`,
+    NOT_ISSUED: () => 'Cette facture n\u2019est pas émise\u00a0: un brouillon se corrige en le modifiant.',
+    INVOICE_CANCELLED: ({ field }) =>
+      field === 'invoiceId'
+        ? 'La facture que cet avoir corrige est annulée\u00a0: il n\u2019y reste rien à créditer.'
+        : 'Cette facture est annulée\u00a0: il n\u2019y reste rien à créditer.',
+    NOTHING_TO_CREDIT: () => 'Tout ce que porte cette facture est déjà crédité.',
+    REMAINDER_UNKNOWN: () =>
+      'Un avoir sur cette facture a changé un prix ou ajouté une ligne\u00a0: ce qui reste ne peut pas être calculé. Utilisez Credit note et ajustez l\u2019avoir.',
+    OVER_CREDIT: ({ value }) =>
+      value ? `Cet avoir crédite plus qu\u2019il ne reste sur sa facture (ligne ${value}).` : 'Cet avoir crédite plus qu\u2019il ne reste sur sa facture.',
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Certains caractères ne peuvent pas être imprimés avec la police du PDF (${field})\u00a0: ${value}`,
@@ -89,6 +101,8 @@ export const fr: LifecyclePack = {
         DRAFT: `${kind === 'INVOICE' ? 'Une facture émise' : 'Un avoir émis'} ne peut pas revenir au statut Brouillon.`,
         CANCEL: 'Une facture numérotée s’annule par un avoir.',
         INVOICED: 'Un devis passe au statut Facturé quand il devient une facture.',
+        NOT_ISSUED: 'Seule une facture émise peut être Envoyée ou Payée.',
+        UNINVOICE: 'Ce devis a une facture et reste Facturé : supprimez la facture pour rouvrir le devis.',
       }[rule];
       return `${why} Le statut a été remis à ${back}.`;
     },
@@ -97,5 +111,17 @@ export const fr: LifecyclePack = {
     ledgerChangePutBack: (fields) =>
       `Cette séquence a déjà attribué des numéros\u00a0: son émetteur, son type et sa période sont fixés, et son dernier numéro ne peut que monter. La modification de ${list(fields)} a été annulée.`,
     ledgerRestored: 'Cette séquence a déjà attribué des numéros et ne peut pas être supprimée\u00a0: elle a été restaurée.',
+    invoiceCreated: 'Facture brouillon créée à partir de ce devis.',
+    creditNoteCreated: (invoiceNumber) => `Avoir brouillon créé pour ${invoiceNumber}.`,
+    cancelledBy: (invoiceNumber, creditNoteNumber) => `${invoiceNumber} est annulée par l’avoir ${creditNoteNumber}.`,
+    alreadyCredited: (invoiceNumber) => `${invoiceNumber} est annulée : ses avoirs la créditent déjà entièrement.`,
+    invoiceNowCancelled: (invoiceNumber) => `La facture ${invoiceNumber} est maintenant annulée.`,
+    cancellationReason: (invoiceNumber) => `Annulation de la facture ${invoiceNumber}`,
+    invoicedTimeline: (subject) =>
+      subject ? `Facture brouillon « ${subject} » créée à partir de ce devis.` : 'Facture brouillon créée à partir de ce devis.',
+    creditedTimeline: (creditNoteNumber, total) => `Avoir ${creditNoteNumber} émis sur cette facture, pour ${total}.`,
+    cancelledTimeline: (creditNoteNumber) => `Annulée par l’avoir ${creditNoteNumber}.`,
+    quoteReopened: 'La facture brouillon issue de ce devis a été supprimée : le devis est de nouveau Accepté.',
+    quoteReinvoiced: 'La facture issue de ce devis a été restaurée : le devis est de nouveau Facturé.',
   },
 };

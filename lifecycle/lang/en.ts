@@ -40,6 +40,18 @@ export const en: LifecyclePack = {
       `The ${documentType ? kinds[documentType] : 'document'} numbering sequence of ${value} is far behind the numbers already given: raise its last number.`,
     HELD_NUMBER_ELSEWHERE: ({ value }) =>
       `This document already holds the number ${value}, given under another issuer or period: put its issuer and issue date back to use it.`,
+    QUOTE_NOT_OPEN: ({ value }) => `This quote is ${statusName(value)}: only a draft, sent or accepted quote becomes an invoice.`,
+    ALREADY_INVOICED: ({ value }) => `This quote already has an invoice, ${value}: finish it, or delete it to start again.`,
+    NOT_ISSUED: () => 'This invoice is not issued: a draft is corrected by editing it.',
+    INVOICE_CANCELLED: ({ field }) =>
+      field === 'invoiceId'
+        ? 'The invoice this credit note corrects is cancelled: it has nothing left to credit.'
+        : 'This invoice is cancelled: it has nothing left to credit.',
+    NOTHING_TO_CREDIT: () => 'Everything on this invoice is credited already.',
+    REMAINDER_UNKNOWN: () =>
+      'A credit note against this invoice changed a price or added a line, so what remains cannot be worked out: use Credit note and adjust it.',
+    OVER_CREDIT: ({ value }) =>
+      value ? `This credit note credits more than remains on its invoice (line ${value}).` : 'This credit note credits more than remains on its invoice.',
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Some characters cannot be printed with the PDF’s font (${field}): ${value}`,
@@ -85,6 +97,8 @@ export const en: LifecyclePack = {
         DRAFT: `An issued ${kinds[kind]} cannot return to Draft.`,
         CANCEL: `A numbered ${kinds[kind]} is cancelled through a credit note.`,
         INVOICED: 'A quote becomes Invoiced when it is turned into an invoice.',
+        NOT_ISSUED: 'Only an issued invoice can be Sent or Paid.',
+        UNINVOICE: 'This quote has an invoice, so it stays Invoiced: delete the invoice to reopen the quote.',
       }[rule];
       return `${why} The status was put back to ${back}.`;
     },
@@ -93,5 +107,16 @@ export const en: LifecyclePack = {
     ledgerChangePutBack: (fields) =>
       `This sequence has given out numbers: its issuer, document type and period are fixed, and its last number can only rise. The change to ${list(fields)} was put back.`,
     ledgerRestored: 'This sequence has given out numbers, so it cannot be deleted: it was restored.',
+    invoiceCreated: 'Draft invoice created from this quote.',
+    creditNoteCreated: (invoiceNumber) => `Draft credit note created for ${invoiceNumber}.`,
+    cancelledBy: (invoiceNumber, creditNoteNumber) => `${invoiceNumber} is cancelled by credit note ${creditNoteNumber}.`,
+    alreadyCredited: (invoiceNumber) => `${invoiceNumber} is cancelled: its credit notes already credit all of it.`,
+    invoiceNowCancelled: (invoiceNumber) => `Invoice ${invoiceNumber} is now cancelled.`,
+    cancellationReason: (invoiceNumber) => `Cancellation of invoice ${invoiceNumber}`,
+    invoicedTimeline: (subject) => (subject ? `Draft invoice "${subject}" created from this quote.` : 'Draft invoice created from this quote.'),
+    creditedTimeline: (creditNoteNumber, total) => `Credit note ${creditNoteNumber} issued against this invoice, for ${total}.`,
+    cancelledTimeline: (creditNoteNumber) => `Cancelled by credit note ${creditNoteNumber}.`,
+    quoteReopened: 'The draft invoice made from this quote was deleted: the quote is Accepted again.',
+    quoteReinvoiced: 'The invoice made from this quote was restored: the quote is Invoiced again.',
   },
 };

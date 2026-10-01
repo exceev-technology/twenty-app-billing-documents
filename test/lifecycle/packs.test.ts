@@ -7,6 +7,7 @@ const LIFECYCLE_CODES = [
   'MISSING_CURRENCY', 'MISSING_IDENTIFIER', 'INVALID_IDENTIFIER', 'IDENTIFIER_OWNER', 'MISSING_INVOICE',
   'INVOICE_NOT_ISSUED', 'INVOICE_MISMATCH', 'DATE_IN_FUTURE', 'DATE_BEFORE_LAST', 'DUE_BEFORE_ISSUE',
   'CLOCK_SKEW', 'LEDGER_BEHIND', 'HELD_NUMBER_ELSEWHERE',
+  'QUOTE_NOT_OPEN', 'ALREADY_INVOICED', 'NOT_ISSUED', 'INVOICE_CANCELLED', 'NOTHING_TO_CREDIT', 'REMAINDER_UNKNOWN', 'OVER_CREDIT',
 ];
 const RENDER_CODES = [
   'UNSUPPORTED_SCRIPT', 'UNSUPPORTED_IMAGE', 'UNKNOWN_TEMPLATE', 'UNKNOWN_LANGUAGE', 'QR_PAYLOAD_TOO_LONG',
@@ -28,6 +29,11 @@ function everyMessage(pack: LifecyclePack): string[] {
       m.statusPutBack('ISSUE', kind, 'Draft'), m.statusPutBack('DRAFT', kind, 'Issued'), m.statusPutBack('CANCEL', kind, 'Paid'),
     ]),
     m.documentRestored('QUOTE', 'D2026-0001'), m.createdAsDraft('QUOTE', 'Sent'), m.statusPutBack('INVOICED', 'QUOTE', 'Accepted'),
+    m.statusPutBack('NOT_ISSUED', 'INVOICE', 'Draft'), m.statusPutBack('UNINVOICE', 'QUOTE', 'Invoiced'),
+    m.invoiceCreated, m.creditNoteCreated('F2026-0001'), m.cancelledBy('F2026-0001', 'AV2026-0002'),
+    m.alreadyCredited('F2026-0001'), m.invoiceNowCancelled('F2026-0001'), m.cancellationReason('F2026-0001'),
+    m.invoicedTimeline('Identité visuelle'), m.invoicedTimeline(''), m.creditedTimeline('AV2026-0001', '120.00 EUR'),
+    m.cancelledTimeline('AV2026-0002'), m.quoteReopened, m.quoteReinvoiced,
     m.ledgerDuplicateRemoved, m.ledgerChangePutBack(['Last number']), m.ledgerRestored,
   ];
 }
