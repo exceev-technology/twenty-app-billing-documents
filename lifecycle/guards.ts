@@ -17,7 +17,8 @@ export function statusRuleBroken(kind: Kind, from: string, to: string, state: { 
     return from === 'INVOICED' && state.invoiced ? 'UNINVOICE' : null;
   }
   if (to === 'ISSUED' && !state.issued) return 'ISSUE';
-  // Issued only: a numbered draft moved on after a failed Issue must come back to Draft to be issued.
+  // Issued documents only. A numbered draft left by a failed Issue is Draft, and a person's move to Issued, Cancelled,
+  // Sent or Paid is put back, so it stays there; if it ever stands elsewhere, going back to Draft is how it is issued.
   if (state.issued && to === 'DRAFT') return 'DRAFT';
   if (state.numbered && to === 'CANCELLED') return 'CANCEL';
   // Only the app cancels a numbered invoice, through its credit notes: a person does not revive it.
@@ -113,7 +114,8 @@ export async function onDocumentEvent(store: Store, kind: Kind, event: RecordEve
     return;
   }
   if (event.name === 'restored') {
-    if (kind.kind === 'INVOICE') await quoteFollows(store, document, 'restored');
+    // The handler reads the invoice as it stands: a restore's event that comes after a later deletion must not invoice the quote.
+    if (kind.kind === 'INVOICE' && !document.deletedAt) await quoteFollows(store, document, 'restored');
     return;
   }
   // A deleted draft is left alone. A numbered or issued document is about to be restored, and an edit made

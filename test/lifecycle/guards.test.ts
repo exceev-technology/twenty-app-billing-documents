@@ -162,7 +162,7 @@ test('an invoice its credit notes cancelled stays Cancelled: a person’s move o
   assert.deepEqual(corrections(w), ['Cette facture est annulée par ses avoirs\u00a0: elle reste Annulée. Le statut a été remis à Annulée.']);
 });
 
-test('a numbered draft moved to Sent returns to Draft, and the next Issue gives it the number it holds', async () => {
+test('a numbered draft set to Sent is put back to Draft, and the next Issue gives it the number it holds', async () => {
   const w = workspace();
   w.db.failNext((op) => op === 'upload');
   assert.equal((await issue(w)).status, 500);
@@ -633,6 +633,7 @@ test('a draft invoice set to Paid is put back, with a message in the invoice’s
   await w.user.update('billingInvoices', w.invoice.id, { status: 'PAID' });
   await settle(w);
   assert.equal(invoice(w).status, 'DRAFT');
+  assert.equal(invoice(w).paidAt ?? null, null, 'a move that is put back stamps nothing');
   assert.deepEqual(corrections(w), ['Seule une facture émise peut être Envoyée ou Payée. Le statut a été remis à Brouillon.']);
 });
 
@@ -704,6 +705,32 @@ test('a quote with another live invoice stays Invoiced when one of them is delet
   await w.user.softDelete('billingInvoices', invoiceId);
   await settle(w);
   assert.equal(quoteRow(w, quote.id).status, 'INVOICED');
+});
+
+test('events that come out of order leave a quote Accepted while its only invoice is deleted', async () => {
+  const w = workspace();
+  const { quote, invoiceId } = await invoicedQuote(w);
+  await w.user.softDelete('billingInvoices', invoiceId);
+  await w.user.restore('billingInvoices', invoiceId);
+  await w.user.softDelete('billingInvoices', invoiceId);
+  const [deleted, restored, deletedAgain] = w.db.takeEvents();
+  assert.deepEqual([deleted?.name, restored?.name, deletedAgain?.name], ['deleted', 'restored', 'deleted']);
+  // The handler reads the invoice as it stands, deleted: the restore's late event must not invoice the quote again.
+  await deliver(w, [deleted!, deletedAgain!, restored!]);
+  assert.equal(quoteRow(w, quote.id).status, 'ACCEPTED');
+  assert.deepEqual(w.db.timeline.filter((entry) => entry.recordId === quote.id).map((entry) => entry.kind), ['INVOICED', 'CORRECTION']);
+});
+
+test('a numbered invoice made from a quote, deleted by a person and restored by the guard, leaves the quote Invoiced and silent', async () => {
+  const w = workspace();
+  const { quote, invoiceId } = await invoicedQuote(w);
+  await w.app.update('billingInvoices', invoiceId, { number: 'F2026-0002', numberKey: numberKeyOf(w.issuer.id, 'F2026-0002') });
+  await settle(w);
+  await w.user.softDelete('billingInvoices', invoiceId);
+  await settle(w);
+  assert.equal(invoice(w, invoiceId).deletedAt, null, 'the guard restored it');
+  assert.equal(quoteRow(w, quote.id).status, 'INVOICED');
+  assert.deepEqual(w.db.timeline.filter((entry) => entry.recordId === quote.id).map((entry) => entry.kind), ['INVOICED']);
 });
 
 test('a person moving a quote to Sent or Accepted stamps the dates', async () => {
