@@ -80,6 +80,9 @@ function identifierProblems(loaded: Loaded): AnyProblem[] {
   return problems;
 }
 
+/** OVER_CREDIT as the gate words it: the first line that takes too much (its position from 1), or the total when 0. */
+export const overCreditProblem = (position: number): AnyProblem => lifecycle('OVER_CREDIT', position > 0 ? { field: 'lines', value: String(position) } : {});
+
 /** Checks 1 to 7 of spec §6, all of them, in order. */
 export function checkGate(loaded: Loaded, context: GateContext): AnyProblem[] {
   const { document, kind, issuer, profile } = loaded;
@@ -133,7 +136,7 @@ export function checkGate(loaded: Loaded, context: GateContext): AnyProblem[] {
     const position = overCredit(loaded.invoice, loaded.credits, {
       lines: loaded.lines, totalMicros: result.totalMicros, components: result.recap.length, currencyCode,
     });
-    if (position !== null) problems.push(lifecycle('OVER_CREDIT', position > 0 ? { field: 'lines', value: String(position) } : {}));
+    if (position !== null) problems.push(overCreditProblem(position));
   }
 
   // 7. Dates.

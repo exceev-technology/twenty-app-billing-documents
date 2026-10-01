@@ -1,8 +1,8 @@
 import { computeDocument, EngineError } from '../engine/index.ts';
 import { renderDocument } from '../render/document.ts';
 import { RenderError, type RenderInput, type RenderResult } from '../render/types.ts';
-import { checkGate, resetOf, type GateAction } from './gate.ts';
-import { creditLines, creditNoteFromInvoice, fullyCredited, holdsExactly, invoiceFromQuote, invoiceRemainder, lineCopy, OPEN_QUOTE, type RemainingLine } from './flows.ts';
+import { checkGate, overCreditProblem, resetOf, type GateAction } from './gate.ts';
+import { creditLines, creditNoteFromInvoice, fullyCredited, holdsExactly, invoiceFromQuote, invoiceRemainder, lineCopy, OPEN_QUOTE, overCredit, type RemainingLine } from './flows.ts';
 import { packForDocument } from './guards.ts';
 import { describeAll, LifecycleError, packFor, PACKS, type AnyProblem, type LifecyclePack, type WordedProblem } from './lang/pack.ts';
 import { isIssued, issuedCreditNotes, KINDS, kindOf, loadDocument, loadFigures, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
@@ -152,6 +152,24 @@ async function issuedMeanwhile(run: Run): Promise<ActionOutcome | null> {
   return isIssued(run.kind, current) ? alreadyIssued(run.pack, current) : null;
 }
 
+/**
+ * A credit note is weighed against its invoice again before its document is written: the gate counted
+ * the credit notes issued when it ran, and another (a second Cancel, a person's) may have been issued
+ * since. Like `issuedMeanwhile` it narrows the window and cannot close it. The refused credit note
+ * stays a numbered draft, as after any failed step.
+ */
+async function overCreditedMeanwhile(run: Run, totalMicros: number, components: number): Promise<ActionOutcome | null> {
+  const { kind, deps, loaded } = run;
+  const invoiceId = loaded.invoice?.id;
+  if (kind.kind !== 'CREDIT_NOTE' || !invoiceId) return null;
+  const invoice = await deps.app.get('billingInvoices', invoiceId);
+  if (!invoice) throw new Error('The document no longer exists');
+  if (invoice.status === 'CANCELLED') return refuse(422, run.pack, [{ source: 'lifecycle', code: 'INVOICE_CANCELLED', field: 'invoiceId' }]);
+  const credits = await issuedCreditNotes(deps.app, invoiceId, loaded.document.id);
+  const position = overCredit(invoice, credits, { lines: loaded.lines, totalMicros, components, currencyCode: textOf(loaded.document.currencyCode).trim() });
+  return position === null ? null : refuse(422, run.pack, [overCreditProblem(position)]);
+}
+
 /** The figures, the logo, and the Renderer's input for a number and a version. */
 async function prepare(run: Run) {
   const totals = computeDocument(toDocumentInput(run.loaded));
@@ -182,9 +200,10 @@ async function logoReference(run: Run, logo: { bytes: Uint8Array } | null): Prom
   return { fileId: first.fileId, sha256: await run.deps.sha256(logo.bytes) };
 }
 
-/** Marks an invoice Cancelled, as the app, with a timeline row naming the credit note that completed it. */
+/** Marks an invoice Cancelled, as the app, with a timeline row naming the credit note that completed it. One already Cancelled has had its row. */
 async function markCancelled(store: Store, invoice: Row, creditNoteNumber: string): Promise<void> {
-  if (invoice.status !== 'CANCELLED') await store.update('billingInvoices', invoice.id, { status: 'CANCELLED' });
+  if (invoice.status === 'CANCELLED') return;
+  await store.update('billingInvoices', invoice.id, { status: 'CANCELLED' });
   const pack = await packForDocument(store, invoice);
   await leaveMessage(store, { object: 'billingInvoice', recordId: invoice.id, kind: 'CANCELLED', text: pack.messages.cancelledTimeline(creditNoteNumber) });
 }
@@ -247,6 +266,8 @@ async function issue(run: Run): Promise<ActionOutcome> {
   run.step('document');
   const issuedBeforeWrite = await issuedMeanwhile(run);
   if (issuedBeforeWrite) return issuedBeforeWrite;
+  const overCredited = await overCreditedMeanwhile(run, totals.totalMicros, totals.recap.length);
+  if (overCredited) return overCredited;
   const printed = inputFor(claim.number);
   const snapshot: Record<string, unknown> = {
     printed: { ...printed, brand: { ...printed.brand, logo: await logoReference(run, logo) } },
@@ -418,10 +439,20 @@ async function creditNote(request: ActionRequest, deps: ActionDeps, pack: Lifecy
   return ok(pack.messages.creditNoteCreated(textOf(invoice.number)), { created: { object: 'billingCreditNote', recordId: note.id } });
 }
 
-/** The newest draft credit note against the invoice holding exactly the remainder: a Cancel that stopped at the gate. */
-async function stoppedCancel(store: Store, invoiceId: string, remaining: readonly RemainingLine[]): Promise<Row | null> {
+/** The newest issued credit note's number, for the timeline row of an invoice they complete. */
+const newestNumber = (credits: readonly Row[]): string =>
+  textOf([...credits].sort((a, b) => textOf(b.issuedAt).localeCompare(textOf(a.issuedAt)))[0]?.number);
+
+/**
+ * The newest draft credit note against the invoice that Cancel made and left: its reason is Cancel's,
+ * and it holds exactly the remainder, as a Cancel that stopped at the gate left it. A person's own
+ * credit note that happens to hold the remainder is theirs, not Cancel's.
+ */
+async function stoppedCancel(store: Store, invoiceId: string, reason: string, remaining: readonly RemainingLine[]): Promise<Row | null> {
   const drafts = await store.list('billingCreditNotes', { invoiceId, status: 'DRAFT' }, { orderBy: { field: 'createdAt', direction: 'desc' } });
-  for (const draft of drafts) if (holdsExactly(await store.list('billingCreditNoteLines', { creditNoteId: draft.id }), remaining)) return draft;
+  for (const draft of drafts) {
+    if (textOf(draft.reason) === reason && holdsExactly(await store.list('billingCreditNoteLines', { creditNoteId: draft.id }), remaining)) return draft;
+  }
   return null;
 }
 
@@ -436,19 +467,20 @@ async function cancelInvoice(request: ActionRequest, deps: ActionDeps, pack: Lif
 
   step('credits');
   const credits = await issuedCreditNotes(deps.app, invoice.id);
-  const remainder = invoiceRemainder(invoice, credits);
-  if (!remainder.known) return refuse(422, pack, [{ source: 'lifecycle', code: 'REMAINDER_UNKNOWN' }]);
-  if (remainder.lines.length === 0) {
-    // Fully credited already: the app would have marked it after the last issue, had that step not failed.
-    const latest = [...credits].sort((a, b) => textOf(b.issuedAt).localeCompare(textOf(a.issuedAt)))[0];
-    await markCancelled(deps.app, invoice, textOf(latest?.number));
+  // Credit notes that cover it already (the app would have marked it after the last issue, had that step not failed): marked now, nothing issued.
+  if (fullyCredited(invoice, credits)) {
+    await markCancelled(deps.app, invoice, newestNumber(credits));
     return ok(pack.messages.alreadyCredited(invoiceNumber));
   }
+  const remainder = invoiceRemainder(invoice, credits);
+  if (!remainder.known) return refuse(422, pack, [{ source: 'lifecycle', code: 'REMAINDER_UNKNOWN' }]);
+  // Nothing to credit and no credit note covering it: there is no credit note to cancel it by.
+  if (remainder.lines.length === 0) return refuse(422, pack, [{ source: 'lifecycle', code: 'NOTHING_TO_CREDIT' }]);
 
   step('draft');
-  let note = await stoppedCancel(deps.app, invoice.id, remainder.lines);
+  const reason = (await packForDocument(deps.app, invoice)).messages.cancellationReason(invoiceNumber);
+  let note = await stoppedCancel(deps.app, invoice.id, reason, remainder.lines);
   if (!note) {
-    const reason = (await packForDocument(deps.app, invoice)).messages.cancellationReason(invoiceNumber);
     try {
       note = await draftCreditNote(deps, invoice, creditLines(invoice, remainder), reason, step);
     } catch (error) {
