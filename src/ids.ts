@@ -258,6 +258,7 @@ export const IDS: Readonly<Record<string, string>> = {
   'navigationMenuItem.catalog': 'cbd7ce7a-37cb-4d6a-9f7f-51bbe58a8b44',
   'navigationMenuItem.creditNotes': 'b0415491-3ae3-4779-84ee-a44a570f905d',
   'navigationMenuItem.invoices': '7aef5f54-a310-4960-9c5e-a6274c23b554',
+  'navigationMenuItem.issuers': 'a8402031-5ed4-4496-b071-27c071a437c0',
   'navigationMenuItem.overdueInvoices': 'f79e90b9-10d6-4a0f-83fc-c248381e4cac',
   'navigationMenuItem.profiles': '5fb855e4-bb86-4a1e-9ad3-c95789aed025',
   'navigationMenuItem.quotes': '406914ff-d7b5-4466-8f8a-f22282529984',

@@ -104,7 +104,7 @@ pictures, and leave out any record the image came with.
 | File | Shows |
 |---|---|
 | `public/gallery/invoice-issued.png` | An issued invoice, with its **Preview PDF**, **Issue**… buttons and its PDF |
-| `public/gallery/overdue-view.png` | The **Overdue invoices** view |
+| `public/gallery/overdue-view.png` | The **Overdue** view of invoices |
 | `public/gallery/email-form.png` | The **Send by email** form in the side panel, prefilled |
 
 1. On the test workspace, with sample data only: made-up companies, people and amounts. No
@@ -245,7 +245,7 @@ In that workspace, under **Settings → Data model**, create a custom object lab
 installs it, and the install runs the post-install function, which seeds the presets in the
 background. Then, in the workspace:
 
-1. **Billing → Profiles** lists the presets. No tool had to be run.
+1. **Billing → Billing profiles** lists the presets. No tool had to be run.
 2. Follow the README's *Your first invoice*: it ends with a numbered PDF.
 3. To rehearse an upgrade, raise `version` in `package.json` (do not commit it), publish and
    install again: no data is lost, no preset appears twice, a preset you edited is kept.

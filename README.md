@@ -34,10 +34,10 @@ npm ci
 
 ## Your first invoice
 
-The presets are seeded in the background just after the install: wait until **Billing → Profiles** lists them.
+The presets are seeded in the background just after the install: wait until **Billing → Billing profiles** lists them.
 
-1. **Pick a profile.** In **Billing → Profiles**, open the one for your country (or *Generic*): it holds the identifiers your country requires, the tax codes, the numbering pattern and the language.
-2. **Create your issuer**, the business that sells: open **Issuers** from the command menu (Ctrl+K or Cmd+K) and add one with its trading name, legal name, address, an email, the *Profile* you picked, and its default currency when the profile has none (*Generic* has none).
+1. **Pick a profile.** In **Billing → Billing profiles**, open the one for your country (or *Generic*): it holds the identifiers your country requires, the tax codes, the numbering pattern and the language.
+2. **Create your issuer**, the business that sells: in **Billing → Issuers**, add one with its trading name, legal name, address, an email, the *Profile* you picked, and its default currency when the profile has none (*Generic* has none).
 3. **Add its legal identifiers**, on the issuer, under *Legal identifiers*: one record per identifier the profile requires, with its *Type* and *Value* (a VAT number, a company number).
 4. **Have a client.** Any company or person in Twenty will do. Where your country asks for the client's identifiers, add them the same way.
 5. **Write a draft invoice.** In **Billing → Invoices**, add one: a *Subject*, the *Issuer*, the *Company* (or *Person*), then its *Lines*: a description, a quantity, a unit price and a tax code each.
@@ -85,7 +85,7 @@ An invoice whose issued credit notes credit all of it is marked Cancelled, which
 
 ## Payment status
 
-Set an issued invoice to Sent or Paid: the app fills *Sent at* and *Paid on* when they are empty (you can change them). Setting it back from Paid empties *Paid on*. A draft cannot be Sent or Paid. Overdue is not a status: the **Overdue invoices** view, in the Billing folder, lists the issued or sent invoices whose due date has passed.
+Set an issued invoice to Sent or Paid: the app fills *Sent at* and *Paid on* when they are empty (you can change them). Setting it back from Paid empties *Paid on*. A draft cannot be Sent or Paid. Overdue is not a status: the **Overdue** view of invoices (in the Billing folder, shown as *Overdue · Invoices*) lists the issued or sent invoices whose due date has passed.
 
 ## Views
 

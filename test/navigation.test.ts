@@ -19,8 +19,8 @@ test('the app adds one sidebar folder, named Billing', () => {
   assert.equal(folders[0].name, 'Billing');
 });
 
-test('the folder holds quotes, invoices, credit notes, the catalog, tax codes and profiles, in that order', () => {
-  const targets = ['billingQuote', 'billingInvoice', 'billingCreditNote', 'billingCatalogItem', 'billingTaxCode', 'billingProfile'];
+test('the folder holds quotes, invoices, credit notes, the catalog, tax codes, profiles and issuers, in that order', () => {
+  const targets = ['billingQuote', 'billingInvoice', 'billingCreditNote', 'billingCatalogItem', 'billingTaxCode', 'billingProfile', 'billingIssuer'];
   assert.deepEqual(entries.map((e) => e.targetObjectUniversalIdentifier), targets.map(objectId));
   for (const entry of entries) assert.equal(entry.folderUniversalIdentifier, folders[0].universalIdentifier);
 });
