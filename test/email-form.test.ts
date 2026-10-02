@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EMAIL_PATH, SEND_START, canSend, formWords, inputValue, postEmail, readPrepared, readSent, sendStep, withField,
+  EMAIL_PATH, SEND_START, SENDS_IN_FLIGHT, canSend, claimSend, formWords, inputValue, postEmail, readPrepared, readSent, releaseSend, sendKey, sendStep,
+  staleNotice, withField,
   type EmailForm, type EmailRequest, type SendEvent, type SendState, type SentRead,
 } from '../src/front-components/email-form.ts';
 
@@ -56,13 +57,28 @@ test('Send’s answer is the snackbar, a warning when the document could not be 
 });
 
 test('a route body is read as the route worded it, whatever its status: the route’s own 500 included', () => {
-  const unexpected = 'The email may have gone: check your Sent folder before trying again (ref 7f3a…).';
+  const unexpected = 'Something went wrong (ref 7f3a…).';
   assert.deepEqual(readSent({ status: 500, body: { ok: false, problems: [{ code: 'UNEXPECTED', message: unexpected }] } }, 'en'), {
     ok: false, unconfirmed: false, problems: [unexpected],
   });
   assert.deepEqual(readSent({ status: 502, body: { ok: false, problems: [{ code: 'SEND_FAILED', message: 'The mail server refused it.' }] } }, 'en'), {
     ok: false, unconfirmed: false, problems: ['The mail server refused it.'],
   });
+});
+
+test('the route’s own “may have gone” code locks Send, and its message is shown as the route worded it', () => {
+  const lost = 'The email may have gone: check your Sent folder before trying again (ref 7f3a…).';
+  assert.deepEqual(readSent({ status: 500, body: { ok: false, problems: [{ code: 'SEND_UNCONFIRMED', message: lost }] } }, 'en'), {
+    ok: false, unconfirmed: true, problems: [lost],
+  });
+  // The code decides, not the status, and not its place in the list.
+  assert.deepEqual(
+    readSent({ status: 502, body: { ok: false, problems: [{ code: 'SEND_FAILED', message: 'Refused.' }, { code: 'SEND_UNCONFIRMED', message: lost }] } }, 'fr'),
+    { ok: false, unconfirmed: true, problems: ['Refused.', lost] },
+  );
+  // Any other UNEXPECTED keeps its reading: nothing was sent, the person may try again.
+  const other = readSent({ status: 500, body: { ok: false, problems: [{ code: 'UNEXPECTED', message: lost }] } }, 'en');
+  assert.deepEqual(other, { ok: false, unconfirmed: false, problems: [lost] });
 });
 
 test('a send with no route body that may have gone says so, in the person’s language, and does not invite a resend', () => {
@@ -209,4 +225,46 @@ test('an answer asked for another record is ignored, Prepare’s and Send’s', 
   const sendingB = sendStep(sendStep(onB, { type: 'loaded', record: 'b' }), { type: 'send', record: 'b' });
   assert.equal(sendStep(sendingB, { type: 'answer', record: 'a', read: UNCONFIRMED }), sendingB);
   assert.deepEqual(sendStep(sendingB, { type: 'answer', record: 'b', read: SENT }), { record: 'b', phase: 'sent' });
+});
+
+test('the route’s own “may have gone” answer locks the form as a lost one does', () => {
+  const lost = readSent({ status: 500, body: { ok: false, problems: [{ code: 'SEND_UNCONFIRMED', message: 'It may have gone (ref x).' }] } }, 'en');
+  const locked = run(...loaded('a'), { type: 'send', record: 'a' }, { type: 'answer', record: 'a', read: lost });
+  assert.deepEqual(locked, { record: 'a', phase: 'unconfirmed' });
+  assert.equal(canSend(locked), false);
+});
+
+test('an answer for a record no longer shown still tells the person: the sent message, the warning, or that it could not be confirmed', () => {
+  assert.deepEqual(staleNotice(SENT, 'en'), { message: 'Sent to camille@calibre.example.', variant: 'success' });
+  assert.deepEqual(staleNotice(SENT_NOT_MARKED, 'en'), { message: 'Sent, but not marked (ref x).', variant: 'warning' });
+  const lostAnswers = [
+    { status: null, body: null },
+    { status: 504, body: null },
+    { status: 500, body: { ok: false, problems: [{ code: 'SEND_UNCONFIRMED', message: 'It may have gone (ref x).' }] } },
+  ];
+  for (const answer of lostAnswers) {
+    assert.deepEqual(staleNotice(readSent(answer, 'en'), 'en'), { message: UNCONFIRMED_EN, variant: 'warning' }, JSON.stringify(answer));
+    assert.deepEqual(staleNotice(readSent(answer, 'fr'), 'fr'), { message: UNCONFIRMED_FR, variant: 'warning' }, JSON.stringify(answer));
+  }
+});
+
+test('a refusal for a record no longer shown says nothing: the person is not on that form any more', () => {
+  assert.equal(staleNotice(REFUSED, 'en'), null);
+  assert.equal(staleNotice(readSent({ status: 404, body: null }, 'en'), 'en'), null);
+  assert.equal(staleNotice(readSent({ status: 422, body: { ok: false, problems: [{ code: 'MISSING_SUBJECT', message: 'Subject.' }] } }, 'en'), 'en'), null);
+});
+
+test('a document’s Send is claimed once at a time, released by any answer, and claimed again for a deliberate second send', () => {
+  const inFlight = new Set<string>();
+  const key = sendKey('billingInvoice', 'r1');
+  assert.equal(claimSend(inFlight, key), true);
+  assert.equal(claimSend(inFlight, key), false, 'refused while its first Send is in flight');
+  assert.equal(claimSend(inFlight, sendKey('billingInvoice', 'r2')), true, 'another record is free');
+  assert.equal(claimSend(inFlight, sendKey('billingQuote', 'r1')), true, 'the same id on another object is another document');
+  releaseSend(inFlight, key);
+  assert.equal(claimSend(inFlight, key), true, 'after an answer, a new form may send again');
+  releaseSend(inFlight, key);
+  releaseSend(inFlight, key);
+  assert.equal(inFlight.has(key), false, 'releasing what is not claimed is harmless');
+  assert.equal(SENDS_IN_FLIGHT.size, 0, 'the component’s own set starts empty');
 });

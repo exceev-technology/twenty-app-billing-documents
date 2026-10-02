@@ -3,8 +3,8 @@ import { closeSidePanel, enqueueSnackbar, useColorScheme, useLocale, useSelected
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { localDateOf } from './action-feedback.ts';
 import {
-  SEND_START, canSend, formWords, inputValue, postEmail, readPrepared, readSent, sendStep, withField,
-  type EditableField, type EmailForm, type EmailObject, type SendEvent, type SendState,
+  SEND_START, SENDS_IN_FLIGHT, canSend, claimSend, formWords, inputValue, postEmail, readPrepared, readSent, releaseSend, sendKey, sendStep, staleNotice, withField,
+  type EditableField, type EmailForm, type EmailObject, type SendEvent, type SendState, type SentRead,
 } from './email-form.ts';
 
 /** Twenty's own components cannot be imported here: plain elements, in colours close to Twenty's light and dark themes. */
@@ -83,6 +83,14 @@ export function SendEmailForm({ object }: Props) {
     return true;
   };
 
+  // A panel closed mid-send shows no record any more: its answer is then told by snackbar alone, as a moved selection's is.
+  useEffect(
+    () => () => {
+      machine.current = SEND_START;
+    },
+    [],
+  );
+
   useEffect(() => {
     // A new record starts from nothing: the previous form's To, subject and message must never ride on another record's id.
     latest.current = null;
@@ -122,16 +130,42 @@ export function SendEmailForm({ object }: Props) {
 
   const submit = async (): Promise<void> => {
     const toSend = latest.current;
-    // The machine accepts one Send, from a loaded form of the selected record: it is the guard, set before the first await.
-    if (!toSend || !recordId || !step({ type: 'send', record: recordId })) return;
+    if (!toSend || !recordId) return;
+    // Two guards, both settled before the first await. The document's own: no second Send in parallel with one in
+    // flight, even from a fresh form (A, B, A). The form's: one Send, from a loaded form of the selected record.
+    const key = sendKey(object, recordId);
+    if (!claimSend(SENDS_IN_FLIGHT, key)) return;
+    if (!step({ type: 'send', record: recordId })) {
+      releaseSend(SENDS_IN_FLIGHT, key);
+      return;
+    }
     setProblems([]);
-    const answer = await postEmail(post, {
-      step: 'send', object, recordId, localDate: localDateOf(new Date()), locale,
-      from: toSend.from, to: toSend.to, cc: toSend.cc, subject: toSend.subject, message: toSend.message,
-    });
-    const read = readSent(answer, locale);
-    // The selection moved while this was in flight: the form on screen is another record's, and not this answer's to touch.
-    if (!step({ type: 'answer', record: recordId, read })) return;
+    let read: SentRead;
+    try {
+      read = readSent(
+        await postEmail(post, {
+          step: 'send', object, recordId, localDate: localDateOf(new Date()), locale,
+          from: toSend.from, to: toSend.to, cc: toSend.cc, subject: toSend.subject, message: toSend.message,
+        }),
+        locale,
+      );
+    } finally {
+      // Whatever came back, and whoever is looking at it now.
+      releaseSend(SENDS_IN_FLIGHT, key);
+    }
+    if (!step({ type: 'answer', record: recordId, read })) {
+      // The selection moved, or the panel closed, while this was in flight: the form on screen (if any) is another
+      // record's, and not this answer's to touch. The person still hears what became of the email they sent.
+      const notice = staleNotice(read, locale);
+      if (notice) {
+        try {
+          await enqueueSnackbar(notice);
+        } catch (error) {
+          console.error('billing email: the snackbar failed after a send whose form had been left', error);
+        }
+      }
+      return;
+    }
     if (!read.ok) {
       // Refused or never reached: the person may correct and try again. Unconfirmed: the email may have gone, and the form stays locked.
       setProblems(read.problems);

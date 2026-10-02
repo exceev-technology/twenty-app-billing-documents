@@ -34,13 +34,25 @@ function formOf(body: unknown): EmailForm | null {
   return form as EmailForm;
 }
 
-/** The sentences a refusal lists, worded by the route; null when the body is no refusal. */
-function problemsOf(body: unknown): string[] | null {
+type RouteProblem = { code: unknown; message: string };
+
+/** The problems a refusal lists, as the route coded and worded them; null when the body is no refusal. */
+function routeProblems(body: unknown): RouteProblem[] | null {
   const refusal = body as { ok?: unknown; problems?: unknown } | null;
   if (refusal?.ok !== false || !Array.isArray(refusal.problems) || refusal.problems.length === 0) return null;
-  const messages = refusal.problems.map((problem) => (problem as { message?: unknown } | null)?.message);
-  return messages.every((message): message is string => typeof message === 'string') ? messages : null;
+  const found: RouteProblem[] = [];
+  for (const problem of refusal.problems as ({ code?: unknown; message?: unknown } | null)[]) {
+    if (typeof problem?.message !== 'string') return null;
+    found.push({ code: problem.code, message: problem.message });
+  }
+  return found;
 }
+
+/** The sentences a refusal lists, worded by the route; null when the body is no refusal. */
+const problemsOf = (body: unknown): string[] | null => routeProblems(body)?.map((problem) => problem.message) ?? null;
+
+/** The code with which the route says a send's outcome is unknown: the email may have gone. */
+const SEND_UNCONFIRMED = 'SEND_UNCONFIRMED';
 
 /** Prepare's answer: the form, or the problems to list; a transport failure in the buttons' own words (spec §8). */
 export function readPrepared(answer: RouteAnswer, locale: string): { ok: true; form: EmailForm } | { ok: false; problems: string[] } {
@@ -59,15 +71,18 @@ export type SentRead = { ok: true; message: string; variant: 'success' | 'warnin
 const neverReachedRoute = (status: number | null): boolean => status !== null && status >= 400 && status < 500;
 
 /**
- * Read Send's answer. The route's own body is read as it words itself. Without one, only a 4xx proves the
- * request never reached the route; a lost answer (no status), the platform's 30 s cut or a gateway's 5xx, or a
- * success that is no route body, leaves the email possibly sent (email spec §10): that is said, not retried.
+ * Read Send's answer. The route's own body is read as it words itself; its `SEND_UNCONFIRMED` code says the
+ * outcome is unknown, and its message is shown as is. Without a body, only a 4xx proves the request never
+ * reached the route; a lost answer (no status), the platform's 30 s cut or a gateway's 5xx, or a success that
+ * is no route body, leaves the email possibly sent (email spec §10): that is said, not retried.
  */
 export function readSent(answer: RouteAnswer, locale: string): SentRead {
   const sent = answer.body as { ok?: unknown; message?: unknown; marked?: unknown } | null;
   if (sent?.ok === true && typeof sent.message === 'string') return { ok: true, message: sent.message, variant: sent.marked === false ? 'warning' : 'success' };
-  const problems = problemsOf(answer.body);
-  if (problems) return { ok: false, unconfirmed: false, problems };
+  const problems = routeProblems(answer.body);
+  if (problems) {
+    return { ok: false, unconfirmed: problems.some((problem) => problem.code === SEND_UNCONFIRMED), problems: problems.map((problem) => problem.message) };
+  }
   if (neverReachedRoute(answer.status)) return { ok: false, unconfirmed: false, problems: [feedbackFor(answer, locale).message] };
   return { ok: false, unconfirmed: true, problems: [formWords(locale).unconfirmed] };
 }
@@ -112,6 +127,38 @@ export function sendStep(state: SendState, event: SendEvent): SendState {
 
 /** Send is clickable only for a loaded form that has not been sent, is not being sent, and was not left unconfirmed. */
 export const canSend = (state: SendState): boolean => state.phase === 'idle';
+
+/**
+ * What an answer for a record no longer shown still tells the person, as a snackbar (never the form, which is
+ * another record's now): that it went, that it went but was not marked, or that it could not be confirmed. A
+ * refusal says nothing: nothing was sent, and the person has left that form.
+ */
+export function staleNotice(read: SentRead, locale: string): { message: string; variant: 'success' | 'warning' } | null {
+  if (read.ok) return { message: read.message, variant: read.variant };
+  return read.unconfirmed ? { message: formWords(locale).unconfirmed, variant: 'warning' } : null;
+}
+
+/** A document's Send, as the in-flight set knows it: the object too, since two objects may share an id. */
+export const sendKey = (object: EmailObject, recordId: string): string => `${object}:${recordId}`;
+
+/**
+ * The documents whose Send is in flight. Module-level, so that it outlives a form: a fresh form for a record
+ * (after A, B, A, or a remount) must not send it a second time in parallel with the first. It guards only what
+ * is in flight; once an answer has come, a new form may send the same record again.
+ */
+export const SENDS_IN_FLIGHT: Set<string> = new Set();
+
+/** Takes a document's Send; false when one is already in flight for it. */
+export function claimSend(inFlight: Set<string>, key: string): boolean {
+  if (inFlight.has(key)) return false;
+  inFlight.add(key);
+  return true;
+}
+
+/** Frees a document's Send once its answer has come, whatever it was, even for a record no longer shown. */
+export function releaseSend(inFlight: Set<string>, key: string): void {
+  inFlight.delete(key);
+}
 
 /**
  * The value a form element's change event carries. Twenty's remote DOM serializes it
