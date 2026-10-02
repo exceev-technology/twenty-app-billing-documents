@@ -16,10 +16,15 @@ const issued = { QUOTE: 'émis', INVOICE: 'émise', CREDIT_NOTE: 'émis' } as co
 const correct = (kind: keyof typeof kinds): string =>
   kind === 'CREDIT_NOTE' ? 'Un avoir émis ne peut plus changer.' : 'Corrigez-la par un avoir.';
 
-/** "de Verdal Studio", "d’Atelier Nord". */
-const ofSeller = (seller: string): string => (/^[aeiouyàâäéèêëîïôöùûü]/i.test(seller) ? `d’${seller}` : `de ${seller}`);
+/**
+ * "de Verdal Studio", "d’Atelier Nord", "d’Œuvre Vive". Before a vowel, œ or æ; never before an h: a mute h elides
+ * (d’Hélène) and an aspirated one does not (de Hollande, de Hugo), the spelling does not say which, and a name that
+ * stands unelided reads better than one wrongly elided.
+ */
+const ofSeller = (seller: string): string => (/^[aeiouyàâäéèêëîïôöùûüœæ]/i.test(seller) ? `d’${seller}` : `de ${seller}`);
 const greeting = (buyer: string | null): string => (buyer ? `Bonjour ${buyer},` : 'Bonjour,');
-const signed = (seller: string): string => (seller ? `Cordialement,\n${seller}` : 'Cordialement,');
+/** With no seller to sign, the closing stands alone: a comma would lead nowhere. */
+const signed = (seller: string): string => (seller ? `Cordialement,\n${seller}` : 'Cordialement');
 const bySeller = (seller: string): string => (seller ? ` ${ofSeller(seller)}` : '');
 const amount = (total: string | null): string => (total ? ` d’un montant de ${total}` : '');
 const quoteName = ({ number, version }: EmailFacts): string => (version !== null && version > 1 ? `${number} (version ${version})` : number);
@@ -115,8 +120,8 @@ export const fr: LifecyclePack = {
         ? 'La boîte mail choisie n’est plus connectée à Twenty\u00a0: fermez ce formulaire et rouvrez-le.'
         : 'Aucune boîte mail n’est connectée à Twenty à votre nom\u00a0: connectez la vôtre dans Paramètres → Comptes, puis rouvrez ce formulaire.',
     MISSING_RECIPIENT: () => 'Indiquez l’adresse du destinataire.',
-    INVALID_RECIPIENT: ({ value }) => `${value} n’est pas une adresse e-mail.`,
-    TOO_MANY_RECIPIENTS: ({ value }) => `Un e-mail part vers ${value} adresses au plus.`,
+    INVALID_RECIPIENT: ({ value }) => (value ? `${value} n’est pas une adresse e-mail.` : 'Une des adresses n’est pas une adresse e-mail.'),
+    TOO_MANY_RECIPIENTS: ({ value }) => (value ? `Un e-mail ne peut pas être envoyé à plus de ${value} adresses.` : 'Cet e-mail a trop d’adresses.'),
     MISSING_SUBJECT: () => 'Indiquez un objet.',
     MISSING_MESSAGE: () => 'Écrivez un message.',
     EMAIL_NOT_ALLOWED: () =>

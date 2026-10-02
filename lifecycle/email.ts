@@ -38,14 +38,21 @@ export function parseEmailRequest(raw: unknown): EmailRequest | null {
   return { step, ...base, from, to, cc, subject, message };
 }
 
-/** The PDF the email carries (spec §6): the PDF field's first file (the issued one, a quote's newest version), named by the number. */
+/** What no file name may hold, on any system the recipient may save it to: path and device characters, and control characters. */
+const UNSAFE_IN_FILE_NAME = /[\\/:*?"<>|\u0000-\u001f\u007f]/g;
+const safeFileName = (name: string): string => name.replace(UNSAFE_IN_FILE_NAME, '-');
+
+/**
+ * The PDF the email carries (spec §6): the PDF field's first file (the issued one, a quote's newest version), named
+ * by the number. A number may hold a slash (a pattern like F/{YYYY}/{SEQ}): the name the recipient sees never does.
+ */
 export function attachmentOf(kind: Kind, document: Row): Attachment | null {
   const first = Array.isArray(document.pdf) ? (document.pdf[0] as { fileId?: unknown; label?: unknown } | null | undefined) : undefined;
   if (typeof first?.fileId !== 'string' || first.fileId === '') return null;
   const number = textOf(document.number).trim();
-  if (number === '') return { id: first.fileId, name: textOf(first.label).trim() || 'document.pdf' };
+  if (number === '') return { id: first.fileId, name: safeFileName(textOf(first.label).trim() || 'document.pdf') };
   const version = kind.kind === 'QUOTE' && typeof document.version === 'number' && Number.isInteger(document.version) ? document.version : null;
-  return { id: first.fileId, name: version === null ? `${number}.pdf` : `${number} v${version}.pdf` };
+  return { id: first.fileId, name: safeFileName(version === null ? `${number}.pdf` : `${number} v${version}.pdf`) };
 }
 
 /**
@@ -67,7 +74,7 @@ export function templateOf(kind: Kind, document: Row, localDate: string): EmailT
   if (kind.kind !== 'INVOICE') return kind.kind;
   const due = textOf(document.dueDate);
   const unpaid = document.status === 'ISSUED' || document.status === 'SENT';
-  return unpaid && due !== '' && due < localDate ? 'REMINDER' : 'INVOICE';
+  return unpaid && isCalendarDate(due) && due < localDate ? 'REMINDER' : 'INVOICE';
 }
 
 /** What the message is made of: the document, its issuer and profile, the person billed, and a credit note's invoice. */
@@ -91,14 +98,24 @@ export function factsOf(sources: EmailSources): EmailFacts {
   const { kind, document, issuer, profile, person, invoice } = sources;
   const language = languageOf(document, profile);
   const locale = usableLocale(localeOf(language, profile), localeOf(language, null));
-  const date = (value: unknown): string | null => (textOf(value) === '' ? null : formatDate(textOf(value), locale));
+  // A date that is not a day of the calendar, or a currency Intl does not know, is left out of the message: the
+  // person fills the form in anyway, and a record edited to a bad value must not stop the email.
+  const date = (value: unknown): string | null => (isCalendarDate(textOf(value)) ? formatDate(textOf(value), locale) : null);
   const micros = microsOf(document.total);
   const currency = currencyOf(document.total) || textOf(document.currencyCode);
+  const money = (): string | null => {
+    if (Number.isNaN(micros) || currency === '') return null;
+    try {
+      return formatMoney(micros, currency, locale);
+    } catch {
+      return null;
+    }
+  };
   return {
     number: textOf(document.number).trim(),
     version: kind.kind === 'QUOTE' && typeof document.version === 'number' ? document.version : null,
     seller: textOf(issuer?.name).trim() || textOf(issuer?.legalName).trim(),
-    total: Number.isNaN(micros) || currency === '' ? null : formatMoney(micros, currency, locale),
+    total: money(),
     dueDate: kind.kind === 'INVOICE' ? date(document.dueDate) : null,
     validUntil: kind.kind === 'QUOTE' ? date(document.validUntil) : null,
     corrects: kind.kind === 'CREDIT_NOTE' ? orNull(textOf(invoice?.number)) : null,
@@ -130,15 +147,29 @@ export function preselected(mailboxes: readonly Mailbox[], issuer: Row | null): 
 export const recipientsOf = (text: string): string[] =>
   text.split(/[,;]/).map((piece) => piece.trim()).filter((piece) => piece !== '');
 
-/** Something that looks like an address: one @, no space or bracket, a dot in the domain. Twenty checks it again before sending. */
-const ADDRESS = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:.]+$/;
+/** Something that looks like an address: one @, no space, bracket or control character, a dot in the domain. Twenty checks it again before sending. */
+const ADDRESS = /^[^\s@<>()",;:\u0000-\u001f\u007f]+@[^\s@<>()",;:\u0000-\u001f\u007f]+\.[^\s@<>()",;:.\u0000-\u001f\u007f]+$/;
+
+/** Each address once, whatever its case: the first spelling stays. An address in `taken` is left out. */
+function distinct(addresses: readonly string[], taken: readonly string[] = []): string[] {
+  const seen = new Set(taken.map((address) => address.toLowerCase()));
+  return addresses.filter((address) => {
+    const key = address.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 export type CheckedMessage = { problems: LifecycleProblem[]; to: string[]; cc: string[]; subject: string; message: string };
 
-/** The message as the person wrote it, checked all at once (spec §6, step 1). The subject is folded onto one line: it becomes a header. */
+/**
+ * The message as the person wrote it, checked all at once (spec §6, step 1). The subject is folded onto one line: it
+ * becomes a header. An address written twice, whatever its case, goes once, and one already in To is not copied.
+ */
 export function checkMessage(input: { to: string; cc: string; subject: string; message: string }): CheckedMessage {
-  const to = recipientsOf(input.to);
-  const cc = recipientsOf(input.cc);
+  const to = distinct(recipientsOf(input.to));
+  const cc = distinct(recipientsOf(input.cc), to);
   const subject = input.subject.replace(/[\r\n]+/g, ' ').trim();
   const problems: LifecycleProblem[] = [];
   for (const [name, addresses] of [['to', to], ['cc', cc]] as const) {
@@ -163,7 +194,8 @@ export function messageHtml(text: string): string {
     .replace(/\r\n?/g, '\n')
     .replace(/[&<>"']/g, (character) => ESCAPES[character]!)
     .split(/\n(?:[ \t]*\n)+/)
-    .map((paragraph) => paragraph.replace(/^\n+|\n+$/g, ''))
+    // A line of spaces at the start or the end of the message is no line of a paragraph: it would leave a stray <br>.
+    .map((paragraph) => paragraph.replace(/^(?:[ \t]*\n)+|(?:\n[ \t]*)+$/g, ''))
     .filter((paragraph) => paragraph.trim() !== '')
     .map((paragraph) => `<p>${paragraph.split('\n').join('<br>')}</p>`)
     .join('');

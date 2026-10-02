@@ -69,6 +69,13 @@ test('a draft, a cancelled invoice and a deleted document cannot be sent; one th
   assert.deepEqual(sendRefusal(INVOICE, invoice({ pdf: [] })), { code: 'NO_PDF', documentType: 'INVOICE' });
 });
 
+test('the attachment’s name holds no path or device character and no control character: each becomes a hyphen', () => {
+  assert.equal(attachmentOf(INVOICE, invoice({ number: 'F/2026\\0001: A*B?C"D<E>F|G\u0000H\u001fI\u007fJ' }))?.name, 'F-2026-0001- A-B-C-D-E-F-G-H-I-J.pdf');
+  assert.equal(attachmentOf(QUOTE, quote({ number: 'D/4', version: 2 }))?.name, 'D-4 v2.pdf');
+  assert.equal(attachmentOf(QUOTE, quote({ number: '', pdf: [{ fileId: 'f', label: 'Offre: v1/final.pdf' }] }))?.name, 'Offre- v1-final.pdf');
+  assert.equal(attachmentOf(INVOICE, invoice({ number: 'F2026-0001' }))?.name, 'F2026-0001.pdf', 'a number with none of them is left as it is');
+});
+
 test('the attachment is the PDF field’s first file, named by the number, a quote’s by its version too', () => {
   assert.deepEqual(attachmentOf(INVOICE, invoice()), { id: 'file-1', name: 'F2026-0001.pdf' });
   assert.deepEqual(attachmentOf(CREDIT_NOTE, creditNote()), { id: 'file-cn', name: 'AV2026-0001.pdf' });
@@ -97,6 +104,23 @@ test('the facts are formatted as the PDF prints them, in the profile’s locale'
   });
   assert.equal(factsOf(sources(CREDIT_NOTE, creditNote(), { invoice: invoice() })).corrects, 'F2026-0001');
   assert.equal(factsOf(sources(CREDIT_NOTE, creditNote(), { invoice: null })).corrects, null);
+});
+
+test('a currency Intl does not know leaves the total out, and a date that is no day of the calendar leaves it out: the email still reads', () => {
+  for (const code of ['EU', 'EURO', '€€€', '12']) {
+    assert.equal(factsOf(sources(INVOICE, invoice({ total: money(9_792_000_000, code) }))).total, null, code);
+  }
+  for (const text of ['not-a-date', '2026-13-45', '2026-02-30', '26/10/2026']) {
+    assert.equal(factsOf(sources(INVOICE, invoice({ dueDate: text }))).dueDate, null, text);
+    assert.equal(factsOf(sources(QUOTE, quote({ validUntil: text }))).validUntil, null, text);
+  }
+  const worn = invoice({ total: money(9_792_000_000, 'EU'), dueDate: '2026-13-45' });
+  assert.deepEqual(prefilled(sources(INVOICE, worn), TODAY), {
+    subject: 'Facture F2026-0001 de Verdal Studio',
+    message: 'Bonjour Camille,\n\nVeuillez trouver ci-joint la facture F2026-0001.\n\nCordialement,\nVerdal Studio',
+  });
+  // Nothing says the invoice is overdue: a date that is no date is not before today.
+  assert.equal(templateOf(INVOICE, invoice({ dueDate: '2026-02-30' }), TODAY), 'INVOICE');
 });
 
 test('the seller is the issuer’s trading name, else its legal name; the buyer the billed person’s first name, else none', () => {
@@ -163,9 +187,37 @@ test('a message is checked all at once: each address that is not one, named; To 
     { code: 'MISSING_MESSAGE', field: 'message' },
   ]);
   assert.deepEqual(checkMessage({ ...ok, to: ' , ', cc: 'compta@calibre.example' }).problems, [{ code: 'MISSING_RECIPIENT', field: 'to' }], 'a copy alone is no recipient');
-  const many = (count: number) => Array.from({ length: count }, (_, index) => `p${index}@calibre.example`).join(', ');
-  assert.deepEqual(checkMessage({ ...ok, to: many(15), cc: many(5) }).problems, []);
-  assert.deepEqual(checkMessage({ ...ok, to: many(15), cc: many(6) }).problems, [{ code: 'TOO_MANY_RECIPIENTS', value: String(MAX_RECIPIENTS) }]);
+  // Distinct addresses: the same address in both fields counts once (below).
+  const many = (count: number, name = 'p') => Array.from({ length: count }, (_, index) => `${name}${index}@calibre.example`).join(', ');
+  assert.deepEqual(checkMessage({ ...ok, to: many(15), cc: many(5, 'c') }).problems, []);
+  assert.deepEqual(checkMessage({ ...ok, to: many(15), cc: many(6, 'c') }).problems, [{ code: 'TOO_MANY_RECIPIENTS', value: String(MAX_RECIPIENTS) }]);
+});
+
+test('an address written twice, whatever its case, goes once with its first spelling; one already in To is dropped from Cc', () => {
+  const checked = checkMessage({
+    to: 'Camille@Calibre.example, camille@calibre.example; compta@calibre.example',
+    cc: 'COMPTA@calibre.example, nouveau@calibre.example, Nouveau@Calibre.example, CAMILLE@calibre.example',
+    subject: 'Facture', message: 'Bonjour',
+  });
+  assert.deepEqual([checked.problems, checked.to, checked.cc], [[], ['Camille@Calibre.example', 'compta@calibre.example'], ['nouveau@calibre.example']]);
+  // The twenty-address limit counts the addresses that remain.
+  const many = (count: number) => Array.from({ length: count }, (_, index) => `p${index}@calibre.example`);
+  const twenty = many(MAX_RECIPIENTS);
+  const again = checkMessage({ to: twenty.join(', '), cc: twenty.map((address) => address.toUpperCase()).join(', '), subject: 'S', message: 'M' });
+  assert.deepEqual([again.problems, again.to.length, again.cc], [[], 20, []]);
+  // A bad address written twice is told once.
+  assert.deepEqual(checkMessage({ to: 'a@b, A@B, ok@calibre.example', cc: '', subject: 'S', message: 'M' }).problems, [{ code: 'INVALID_RECIPIENT', field: 'to', value: 'a@b' }]);
+});
+
+test('an address with a control character, whatever it is, is not an address', () => {
+  for (const character of ['\u0000', '\u0007', '\u001b', '\u001f', '\u007f']) {
+    const address = `ca${character}mille@calibre.example`;
+    assert.deepEqual(
+      checkMessage({ to: address, cc: '', subject: 'S', message: 'M' }).problems, [{ code: 'INVALID_RECIPIENT', field: 'to', value: address }],
+      JSON.stringify(character),
+    );
+  }
+  assert.deepEqual(checkMessage({ to: 'camille@calibre.example', cc: '\u0000x@y.example', subject: 'S', message: 'M' }).problems.map((problem) => problem.field), ['cc']);
 });
 
 test('a subject is folded onto one line: it becomes a header', () => {
@@ -178,5 +230,11 @@ test('the message is HTML: every special character escaped, a blank line a parag
     '<p>Hello Camille,</p><p>Please &lt;b&gt;pay&lt;/b&gt; &amp; &quot;thank&quot; you<br>It&#39;s due.</p><p>Bye</p>',
   );
   assert.equal(messageHtml('\n\nOne line\n'), '<p>One line</p>');
+  // A line of spaces at the start or the end is no line of a paragraph, whatever the line break that follows or precedes it.
+  assert.equal(messageHtml('  \nHello\nthere\n \t'), '<p>Hello<br>there</p>');
+  assert.equal(messageHtml(' \r\n\r\n \nHello\r\n \r\n'), '<p>Hello</p>');
+  assert.equal(messageHtml('\t\nA\n \nB\n  '), '<p>A</p><p>B</p>');
+  assert.equal(messageHtml('  Indented\nstays'), '<p>  Indented<br>stays</p>');
+  assert.equal(messageHtml(' \n \n'), '');
   assert.equal(messageHtml('<script>alert(1)</script> <a href="x">link</a>'), '<p>&lt;script&gt;alert(1)&lt;/script&gt; &lt;a href=&quot;x&quot;&gt;link&lt;/a&gt;</p>');
 });

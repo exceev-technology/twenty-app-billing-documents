@@ -194,7 +194,7 @@ test('both packs word every email template, with every fact or none, and never p
   }
 });
 
-test('the invoice’s email reads as the spec’s example, and greets no one by name when no person is billed', () => {
+test('the English invoice’s email is pinned exactly, its date as the PDF prints it, and it greets no one by name when no person is billed', () => {
   const facts = { ...NO_FACTS, seller: 'Acme', total: '1,234.00 €', dueDate: '31/10/2026', buyer: 'Maria' };
   assert.equal(PACKS.EN.emails.INVOICE.subject(facts), 'Invoice F2026-0017 from Acme');
   assert.equal(
@@ -205,9 +205,80 @@ test('the invoice’s email reads as the spec’s example, and greets no one by 
   assert.match(PACKS.FR.emails.INVOICE.message({ ...facts, buyer: null }), /^Bonjour,\n\n/);
 });
 
-test('French elides de before a vowel, and a quote is named by its version from the second on', () => {
+test('the French messages are pinned exactly: the invoice, a credit note and a quote', () => {
+  assert.equal(PACKS.FR.emails.INVOICE.subject(ALL_FACTS), 'Facture F2026-0017 d’Acme');
+  assert.equal(
+    PACKS.FR.emails.INVOICE.message(ALL_FACTS),
+    'Bonjour Maria,\n\nVeuillez trouver ci-joint la facture F2026-0017 d’un montant de 1 234,00 €, à régler au plus tard le 31/10/2026.\n\nCordialement,\nAcme',
+  );
+  assert.equal(PACKS.FR.emails.CREDIT_NOTE.subject(ALL_FACTS), 'Avoir F2026-0017 d’Acme');
+  assert.equal(
+    PACKS.FR.emails.CREDIT_NOTE.message(ALL_FACTS),
+    'Bonjour Maria,\n\nVeuillez trouver ci-joint l’avoir F2026-0017 d’un montant de 1 234,00 €, qui corrige la facture F2026-0001.\n\nCordialement,\nAcme',
+  );
+  assert.equal(PACKS.FR.emails.QUOTE.subject(ALL_FACTS), 'Devis F2026-0017 (version 2) d’Acme');
+  assert.equal(
+    PACKS.FR.emails.QUOTE.message(ALL_FACTS),
+    'Bonjour Maria,\n\nVeuillez trouver ci-joint notre devis F2026-0017 (version 2) d’un montant de 1 234,00 €, valable jusqu’au 31/10/2026.\n\nCordialement,\nAcme',
+  );
+  assert.equal(
+    PACKS.FR.emails.REMINDER.message(ALL_FACTS),
+    'Bonjour Maria,\n\nSauf erreur de notre part, la facture F2026-0017 d’un montant de 1 234,00 €, échue le 31/10/2026, n’est pas encore réglée. Vous la trouverez de nouveau ci-jointe.\n\nSi vous l’avez déjà réglée, merci de ne pas tenir compte de ce message.\n\nCordialement,\nAcme',
+  );
+});
+
+test('the English credit note’s and quote’s messages are pinned exactly', () => {
+  assert.equal(
+    PACKS.EN.emails.CREDIT_NOTE.message(ALL_FACTS),
+    'Hello Maria,\n\nPlease find attached credit note F2026-0017 for 1 234,00 €, which corrects invoice F2026-0001.\n\nKind regards,\nAcme',
+  );
+  assert.equal(
+    PACKS.EN.emails.QUOTE.message(ALL_FACTS),
+    'Hello Maria,\n\nPlease find attached our quote F2026-0017 (version 2) for 1 234,00 €, valid until 31/10/2026.\n\nKind regards,\nAcme',
+  );
+});
+
+test('a signature with no seller ends with the closing alone, never a bare comma, in either language', () => {
+  for (const [pack, closing] of [[PACKS.EN, 'Kind regards'], [PACKS.FR, 'Cordialement']] as const) {
+    for (const template of TEMPLATES) {
+      const message = pack.emails[template].message({ ...ALL_FACTS, seller: '' });
+      assert.ok(message.endsWith(`.\n\n${closing}`), `${pack.code} ${template}: ${message}`);
+      assert.doesNotMatch(message, /,\s*$/, `${pack.code} ${template}`);
+    }
+  }
+});
+
+test('the two recipient problems never print “undefined” when they have no value to name', () => {
+  for (const pack of [PACKS.EN, PACKS.FR]) {
+    for (const code of ['INVALID_RECIPIENT', 'TOO_MANY_RECIPIENTS'] as const) {
+      for (const details of [{}, { field: 'to' }, { value: '' }]) {
+        const text = pack.problems[code](details);
+        filled(text, `${pack.code} ${code}`);
+        assert.doesNotMatch(text, /undefined|null|NaN/, `${pack.code} ${code}`);
+      }
+    }
+  }
+  assert.equal(PACKS.EN.problems.INVALID_RECIPIENT({}), 'One of the addresses is not an email address.');
+  assert.equal(PACKS.FR.problems.INVALID_RECIPIENT({}), 'Une des adresses n’est pas une adresse e-mail.');
+  assert.equal(PACKS.EN.problems.TOO_MANY_RECIPIENTS({}), 'This email has too many addresses.');
+  assert.equal(PACKS.FR.problems.TOO_MANY_RECIPIENTS({}), 'Cet e-mail a trop d’adresses.');
+});
+
+test('too many recipients is worded naturally in French, with the limit', () => {
+  assert.equal(PACKS.FR.problems.TOO_MANY_RECIPIENTS({ value: '20' }), 'Un e-mail ne peut pas être envoyé à plus de 20 adresses.');
+  assert.equal(PACKS.EN.problems.TOO_MANY_RECIPIENTS({ value: '20' }), 'One email goes to at most 20 addresses.');
+});
+
+test('French elides de before a vowel, œ or æ, but never before an h, which may be aspirated, and a quote is named by its version from the second on', () => {
   assert.equal(PACKS.FR.emails.INVOICE.subject({ ...NO_FACTS, seller: 'Atelier Nord' }), 'Facture F2026-0017 d’Atelier Nord');
   assert.equal(PACKS.FR.emails.INVOICE.subject({ ...NO_FACTS, seller: 'Verdal Studio' }), 'Facture F2026-0017 de Verdal Studio');
+  for (const [seller, expected] of [
+    ['Œuvre Vive', 'd’Œuvre Vive'], ['œuvres Nord', 'd’œuvres Nord'], ['Æon Conseil', 'd’Æon Conseil'], ['ægir', 'd’ægir'], ['Éditions Nord', 'd’Éditions Nord'],
+    // An aspirated h does not elide: "de Hollande", "de Hugo". A mute h would, but the spelling does not tell them apart.
+    ['Hollande Conseil', 'de Hollande Conseil'], ['Hugo & Fils', 'de Hugo & Fils'], ['Hélène Studio', 'de Hélène Studio'],
+  ] as const) {
+    assert.equal(PACKS.FR.emails.INVOICE.subject({ ...NO_FACTS, seller }), `Facture F2026-0017 ${expected}`, seller);
+  }
   assert.equal(PACKS.EN.emails.QUOTE.subject({ ...NO_FACTS, number: 'D2026-0004', version: 1, seller: 'Acme' }), 'Quote D2026-0004 from Acme');
   assert.equal(PACKS.EN.emails.QUOTE.subject({ ...NO_FACTS, number: 'D2026-0004', version: 2, seller: 'Acme' }), 'Quote D2026-0004 (version 2) from Acme');
 });

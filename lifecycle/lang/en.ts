@@ -14,7 +14,8 @@ const correct = (kind: keyof typeof kinds): string =>
   kind === 'CREDIT_NOTE' ? 'An issued credit note cannot change.' : 'Correct it with a credit note.';
 
 const greeting = (buyer: string | null): string => (buyer ? `Hello ${buyer},` : 'Hello,');
-const signed = (seller: string): string => (seller ? `Kind regards,\n${seller}` : 'Kind regards,');
+/** With no seller to sign, the closing stands alone: a comma would lead nowhere. */
+const signed = (seller: string): string => (seller ? `Kind regards,\n${seller}` : 'Kind regards');
 const bySeller = (seller: string): string => (seller ? ` from ${seller}` : '');
 const amount = (total: string | null): string => (total ? ` for ${total}` : '');
 const quoteName = ({ number, version }: EmailFacts): string => (version !== null && version > 1 ? `${number} (version ${version})` : number);
@@ -103,8 +104,8 @@ export const en: LifecyclePack = {
         ? 'The mailbox chosen is no longer connected to Twenty: close this form and open it again.'
         : 'You have no mailbox connected to Twenty: connect yours in Settings → Accounts, then open this form again.',
     MISSING_RECIPIENT: () => 'Add the address to send to.',
-    INVALID_RECIPIENT: ({ value }) => `${value} is not an email address.`,
-    TOO_MANY_RECIPIENTS: ({ value }) => `One email goes to at most ${value} addresses.`,
+    INVALID_RECIPIENT: ({ value }) => (value ? `${value} is not an email address.` : 'One of the addresses is not an email address.'),
+    TOO_MANY_RECIPIENTS: ({ value }) => (value ? `One email goes to at most ${value} addresses.` : 'This email has too many addresses.'),
     MISSING_SUBJECT: () => 'Write a subject.',
     MISSING_MESSAGE: () => 'Write a message.',
     EMAIL_NOT_ALLOWED: () => 'Your role cannot send email: an administrator can allow it in Settings → Roles, under your role, “Send email”.',
