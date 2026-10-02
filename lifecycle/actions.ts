@@ -3,7 +3,7 @@ import { renderDocument } from '../render/document.ts';
 import { RenderError, type RenderInput, type RenderResult } from '../render/types.ts';
 import { checkGate, overCreditProblem, resetOf, type GateAction } from './gate.ts';
 import { creditLines, creditNoteFromInvoice, fullyCredited, holdsExactly, invoiceFromQuote, invoiceRemainder, lineCopy, OPEN_QUOTE, overCredit, type RemainingLine } from './flows.ts';
-import { packForDocument } from './guards.ts';
+import { packForDocument } from './pack-for.ts';
 import { describeAll, LifecycleError, packFor, PACKS, type AnyProblem, type LifecyclePack, type WordedProblem } from './lang/pack.ts';
 import { isIssued, issuedCreditNotes, KINDS, kindOf, loadDocument, loadFigures, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
 import { decimalAmount, effectiveCurrency, fileInputs, idOf, isCalendarDate, languageOf, moneyOf, RECORD_ID, textOf, toDocumentInput, toRenderInput } from './map.ts';

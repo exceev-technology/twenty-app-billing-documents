@@ -4,11 +4,11 @@ import {
   attachmentOf, checkMessage, messageHtml, parseEmailRequest, prefilled, preselected, recipientOf, sendRefusal,
   type CheckedMessage, type EmailRequest, type EmailSources, type PrepareRequest, type SendRequest,
 } from '../../lifecycle/email.ts';
-import { packForDocument } from '../../lifecycle/guards.ts';
 import { describeAll, packFor, type LifecyclePack, type LifecycleProblem, type WordedProblem } from '../../lifecycle/lang/pack.ts';
 import { KINDS, type Kind } from '../../lifecycle/load.ts';
 import { EmailNotAllowedError, SendFailedError, type Mailbox, type Mailer } from '../../lifecycle/mailer.ts';
 import { idOf, textOf } from '../../lifecycle/map.ts';
+import { packForDocument } from '../../lifecycle/pack-for.ts';
 import { leaveMessage, NotAllowedError, type CallerStore, type Row, type Store } from '../../lifecycle/store.ts';
 import { id } from '../lib/id.ts';
 import { callerMailer } from '../lib/mailer.ts';

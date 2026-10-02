@@ -1,7 +1,7 @@
-import { PACKS, type Language, type LifecyclePack, type StatusKey, type StatusRule } from './lang/pack.ts';
+import type { LifecyclePack, StatusKey, StatusRule } from './lang/pack.ts';
 import { isIssued, KINDS, type Kind } from './load.ts';
 import { idOf, textOf } from './map.ts';
-import { packForIssuer } from './numbering.ts';
+import { packForDocument } from './pack-for.ts';
 import { leaveMessage, sourceOf, type RecordEvent, type Row, type Store, type TimelineKind } from './store.ts';
 import { documentChangeMatters, fillFromCatalog, lineChangeMatters, recomputeTotals } from './totals.ts';
 
@@ -77,11 +77,6 @@ type SnapshotRecord = { document?: Record<string, unknown>; lines?: Record<strin
 function recordOf(document: Row): SnapshotRecord {
   const record = isObject(document.snapshot) ? document.snapshot.record : undefined;
   return isObject(record) ? (record as SnapshotRecord) : {};
-}
-
-/** Messages are in the document's language, else its issuer's profile's. */
-export async function packForDocument(store: Store, document: Row): Promise<LifecyclePack> {
-  return PACKS[textOf(document.language) as Language] ?? packForIssuer(store, document.issuerId);
 }
 
 async function tell(store: Store, kind: Kind, document: Row, text: (pack: LifecyclePack) => string, timeline: TimelineKind = 'CORRECTION'): Promise<void> {

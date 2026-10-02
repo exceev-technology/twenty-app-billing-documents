@@ -316,6 +316,7 @@ test('bundled as the CLI bundles it, the route prepares a form, and carries neit
     assert.ok(inputs.some((input) => input.endsWith('lifecycle/email.ts')), 'the route bundles lifecycle/email.ts');
     assert.ok(!inputs.some((input) => input.includes('pdfmake')), 'the route bundles pdfmake');
     assert.ok(!inputs.some((input) => input.includes('render/document.ts') || input.includes('render/layouts/') || input.includes('render/pdf.ts')), 'the route bundles the Renderer');
+    assert.ok(!inputs.some((input) => /lifecycle\/(guards|numbering|totals|actions)\.ts$/.test(input)), 'the route bundles the guards, the numbering or the totals');
 
     const entry = join(folder, 'entry.ts');
     writeFileSync(entry, [
