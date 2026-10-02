@@ -261,8 +261,9 @@ export async function runEmail(raw: unknown, deps: EmailDeps): Promise<EmailOutc
       ...scrubbed(error, writtenIn(request)),
     });
     // A failure while the email was going is not "something went wrong, try again": it may have gone, and a retry would send it twice.
-    const message = step === 'send' ? pack.messages.sendUnknown(reference) : pack.messages.unexpected(reference);
-    return { status: 500, body: { ok: false, problems: [{ code: 'UNEXPECTED', message }] } };
+    // Its own code lets the form lock Send, which it must not after an earlier step's UNEXPECTED, when nothing was sent.
+    if (step === 'send') return { status: 500, body: { ok: false, problems: [{ code: 'SEND_UNCONFIRMED', message: pack.messages.sendUnknown(reference) }] } };
+    return { status: 500, body: { ok: false, problems: [{ code: 'UNEXPECTED', message: pack.messages.unexpected(reference) }] } };
   }
 }
 

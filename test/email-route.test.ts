@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import billingEmail, { respond, runEmail, scrubbed, type EmailDeps, type EmailOutcome } from '../src/logic-functions/billing-email.ts';
 import { EmailNotAllowedError, SendFailedError, type Mailbox, type Mailer, type OutgoingEmail } from '../lifecycle/mailer.ts';
 import type { Row } from '../lifecycle/store.ts';
+import { metadataMailer } from '../src/lib/mailer.ts';
 import { IDS } from '../src/ids.ts';
 import { TODAY, money, now, workspace, type Workspace } from './lifecycle/helpers/fixtures.ts';
 import { bundleLogicFunction } from './helpers/logic-function-build.ts';
@@ -444,7 +445,7 @@ test('a failure after the send is answered as sent, says the document is not mar
   assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'ISSUED');
 });
 
-test('a send that fails in transit may have gone: it says to check the Sent folder, in either language, and writes nothing as the app', async () => {
+test('a send that fails in transit may have gone: SEND_UNCONFIRMED says to check the Sent folder, in either language, and writes nothing as the app', async () => {
   const cases = [
     ['en', 'The email may have gone: check your Sent folder before trying again (ref ref-7f3a).'],
     ['fr-FR', 'L’e-mail est peut-être parti\u00a0: vérifiez vos éléments envoyés avant de réessayer (réf. ref-7f3a).'],
@@ -461,7 +462,7 @@ test('a send that fails in transit may have gone: it says to check the Sent fold
     const before = w.db.writes.length;
     const outcome = await runEmail(sendBody(w, { locale }), deps);
     assert.equal(outcome.status, 500, locale);
-    assert.deepEqual(outcome.body, { ok: false, problems: [{ code: 'UNEXPECTED', message }] }, locale);
+    assert.deepEqual(outcome.body, { ok: false, problems: [{ code: 'SEND_UNCONFIRMED', message }] }, locale);
     assert.deepEqual(sent, [], locale);
     assert.deepEqual(w.db.writes.slice(before).map((write) => write.source), ['MANUAL'], `${locale}: the caller’s write only`);
     assert.deepEqual([sentState(w.db.row('billingInvoices', w.invoice.id)!), w.db.timeline], [['ISSUED', null], []], locale);
@@ -470,6 +471,25 @@ test('a send that fails in transit may have gone: it says to check the Sent fold
     }], locale);
     // A log that holds no address, subject or message.
     assert.doesNotMatch(JSON.stringify(logs), /camille|Bonjour|Facture/);
+  }
+});
+
+test('Twenty’s server error on the send is not “not sent”: the form is told the email may have gone, and the mailer’s own refusals stay SEND_FAILED', async () => {
+  const serverError = Object.assign(new Error('Internal server error'), { errors: [{ message: 'Internal server error', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] });
+  const badInput = Object.assign(new Error('Invalid recipients'), { errors: [{ message: 'Invalid recipients', extensions: { code: 'BAD_USER_INPUT' } }] });
+  const cases = [[serverError, 500, 'SEND_UNCONFIRMED'], [badInput, 502, 'SEND_FAILED']] as const;
+  for (const [failure, status, code] of cases) {
+    const w = workspace();
+    await issuedInvoice(w);
+    const mailer = metadataMailer({
+      query: async () => ({ myConnectedAccounts: [{ id: 'mailbox-studio', handle: 'bonjour@verdal.example' }] }),
+      mutation: async () => {
+        throw failure;
+      },
+    });
+    const outcome = await runEmail(sendBody(w), setup(w, { mailer }).deps);
+    assert.deepEqual([outcome.status, problemCodes(outcome)], [status, [code]], code);
+    assert.deepEqual(sentState(w.db.row('billingInvoices', w.invoice.id)!), ['ISSUED', null], code);
   }
 });
 
