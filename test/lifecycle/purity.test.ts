@@ -40,13 +40,14 @@ test('lifecycle imports its own files, the Engine and the Renderer, and nothing 
   }
 });
 
-test('only the actions import the Renderer’s entry point, which bundles pdfmake', () => {
+test('only the actions import the Renderer’s entry point, which bundles pdfmake: the rest reach its types, words and formatting', () => {
+  const reachable = ['/render/types.ts', '/render/lang/pack.ts', '/render/format.ts'];
   for (const file of sources(LIFECYCLE)) {
     if (file.endsWith('/lifecycle/actions.ts')) continue;
     for (const specifier of specifiers(readFileSync(file, 'utf8'))) {
       const target = join(file, '..', specifier);
-      const allowed = !target.includes('/render/') || target.endsWith('/render/types.ts') || target.endsWith('/render/lang/pack.ts');
-      assert.ok(allowed, `${file} imports ${specifier}: only render/types.ts and render/lang/pack.ts are allowed outside actions.ts`);
+      const allowed = !target.includes('/render/') || reachable.some((path) => target.endsWith(path));
+      assert.ok(allowed, `${file} imports ${specifier}: outside actions.ts, only ${reachable.join(', ')} are allowed`);
     }
   }
 });

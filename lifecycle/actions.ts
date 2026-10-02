@@ -6,7 +6,7 @@ import { creditLines, creditNoteFromInvoice, fullyCredited, holdsExactly, invoic
 import { packForDocument } from './guards.ts';
 import { describeAll, LifecycleError, packFor, PACKS, type AnyProblem, type LifecyclePack, type WordedProblem } from './lang/pack.ts';
 import { isIssued, issuedCreditNotes, KINDS, kindOf, loadDocument, loadFigures, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
-import { decimalAmount, effectiveCurrency, fileInputs, idOf, languageOf, moneyOf, textOf, toDocumentInput, toRenderInput } from './map.ts';
+import { decimalAmount, effectiveCurrency, fileInputs, idOf, isCalendarDate, languageOf, moneyOf, RECORD_ID, textOf, toDocumentInput, toRenderInput } from './map.ts';
 import { claimNumber, heldNumberOf, latestIssueDate, nextNumber, raiseLedger, scopeOf, type Scope } from './numbering.ts';
 import { leaveMessage, NotAllowedError, reasonOf, type CallerStore, type Row, type Store } from './store.ts';
 import { sameMoney } from './totals.ts';
@@ -47,16 +47,6 @@ const OBJECTS: Record<ActionName, readonly DocumentObject[]> = {
   creditNote: ['billingInvoice'],
   cancelInvoice: ['billingInvoice'],
 };
-
-const RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isCalendarDate(value: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return false;
-  const [year, month, day] = match.slice(1).map(Number) as [number, number, number];
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
-}
 
 /** The request a button posts (spec §6), or null when it is not one: an action on its own kind of document. */
 export function parseRequest(raw: unknown): ActionRequest | null {

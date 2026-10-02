@@ -5,8 +5,8 @@ import { checkRender } from '../../render/document.ts';
 import { PACKS } from '../../lifecycle/lang/pack.ts';
 import { KINDS, loadDocument, type Loaded } from '../../lifecycle/load.ts';
 import {
-  addressLines, countryCode, decimalAmount, effectiveCurrency, fileInputs, microsOf, plainText, toDocumentInput, toRenderInput,
-  unitName,
+  addressLines, countryCode, decimalAmount, effectiveCurrency, fileInputs, isCalendarDate, localeOf, microsOf, plainText, RECORD_ID,
+  toDocumentInput, toRenderInput, unitName,
 } from '../../lifecycle/map.ts';
 import { TODAY, address, markdown, money, workspace, type Workspace } from './helpers/fixtures.ts';
 
@@ -235,4 +235,15 @@ test('an amount is read from a CURRENCY value, as a number or as digits', () => 
   assert.equal(microsOf({ amountMicros: '-3000000', currencyCode: 'EUR' }), -3_000_000);
   assert.ok(Number.isNaN(microsOf({ amountMicros: '1.5', currencyCode: 'EUR' })));
   assert.ok(Number.isNaN(microsOf(null)));
+});
+
+test('a record id is a UUID, a local date a day of the calendar, and the locale the profile’s or the language’s own', () => {
+  assert.equal(RECORD_ID.test('00000000-0000-4000-8000-000000000001'), true);
+  assert.equal(RECORD_ID.test('r1'), false);
+  assert.equal(isCalendarDate('2026-02-28'), true);
+  assert.equal(isCalendarDate('2026-02-30'), false);
+  assert.equal(isCalendarDate('26/09/2026'), false);
+  assert.equal(localeOf('FR', { id: 'p', locale: 'fr-CA' }), 'fr-CA');
+  assert.equal(localeOf('FR', { id: 'p', locale: ' ' }), 'fr-FR');
+  assert.equal(localeOf('EN', null), 'en-GB');
 });

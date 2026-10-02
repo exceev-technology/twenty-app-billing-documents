@@ -8,6 +8,19 @@ import type { FileRef, Row } from './store.ts';
 
 export const textOf = (value: unknown): string => (typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '');
 export const idOf = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+
+/** A record id as Twenty gives it: a UUID. */
+export const RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Whether a YYYY-MM-DD text names a day of the calendar: 2026-02-30 does not. */
+export function isCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day] = match.slice(1).map(Number) as [number, number, number];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim());
 const numberOf = (value: unknown): number =>
   typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : Number.NaN;
@@ -36,6 +49,10 @@ export function effectiveCurrency(figures: Pick<Figures, 'document' | 'issuer' |
 /** The document's language, else the profile's. The Renderer refuses one it has no pack for. */
 export const languageOf = (document: Row, profile: Row | null): Language =>
   (textOf(document.language) || textOf(profile?.language) || 'EN') as Language;
+
+/** The locale amounts and dates print in: the profile's, else the language's own (spec §9). */
+export const localeOf = (language: Language, profile: Row | null): string =>
+  textOf(profile?.locale).trim() || (language === 'FR' ? 'fr-FR' : 'en-GB');
 
 const packOf = (language: Language): LifecyclePack => PACKS[language] ?? PACKS.EN;
 
@@ -274,7 +291,7 @@ export function toRenderInput(loaded: Loaded, totals: DocumentResult, options: R
   return {
     template: (textOf(issuer?.template).trim().toLowerCase() || 'classic') as TemplateKey,
     language,
-    locale: textOf(profile?.locale).trim() || (language === 'FR' ? 'fr-FR' : 'en-GB'),
+    locale: localeOf(language, profile),
     kind: kind.kind,
     title: kind.titleField ? orNull(textOf(profile?.[kind.titleField])) : null,
     number: options.number,
