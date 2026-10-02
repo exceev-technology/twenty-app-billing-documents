@@ -6,7 +6,7 @@ says, and never in a public issue.
 
 ## Set up
 
-You need Node 24 (`.nvmrc` names it: `nvm use` reads it) and npm.
+You need Node 24.5 or later (`.nvmrc` names 24: `nvm use` reads it) and npm.
 
 ```bash
 git clone https://github.com/exceev-technology/twenty-app-billing-documents.git

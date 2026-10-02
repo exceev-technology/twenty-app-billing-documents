@@ -64,6 +64,40 @@ test('every link into this repository names a file or folder that exists', () =>
   }
 });
 
+test('every URL that holds the repository’s path is one of the two forms checked above, or the clone URL', () => {
+  const RAW = 'https://raw.githubusercontent.com/exceev-technology/twenty-app-billing-documents/main/';
+  const mine = [...readme.matchAll(/https?:\/\/[^\s)`]+/g)].map((match) => match[0]).filter((url) => url.includes('exceev-technology/twenty-app-billing-documents'));
+  assert.ok(mine.length > 10);
+  for (const url of mine) {
+    assert.ok(url.startsWith(`${REPOSITORY}/blob/main/`) || url.startsWith(RAW) || url === `${REPOSITORY}.git`, url);
+  }
+});
+
+test('it names the Twenty CLI as the installed one, never npx, and the Node it needs as the engines field does', () => {
+  assert.doesNotMatch(readme, /npx twenty/);
+  assert.match(readme, /Node 24\.5 or later/);
+  assert.equal(pkg.engines.node, '>=24.5.0');
+  assert.match(read('CONTRIBUTING.md'), /Node 24\.5 or later/);
+  assert.doesNotMatch(readme + read('CONTRIBUTING.md'), /Node 24(?!\.5)\b/);
+});
+
+test('a source install is upgraded by publishing and installing again, and uninstalled with --yes, which skips the prompt', () => {
+  const upgrading = readme.split('## Upgrading')[1].split(/^## /m)[0];
+  assert.match(upgrading, /raise `version` in `package\.json`/);
+  assert.match(upgrading, /twenty app:publish --private --remote mine\n.*twenty app:install --remote mine/);
+  assert.match(readme.split('## Uninstalling')[1].split(/^## /m)[0], /app:uninstall --remote <name>`, which asks you to confirm: add `--yes`/);
+});
+
+test('it says what the install leaves to you: logic functions, roles and a mailbox, not “nothing else to set up”', () => {
+  const install = readme.split('## Install')[1].split(/^## /m)[0];
+  assert.doesNotMatch(install, /nothing else to set up/);
+  assert.match(install, /logic functions, which a self-hosted server must have turned on/);
+  for (const section of ['Requirements', 'Roles to set', 'Sending documents by email']) {
+    assert.match(install, new RegExp(`\\*${section}\\*`), section);
+    assert.ok(headings.includes(section), `no README section “${section}”`);
+  }
+});
+
 test('it holds no raw HTML, which the marketplace would show as text', () => {
   assert.doesNotMatch(prose, /<\/?[a-z][^>]*>/i);
 });

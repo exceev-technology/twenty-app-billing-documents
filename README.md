@@ -12,9 +12,9 @@ Your clients are already in Twenty, so your documents can be too.
 
 ## Install
 
-**From Twenty's marketplace.** In Twenty, open **Settings → Applications → Marketplace**, turn off the **Vetted only** filter (Twenty marks only its own apps as vetted), search for *Billing Documents* and install it. The installation creates the objects, the views, the buttons and the country presets: nothing else to set up. A new package reaches the marketplace at its next catalog sync, within the hour.
+**From Twenty's marketplace.** In Twenty, open **Settings → Applications → Marketplace**, turn off the **Vetted only** filter (Twenty marks only its own apps as vetted), search for *Billing Documents* and install it. The installation creates the objects, the views, the buttons and the country presets. Three things stay yours: logic functions, which a self-hosted server must have turned on (see *Requirements*), your roles, to turn off the destroying of records and to allow sending email (see *Roles to set*), and a mailbox connected to Twenty by each person who sends documents by email (see *Sending documents by email*). A new package reaches the marketplace at its next catalog sync, within the hour.
 
-**From the source, on a server that does not list it.** You need Node 24 and a user who can install applications on the server:
+**From the source, on a server that does not list it.** You need Node 24.5 or later and a user who can install applications on the server:
 
 ```bash
 git clone https://github.com/exceev-technology/twenty-app-billing-documents.git
@@ -125,13 +125,20 @@ In **Settings → Roles**, turn off the permission to destroy records on the bil
 
 When a new version is published, the marketplace shows it after its next catalog sync, and Twenty offers the upgrade in **Settings → Applications**. Workspaces that turned on automatic upgrades for the app (in its *General* tab) are upgraded in the background. Twenty refuses a version that is not higher than the one installed, and a version whose required server version your server does not meet.
 
+**A source install is upgraded by hand.** Pull the new version, or raise `version` in `package.json` for a change of your own (the server refuses a version that is not higher than the installed one), then publish and install again:
+
+```bash
+./node_modules/.bin/twenty app:publish --private --remote mine
+./node_modules/.bin/twenty app:install --remote mine
+```
+
 An upgrade keeps your data: released identifiers are permanent, so Twenty upgrades the same objects and fields in place, and the changelog says if a version ever removes anything. It creates the presets, identifier types and tax codes that are missing and changes none that exist, so a correction to a preset in a new version does not alter your copy: the changelog names it, and you edit your record. [CHANGELOG.md](https://github.com/exceev-technology/twenty-app-billing-documents/blob/main/CHANGELOG.md) lists every version.
 
 ## Uninstalling
 
 **Uninstalling removes the app's objects and every document in them**: profiles, issuers, quotes, invoices, credit notes, their lines, numbering sequences and the PDFs. It cannot be undone. Keep your issued PDFs somewhere else first: many countries require you to keep issued invoices for years.
 
-Uninstall from **Settings → Applications**, on the app's page, or with `./node_modules/.bin/twenty app:uninstall --remote <name>`.
+Uninstall from **Settings → Applications**, on the app's page, or with `./node_modules/.bin/twenty app:uninstall --remote <name>`, which asks you to confirm: add `--yes` to skip the question.
 
 ## Limits
 
