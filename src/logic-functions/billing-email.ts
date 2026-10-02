@@ -1,13 +1,15 @@
 import { defineLogicFunction } from 'twenty-sdk/define';
 import { Response as TwentyResponse, type LogicFunctionExecutionContext, type RoutePayload } from 'twenty-sdk/logic-function';
 import {
-  attachmentOf, parseEmailRequest, prefilled, preselected, recipientOf, sendRefusal, type EmailRequest, type EmailSources, type PrepareRequest,
+  attachmentOf, checkMessage, messageHtml, parseEmailRequest, prefilled, preselected, recipientOf, sendRefusal,
+  type CheckedMessage, type EmailRequest, type EmailSources, type PrepareRequest, type SendRequest,
 } from '../../lifecycle/email.ts';
+import { packForDocument } from '../../lifecycle/guards.ts';
 import { describeAll, packFor, type LifecyclePack, type LifecycleProblem, type WordedProblem } from '../../lifecycle/lang/pack.ts';
 import { KINDS, type Kind } from '../../lifecycle/load.ts';
-import type { Mailbox, Mailer } from '../../lifecycle/mailer.ts';
+import { EmailNotAllowedError, SendFailedError, type Mailbox, type Mailer } from '../../lifecycle/mailer.ts';
 import { idOf, textOf } from '../../lifecycle/map.ts';
-import { NotAllowedError, reasonOf, type CallerStore, type Row, type Store } from '../../lifecycle/store.ts';
+import { leaveMessage, NotAllowedError, reasonOf, type CallerStore, type Row, type Store } from '../../lifecycle/store.ts';
 import { id } from '../lib/id.ts';
 import { callerMailer } from '../lib/mailer.ts';
 import { bodyOf, logLineFor, newReference, signedIn, type RouteContext, type RouteEvent } from '../lib/route.ts';
@@ -118,6 +120,74 @@ async function prepare(request: PrepareRequest, deps: EmailDeps, pack: Lifecycle
   };
 }
 
+/**
+ * After a send, as the app (spec §6, step 5): an Issued invoice and a Draft quote
+ * become Sent, `sentAt` keeps the first send's date, and a row names who received
+ * it, in the document's language. The status and the date are one write.
+ */
+async function recordSend(deps: EmailDeps, kind: Kind, document: Row, checked: CheckedMessage, mailbox: Mailbox): Promise<void> {
+  // Read before writing: a failure here is "not marked", never a half-told success.
+  const documentPack = await packForDocument(deps.app, document);
+  const patch: Record<string, unknown> = {};
+  if ((kind.kind === 'INVOICE' && document.status === 'ISSUED') || (kind.kind === 'QUOTE' && document.status === 'DRAFT')) patch.status = 'SENT';
+  if (textOf(document.sentAt) === '') patch.sentAt = deps.now().toISOString();
+  if (Object.keys(patch).length > 0) await deps.app.update(kind.plural, document.id, patch);
+  await leaveMessage(deps.app, {
+    object: kind.object, recordId: document.id, kind: 'SENT', text: documentPack.messages.sentTimeline(checked.to, checked.cc, mailbox.handle),
+  });
+}
+
+/** Send (spec §6): the message checked, the document read again, the caller's write, the email as the caller, the record as the app. */
+async function send(request: SendRequest, deps: EmailDeps, pack: LifecyclePack, step: Step): Promise<EmailOutcome> {
+  const kind = KINDS[request.object];
+
+  step('check');
+  const checked = checkMessage(request);
+  if (checked.problems.length > 0) return refuse(422, pack, checked.problems);
+
+  // It may have changed while the form was open: refused as Prepare refuses it, and a mailbox gone is named.
+  step('read');
+  const document = await deps.app.get(kind.plural, request.recordId);
+  const mailboxes = await deps.mailer.accounts();
+  const mailbox = mailboxes.find((candidate) => candidate.id === request.from);
+  const problems = refusalsOf(kind, document, mailboxes);
+  if (mailboxes.length > 0 && !mailbox) problems.push({ code: 'NO_MAILBOX', field: 'from' });
+  if (problems.length > 0 || !document || !mailbox) return refuse(422, pack, problems);
+  // sendRefusal found a PDF to attach.
+  const attachment = attachmentOf(kind, document)!;
+
+  step('caller');
+  try {
+    // Rewritten as it is: Twenty's role check decides whether the caller may act on the document, as for every action.
+    await deps.caller.update(kind.plural, document.id, { sentAt: document.sentAt ?? null });
+  } catch (error) {
+    if (error instanceof NotAllowedError) return refuse(403, pack, [{ code: 'NOT_ALLOWED' }]);
+    throw error;
+  }
+
+  step('send');
+  try {
+    await deps.mailer.send({
+      mailboxId: mailbox.id, to: checked.to, cc: checked.cc, subject: checked.subject, html: messageHtml(checked.message), files: [attachment],
+    });
+  } catch (error) {
+    if (error instanceof EmailNotAllowedError) return refuse(403, pack, [{ code: 'EMAIL_NOT_ALLOWED' }]);
+    if (error instanceof SendFailedError) return refuse(502, pack, [{ code: 'SEND_FAILED', ...(error.reason === '' ? {} : { value: error.reason }) }]);
+    throw error;
+  }
+
+  // The email has gone: from here on the answer is a success, whatever the record.
+  step('record');
+  try {
+    await recordSend(deps, kind, document, checked, mailbox);
+  } catch (error) {
+    const reference = deps.reference();
+    deps.log({ reference, object: kind.object, recordId: document.id, step: 'record', error: error instanceof Error ? error.message : String(error), ...reasonOf(error) });
+    return { status: 200, body: { ok: true, message: pack.messages.sentNotMarked(checked.to, kind.kind, reference), marked: false } };
+  }
+  return { status: 200, body: { ok: true, message: pack.messages.sentTo(checked.to), marked: true } };
+}
+
 /** What the form asked for, answered: never a thrown error, always an outcome the route can send. */
 export async function runEmail(raw: unknown, deps: EmailDeps): Promise<EmailOutcome> {
   const locale = (raw as { locale?: unknown } | null)?.locale;
@@ -130,8 +200,7 @@ export async function runEmail(raw: unknown, deps: EmailDeps): Promise<EmailOutc
   try {
     request = parseEmailRequest(raw);
     if (!request) throw new Error('The request is not one the email route answers');
-    if (request.step !== 'prepare') throw new Error('The email route does not send yet');
-    return await prepare(request, deps, pack, setStep);
+    return request.step === 'prepare' ? await prepare(request, deps, pack, setStep) : await send(request, deps, pack, setStep);
   } catch (error) {
     const reference = deps.reference();
     // Ids and the step only: never an address, a subject or a message.

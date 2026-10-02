@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import billingEmail, { respond, runEmail, type EmailDeps, type EmailOutcome } from '../src/logic-functions/billing-email.ts';
-import type { Mailbox, Mailer, OutgoingEmail } from '../lifecycle/mailer.ts';
+import { EmailNotAllowedError, SendFailedError, type Mailbox, type Mailer, type OutgoingEmail } from '../lifecycle/mailer.ts';
 import type { Row } from '../lifecycle/store.ts';
 import { IDS } from '../src/ids.ts';
 import { TODAY, money, now, workspace, type Workspace } from './lifecycle/helpers/fixtures.ts';
@@ -222,4 +222,180 @@ test('bundled as the CLI bundles it, the route prepares a form, and carries neit
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
+});
+
+const sendBody = (w: Workspace, over: Record<string, unknown> = {}) => ({
+  ...prepareBody(w), step: 'send', from: 'mailbox-studio', to: 'camille@calibre.example', cc: '',
+  subject: 'Facture F2026-0001 de Verdal Studio', message: 'Bonjour Camille,\n\nVeuillez trouver ci-joint la facture F2026-0001.', ...over,
+});
+const sentState = (row: Row): unknown[] => [row.status, row.sentAt];
+
+test('Send checks the message first and lists every problem; nothing is written or sent', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const { deps, sent } = setup(w);
+  const before = w.db.writes.length;
+  const outcome = await runEmail(sendBody(w, { to: 'Camille <camille@calibre.example>', cc: 'compta@calibre', subject: ' ', message: '' }), deps);
+  assert.equal(outcome.status, 422);
+  assert.ok(!outcome.body.ok);
+  assert.deepEqual(outcome.body.problems.map((problem) => problem.message), [
+    'Camille <camille@calibre.example> is not an email address.', 'compta@calibre is not an email address.', 'Write a subject.', 'Write a message.',
+  ]);
+  assert.deepEqual(problemCodes(await runEmail(sendBody(w, { to: '' }), deps)), ['MISSING_RECIPIENT']);
+  assert.deepEqual([w.db.writes.length, sent.length], [before, 0]);
+});
+
+test('Send refuses as Prepare does when the document changed while the form was open', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const { deps, sent } = setup(w);
+  await w.app.update('billingInvoices', w.invoice.id, { status: 'CANCELLED' });
+  const before = w.db.writes.length;
+  const outcome = await runEmail(sendBody(w), deps);
+  assert.equal(outcome.status, 422);
+  assert.deepEqual(problemCodes(outcome), ['NOT_SENDABLE']);
+  assert.deepEqual([w.db.writes.length, sent.length], [before, 0]);
+});
+
+test('a mailbox no longer connected, or not the caller’s, is NO_MAILBOX: nothing is written or sent', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const { deps, sent } = setup(w);
+  const before = w.db.writes.length;
+  const outcome = await runEmail(sendBody(w, { from: 'mailbox-of-someone-else' }), deps);
+  assert.equal(outcome.status, 422);
+  assert.deepEqual(outcome.body, {
+    ok: false,
+    problems: [{ code: 'NO_MAILBOX', field: 'from', message: 'The mailbox chosen is no longer connected to Twenty: close this form and open it again.' }],
+  });
+  assert.deepEqual([w.db.writes.length, sent.length], [before, 0]);
+});
+
+test('a caller whose role cannot edit the document gets NOT_ALLOWED, and nothing is sent', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const { deps, sent } = setup(w, { caller: w.db.store('MANUAL', { canUpdate: () => false }) });
+  const outcome = await runEmail(sendBody(w), deps);
+  assert.equal(outcome.status, 403);
+  assert.deepEqual(problemCodes(outcome), ['NOT_ALLOWED']);
+  assert.deepEqual(sent, []);
+});
+
+test('an issued invoice goes from the chosen mailbox as the person: the recipients, the subject on one line, the message as HTML, its PDF', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const { deps, sent } = setup(w);
+  const before = w.db.writes.length;
+  const outcome = await runEmail(sendBody(w, {
+    to: 'camille@calibre.example, ', cc: 'compta@calibre.example', subject: 'Facture F2026-0001\nde Verdal Studio', message: 'Bonjour <Camille>,\r\n\r\nCi-joint & merci.',
+  }), deps);
+  assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
+  assert.deepEqual(outcome.body, { ok: true, message: 'Sent to camille@calibre.example.', marked: true });
+  assert.deepEqual(sent, [{
+    mailboxId: 'mailbox-studio', to: ['camille@calibre.example'], cc: ['compta@calibre.example'], subject: 'Facture F2026-0001 de Verdal Studio',
+    html: '<p>Bonjour &lt;Camille&gt;,</p><p>Ci-joint &amp; merci.</p>', files: [{ id: 'file-pdf-1', name: 'F2026-0001.pdf' }],
+  }]);
+  assert.deepEqual(w.db.writes.slice(before).map((write) => [write.op, write.plural, write.source, write.data]), [
+    ['update', 'billingInvoices', 'MANUAL', { sentAt: null }],
+    ['update', 'billingInvoices', 'APPLICATION', { status: 'SENT', sentAt: '2026-09-26T09:30:00.000Z' }],
+  ]);
+  const after = w.db.row('billingInvoices', w.invoice.id)!;
+  assert.deepEqual([...sentState(after), after.pdf], ['SENT', '2026-09-26T09:30:00.000Z', [PDF]]);
+  assert.deepEqual(w.db.timeline.map((entry) => [entry.kind, entry.recordId, entry.text]), [
+    ['SENT', w.invoice.id, 'E-mail envoyé depuis Bonjour@Verdal.example à camille@calibre.example, en copie à compta@calibre.example.'],
+  ]);
+});
+
+test('a second send keeps the first send’s date, and leaves a second row', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const { deps } = setup(w);
+  assert.equal((await runEmail(sendBody(w), deps)).status, 200);
+  const before = w.db.writes.length;
+  const later = { ...deps, now: () => new Date('2026-09-27T08:00:00.000Z') };
+  assert.equal((await runEmail(sendBody(w), later)).status, 200);
+  assert.deepEqual(w.db.writes.slice(before).map((write) => write.source), ['MANUAL'], 'the caller’s write only: nothing left to mark');
+  assert.deepEqual(sentState(w.db.row('billingInvoices', w.invoice.id)!), ['SENT', '2026-09-26T09:30:00.000Z']);
+  assert.deepEqual(w.db.timeline.map((entry) => entry.kind), ['SENT', 'SENT']);
+});
+
+test('a Paid invoice stays Paid, a Draft quote becomes Sent, an Accepted one stays Accepted, an issued credit note gets its date', async () => {
+  const w = workspace();
+  await issuedInvoice(w, { status: 'PAID', sentAt: '2026-09-01T08:00:00.000Z' });
+  const { deps, sent } = setup(w);
+  assert.equal((await runEmail(sendBody(w), deps)).status, 200);
+  assert.deepEqual(sentState(w.db.row('billingInvoices', w.invoice.id)!), ['PAID', '2026-09-01T08:00:00.000Z']);
+
+  const draft = w.addQuote({ status: 'DRAFT', number: 'D2026-0004', version: 2, pdf: QUOTE_PDFS, total: money(600_000_000), personId: w.person.id });
+  const accepted = w.addQuote({ status: 'ACCEPTED', number: 'D2026-0005', version: 1, pdf: [{ fileId: 'file-q5', label: 'D2026-0005 v1.pdf' }], total: money(600_000_000) });
+  const note = w.addCreditNote({
+    status: 'ISSUED', number: 'AV2026-0001', invoiceId: w.invoice.id, snapshot: { printed: {}, record: {} },
+    pdf: [{ fileId: 'file-cn', label: 'AV2026-0001.pdf' }], total: money(1_440_000_000),
+  });
+  const documents = [['billingQuote', draft.id], ['billingQuote', accepted.id], ['billingCreditNote', note.id]] as const;
+  for (const [object, recordId] of documents) {
+    const outcome = await runEmail(sendBody(w, { object, recordId }), deps);
+    assert.equal(outcome.status, 200, `${object}: ${JSON.stringify(outcome.body)}`);
+  }
+  assert.deepEqual(sentState(w.db.row('billingQuotes', draft.id)!), ['SENT', '2026-09-26T09:30:00.000Z']);
+  assert.deepEqual(sentState(w.db.row('billingQuotes', accepted.id)!), ['ACCEPTED', '2026-09-26T09:30:00.000Z']);
+  assert.deepEqual(sentState(w.db.row('billingCreditNotes', note.id)!), ['ISSUED', '2026-09-26T09:30:00.000Z']);
+  assert.deepEqual(sent.map((email) => email.files), [
+    [{ id: 'file-pdf-1', name: 'F2026-0001.pdf' }], [{ id: 'file-q2', name: 'D2026-0004 v2.pdf' }],
+    [{ id: 'file-q5', name: 'D2026-0005 v1.pdf' }], [{ id: 'file-cn', name: 'AV2026-0001.pdf' }],
+  ]);
+});
+
+test('a refused permission is EMAIL_NOT_ALLOWED, a refused email SEND_FAILED with Twenty’s reason, and neither marks the document', async () => {
+  const cases = [
+    [new EmailNotAllowedError('Forbidden resource'), 403, 'EMAIL_NOT_ALLOWED', /Settings → Roles, under your role, “Send email”/],
+    [new SendFailedError('Invalid recipients: camille@calibre.example'), 502, 'SEND_FAILED', /^The email could not be sent: Invalid recipients: camille@calibre\.example$/],
+  ] as const;
+  for (const [error, status, code, message] of cases) {
+    const w = workspace();
+    await issuedInvoice(w);
+    const { mailer } = fakeMailer({
+      send: async () => {
+        throw error;
+      },
+    });
+    const outcome = await runEmail(sendBody(w), setup(w, { mailer }).deps);
+    assert.equal(outcome.status, status, code);
+    assert.ok(!outcome.body.ok);
+    assert.deepEqual(outcome.body.problems.map((problem) => problem.code), [code]);
+    assert.match(outcome.body.problems[0]!.message, message);
+    assert.deepEqual(sentState(w.db.row('billingInvoices', w.invoice.id)!), ['ISSUED', null], code);
+    assert.deepEqual(w.db.timeline, [], code);
+  }
+});
+
+test('a failure after the send is answered as sent, says the document is not marked, and is logged with its reference', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const { deps, sent, logs } = setup(w);
+  w.db.failNext((op, plural, data) => op === 'update' && plural === 'billingInvoices' && data?.status === 'SENT');
+  const outcome = await runEmail(sendBody(w), deps);
+  assert.equal(outcome.status, 200);
+  assert.deepEqual(outcome.body, {
+    ok: true, message: 'Sent to camille@calibre.example, but the invoice could not be marked as sent (ref ref-7f3a).', marked: false,
+  });
+  assert.equal(sent.length, 1);
+  assert.deepEqual([logs[0]?.reference, logs[0]?.step], ['ref-7f3a', 'record']);
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'ISSUED');
+});
+
+test('a send that fails in transit is unexpected: a reference, and a log that holds no address, subject or message', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const { mailer } = fakeMailer({
+    send: async () => {
+      throw new TypeError('fetch failed');
+    },
+  });
+  const { deps, logs } = setup(w, { mailer });
+  const outcome = await runEmail(sendBody(w), deps);
+  assert.equal(outcome.status, 500);
+  assert.deepEqual(outcome.body, { ok: false, problems: [{ code: 'UNEXPECTED', message: 'Something went wrong (ref ref-7f3a).' }] });
+  assert.equal(logs[0]?.step, 'send');
+  assert.doesNotMatch(JSON.stringify(logs), /camille|Bonjour|Facture/);
 });
