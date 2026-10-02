@@ -17,12 +17,17 @@ const REQUIRED_FILES: readonly { path: string; why: string }[] = [
   { path: 'src/logic-functions/seed-presets.mjs', why: 'the post-install function seeds the presets' },
 ];
 
-/** What must never be published: state, tests, secrets, archives. */
+/**
+ * What must never be published: state, tests, secrets, archives. Folders are refused at any
+ * depth (a `src/test/` is as much a test folder as `test/`), names without regard to case,
+ * and a test file whatever follows `.test.` (a source map of one is a test file too).
+ */
 const FORBIDDEN_FILES: readonly { pattern: RegExp; why: string }[] = [
-  { pattern: /^(\.twenty|test|node_modules)\//, why: 'build state, tests and dependencies are not part of the package' },
+  { pattern: /(^|\/)(\.twenty|test|__tests__|node_modules)\//, why: 'build state, tests and dependencies are not part of the package' },
   { pattern: /(^|\/)\.[^/]/, why: 'a dotfile (an environment file, a git or editor folder) has no place in the package' },
-  { pattern: /\.test\.(ts|tsx|mjs|js)$/, why: 'a test file' },
-  { pattern: /\.(tgz|zip|pem|key)$/, why: 'an archive or a key' },
+  { pattern: /(^|\/)[^/]+\.(test|spec)\.[^/]+$/, why: 'a test file' },
+  { pattern: /\.(tar|gz|tgz|zip|7z|rar|pem|key|p12|pfx|jks)$/i, why: 'an archive or a key' },
+  { pattern: /(^|\/)id_(rsa|ed25519|ecdsa)(\.pub)?$/i, why: 'an SSH key' },
 ];
 
 export type PackageExpectations = { logo: string; gallery: readonly string[] };
@@ -96,18 +101,83 @@ export function unlockedIdentifiers(
   return Object.keys(registry).filter((key) => !(key in lock)).sort();
 }
 
+/** The `## 0.1.0` heading of a version: a date or a link may follow the version on that line. */
+function headingOf(version: string): RegExp {
+  // The version is text, not a pattern: a stray `(` must find no section, not throw.
+  return new RegExp(`^##\\s+\\[?${version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]?(\\s|$)`);
+}
+
+/** A version's heading line and what is under it, up to the next `## ` heading, trimmed; null without such a heading. */
+function findSection(changelog: string, version: string): { heading: string; body: string } | null {
+  const lines = changelog.replaceAll('\r\n', '\n').split('\n');
+  const heading = headingOf(version);
+  const start = lines.findIndex((line) => heading.test(line));
+  if (start === -1) return null;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^##\s/.test(line));
+  return { heading: lines[start], body: (end === -1 ? rest : rest.slice(0, end)).join('\n').trim() };
+}
+
 /**
  * A version's section of CHANGELOG.md: what follows its `## 0.1.0` heading (a date or a
  * link may follow the version on that line) up to the next `## ` heading, trimmed. Null
  * when there is no such heading or nothing under it.
  */
 export function changelogSection(changelog: string, version: string): string | null {
-  const heading = new RegExp(`^##\\s+\\[?${version.replaceAll('.', '\\.')}\\]?(\\s|$)`);
-  const lines = changelog.replaceAll('\r\n', '\n').split('\n');
-  const start = lines.findIndex((line) => heading.test(line));
-  if (start === -1) return null;
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => /^##\s/.test(line));
-  const body = (end === -1 ? rest : rest.slice(0, end)).join('\n').trim();
-  return body === '' ? null : body;
+  const section = findSection(changelog, version);
+  return section === null || section.body === '' ? null : section.body;
+}
+
+/**
+ * What is wrong with CHANGELOG.md for releasing `version`, or null. A release needs its
+ * section, and a section whose heading still says "unreleased" has not been dated by the
+ * release's pull request (`## 0.1.0 - unreleased` becomes `## 0.1.0 - 2026-10-02`).
+ */
+export function changelogProblem(changelog: string, version: string): string | null {
+  const section = findSection(changelog, version);
+  if (section === null || section.body === '') {
+    return `CHANGELOG.md has no section for ${version}: add \`## ${version} - <date>\` and what a user can do.`;
+  }
+  if (/\bunreleased\b/i.test(section.heading)) {
+    return `The CHANGELOG.md heading of ${version} still says “unreleased” (${section.heading}): the pull request that releases it dates it, as \`## ${version} - <date>\`.`;
+  }
+  return null;
+}
+
+export const RELEASE_CHECK_USAGE = 'Usage: node scripts/release-check.mjs [--package-only] [--tag vX.Y.Z | --tag=vX.Y.Z]';
+
+export type ReleaseArgs = { packageOnly: boolean; tag: string | undefined } | { problem: string };
+
+/**
+ * The command line of scripts/release-check.mjs. It accepts `--package-only` and `--tag` in
+ * both of its forms, and refuses everything else: an argument that is ignored would let a
+ * release check skip the checks it was asked for and still say it is ready.
+ */
+export function parseReleaseArgs(argv: readonly string[]): ReleaseArgs {
+  let packageOnly = false;
+  let tag: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--package-only') {
+      packageOnly = true;
+    } else if (arg === '--tag' || arg.startsWith('--tag=')) {
+      if (tag !== undefined) return { problem: '--tag is given twice: a release has one tag.' };
+      let value: string | undefined;
+      if (arg === '--tag') {
+        index += 1;
+        value = argv[index];
+      } else {
+        value = arg.slice('--tag='.length);
+      }
+      if (value === undefined || value === '' || (arg === '--tag' && value.startsWith('-'))) {
+        return { problem: '--tag needs the tag: `--tag v0.1.0`.' };
+      }
+      tag = value;
+    } else if (arg.startsWith('-')) {
+      return { problem: `Unknown option ${arg}.` };
+    } else {
+      return { problem: `Stray argument “${arg}”: a tag goes after --tag, as in \`--tag ${arg}\`.` };
+    }
+  }
+  return { packageOnly, tag };
 }

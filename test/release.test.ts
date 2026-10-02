@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  RELEASE_GALLERY_MIN, changelogSection, galleryProblem, localPathProblems, packageProblems, tagProblem, unlockedIdentifiers,
+  RELEASE_CHECK_USAGE, RELEASE_GALLERY_MIN, changelogProblem, changelogSection, galleryProblem, localPathProblems, packageProblems,
+  parseReleaseArgs, tagProblem, unlockedIdentifiers,
 } from '../src/lib/release.ts';
 
 const EXPECTED = { logo: 'public/logo.png', gallery: ['public/gallery/layouts.png'] };
@@ -31,9 +32,29 @@ test('a package without its manifest, post-install bundle, logo or a listed gall
 });
 
 test('state, tests, dotfiles and archives in the package are refused', () => {
-  const stray = ['.twenty/output/manifest.json', 'test/application.test.ts', '.env', 'src/.DS_Store', 'node_modules/x/index.js', 'twenty-app-billing-documents-0.1.0.tgz', 'src/lib/thing.test.ts'];
+  const stray = [
+    '.twenty/output/manifest.json', 'test/application.test.ts', '.env', 'src/.DS_Store', 'node_modules/x/index.js', 'twenty-app-billing-documents-0.1.0.tgz', 'src/lib/thing.test.ts',
+    'x.tar.gz', 'id_rsa', 'x.ZIP', 'src/test/a.js', 'src/node_modules/a/b.js', 'x.spec.ts', 'x.test.mjs.map', '__tests__/a.js',
+  ];
   const problems = packageProblems([...GOOD, ...stray], EXPECTED);
   assert.deepEqual(problems.map((problem) => problem.match(/holds (\S+):/)?.[1]), stray);
+});
+
+test('every archive, key and private-key name is refused, in any case, with or without a folder', () => {
+  const stray = [
+    'a.tar', 'a.gz', 'a.tgz', 'a.zip', 'a.7z', 'a.rar', 'a.pem', 'a.key', 'a.p12', 'a.pfx', 'a.jks', 'dist/KEY.PEM', 'dist/Backup.TGZ',
+    'id_rsa', 'id_rsa.pub', 'id_ed25519', 'id_ed25519.pub', 'id_ecdsa', 'id_ecdsa.pub', '.ssh/id_rsa', 'deploy/ID_RSA',
+  ];
+  const problems = packageProblems([...GOOD, ...stray], EXPECTED);
+  assert.deepEqual(problems.map((problem) => problem.match(/holds (\S+):/)?.[1]), stray);
+});
+
+test('names that only look like what is refused are published', () => {
+  const lookalikes = [
+    'src/contest/a.mjs', 'src/latest/a.mjs', 'src/inspector.mjs', 'src/testing.mjs', 'src/test-data.json', 'src/attest.test-data.json',
+    'src/keys.ts', 'src/lib/monkey.mjs', 'src/archive.json', 'src/gzip.mjs', 'src/lib/id_rsa.ts', 'src/specs.ts', 'public/gallery/layouts.png',
+  ];
+  assert.deepEqual(packageProblems([...GOOD, ...lookalikes], EXPECTED), []);
 });
 
 test('a source map or bundle that names the builder’s home is refused, absolute or climbed to from the root', () => {
@@ -112,6 +133,29 @@ test('a version is not found in a longer one, and a missing or empty section is 
   assert.equal(changelogSection('## 0.1.0\n\n## 0.0.9\n\nx\n', '0.1.0'), null);
 });
 
+test('a version with a character a pattern would read is looked for as text, and is not found', () => {
+  for (const version of ['(', '[', '0.1.0|0.2.0', '0.*', '+', '\\', '0.1.0)', '^0.1.0', '0.1.0$']) {
+    assert.equal(changelogSection(CHANGELOG, version), null, version);
+    assert.match(changelogProblem(CHANGELOG, version)!, /has no section for/, version);
+  }
+});
+
+test('a version’s heading must be dated before a release: unreleased is refused, in any case, in any heading form', () => {
+  assert.equal(changelogProblem(CHANGELOG, '0.1.0'), null);
+  assert.equal(changelogProblem(CHANGELOG, '0.0.9'), null);
+  for (const heading of ['## 0.1.0 - unreleased', '## [0.1.0] - Unreleased', '## 0.1.0 (UNRELEASED)']) {
+    assert.match(changelogProblem(`# Changelog\n\n## Unreleased\n\n${heading}\n\nx\n`, '0.1.0')!, /heading of 0\.1\.0 still says “unreleased”/, heading);
+  }
+  // Only the heading counts: a dated section that mentions the word is a release.
+  assert.equal(changelogProblem('## 0.1.0 - 2026-10-02\n\nWhat was unreleased is out.\n', '0.1.0'), null);
+});
+
+test('a missing section is the problem, with what to add, and the unreleased heading above does not hide it', () => {
+  assert.match(changelogProblem(CHANGELOG, '9.9.9')!, /CHANGELOG\.md has no section for 9\.9\.9: add `## 9\.9\.9 - <date>`/);
+  assert.match(changelogProblem('## Unreleased\n\nx\n', '0.1.0')!, /has no section for 0\.1\.0/);
+  assert.match(changelogProblem('', '0.1.0')!, /has no section for 0\.1\.0/);
+});
+
 const repository = (name: string) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 const pkg = JSON.parse(repository('package.json'));
 const notes = (tag: string) => spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/release-notes.mjs', import.meta.url)), tag], { encoding: 'utf8' });
@@ -134,4 +178,50 @@ test('the release notes of a tag are its changelog section, and a tag with none 
   const missing = notes('v9.9.9');
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /CHANGELOG\.md has no section for "9\.9\.9"/);
+});
+
+test('release:check reads --tag in both forms, --package-only, and nothing else', () => {
+  assert.deepEqual(parseReleaseArgs([]), { packageOnly: false, tag: undefined });
+  assert.deepEqual(parseReleaseArgs(['--package-only']), { packageOnly: true, tag: undefined });
+  assert.deepEqual(parseReleaseArgs(['--tag', 'v0.1.0']), { packageOnly: false, tag: 'v0.1.0' });
+  assert.deepEqual(parseReleaseArgs(['--tag=v0.1.0']), { packageOnly: false, tag: 'v0.1.0' });
+  assert.deepEqual(parseReleaseArgs(['--package-only', '--tag=v0.1.0']), { packageOnly: true, tag: 'v0.1.0' });
+  assert.deepEqual(parseReleaseArgs(['--tag', 'v0.1.0', '--package-only']), { packageOnly: true, tag: 'v0.1.0' });
+  // The tag's own form is tagProblem's to judge, with its explanation.
+  assert.deepEqual(parseReleaseArgs(['--tag=refs/tags/v0.1.0']), { packageOnly: false, tag: 'refs/tags/v0.1.0' });
+});
+
+test('release:check refuses an argument it does not understand, whatever it looks like', () => {
+  const refused: [string[], RegExp][] = [
+    [['--tag'], /--tag needs the tag/],
+    [['--tag='], /--tag needs the tag/],
+    [['--tag', ''], /--tag needs the tag/],
+    [['--tag', '--package-only'], /--tag needs the tag/],
+    [['--package-only', '--tag'], /--tag needs the tag/],
+    [['--tag', 'v0.1.0', '--tag', 'v0.2.0'], /--tag is given twice/],
+    [['--tag=v0.1.0', '--tag=v0.2.0'], /--tag is given twice/],
+    [['--bogus'], /Unknown option --bogus/],
+    [['--tga=v0.1.0'], /Unknown option --tga=v0\.1\.0/],
+    [['--package-only=1'], /Unknown option --package-only=1/],
+    [['--package-only', '-x'], /Unknown option -x/],
+    [['v0.1.0'], /Stray argument “v0\.1\.0”.*--tag v0\.1\.0/],
+    [['--tag', 'v0.1.0', 'v0.2.0'], /Stray argument “v0\.2\.0”/],
+  ];
+  for (const [argv, message] of refused) {
+    const parsed = parseReleaseArgs(argv);
+    assert.ok('problem' in parsed, JSON.stringify(argv));
+    assert.match(parsed.problem, message, JSON.stringify(argv));
+  }
+});
+
+test('the script stops on such an argument at once: exit 1, the usage, and no step run', () => {
+  const script = fileURLToPath(new URL('../scripts/release-check.mjs', import.meta.url));
+  // Always with --package-only: were the argument ignored, a build would run, never the tests again.
+  for (const argv of [['--package-only', '--bogus'], ['--package-only', '--tag'], ['--package-only', 'v0.1.0'], ['--package-only', '--tag=']]) {
+    const result = spawnSync(process.execPath, [script, ...argv], { encoding: 'utf8', timeout: 15_000 });
+    assert.equal(result.status, 1, `${JSON.stringify(argv)}: ${result.stderr}`);
+    assert.equal(result.stdout, '', `${JSON.stringify(argv)} ran a step`);
+    assert.match(result.stderr, /^\nRelease check stopped: /, JSON.stringify(argv));
+    assert.ok(result.stderr.includes(RELEASE_CHECK_USAGE), JSON.stringify(argv));
+  }
 });
