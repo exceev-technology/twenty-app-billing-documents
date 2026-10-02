@@ -3,24 +3,13 @@ import { Response as TwentyResponse, type LogicFunctionExecutionContext, type Ro
 import { runAction, type ActionDeps } from '../../lifecycle/actions.ts';
 import { describeAll, packFor } from '../../lifecycle/lang/pack.ts';
 import { id } from '../lib/id.ts';
+import { bodyOf, logLineFor, newReference, signedIn, type RouteContext, type RouteEvent } from '../lib/route.ts';
 import { appStore, callerStore } from '../lib/twenty-stores.ts';
 
-export type RouteEvent = { body: unknown; isBase64Encoded?: boolean; userWorkspaceId: string | null };
-export type RouteContext = { workspaceMemberId: string | null };
+export { bodyOf };
+export type { RouteContext, RouteEvent };
 
-/** One line of JSON: the platform keeps each output line as one log entry. */
-const logLine = (entry: Record<string, unknown>): void => console.error(JSON.stringify({ route: 'billing-action', ...entry }));
-const newReference = (): string => crypto.randomUUID().slice(0, 8);
-
-/** The request's body: parsed already when it was JSON, else parsed here; null when it is not JSON. */
-export function bodyOf(event: { body: unknown; isBase64Encoded?: boolean }): unknown {
-  if (typeof event.body !== 'string') return event.body ?? null;
-  try {
-    return JSON.parse(event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body);
-  } catch {
-    return null;
-  }
-}
+const logLine = logLineFor('billing-action');
 
 /** Hex SHA-256, from Web Crypto. */
 export async function sha256(bytes: Uint8Array): Promise<string> {
@@ -43,7 +32,7 @@ export async function respond(event: RouteEvent, context: RouteContext, makeDeps
   const body = bodyOf(event);
   const locale = (body as { locale?: unknown } | null)?.locale;
   const pack = packFor(typeof locale === 'string' ? locale : null);
-  if (!event.userWorkspaceId || !context.workspaceMemberId) {
+  if (!signedIn(event, context)) {
     return new TwentyResponse({ ok: false, problems: describeAll([{ source: 'lifecycle', code: 'NOT_ALLOWED' }], pack.code) }, { status: 403 });
   }
   try {

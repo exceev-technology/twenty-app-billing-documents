@@ -238,6 +238,7 @@ export const IDS: Readonly<Record<string, string>> = {
   'frontComponent.previewInvoice': '8e6a1601-a1fa-45eb-924f-bcfc7ae57312',
   'frontComponent.quotePdf': '84a09bff-25fe-432a-847e-0324450591f7',
   'logicFunction.billingAction': '42165608-7279-42e4-982b-f4b84c9cdad4',
+  'logicFunction.billingEmail': '2c3bb121-736a-4543-a10f-d1b4cff91b88',
   'logicFunction.createMissingPresets': 'aaf08293-7339-4abd-a60c-df1106cebd5a',
   'logicFunction.guardCreditNote': 'aac6b5b8-e866-43eb-8861-7e83dd6007ff',
   'logicFunction.guardCreditNoteLine': 'fbab2f02-5979-47a1-b187-e0cc33a6b329',
