@@ -8,7 +8,8 @@
 //             copy installed here (name, version, licence, licence file). A package that a
 //             prebuilt bundle embeds (pdfmake's browser build, the Twenty SDK) is listed
 //             without a version: its licence file is the installed copy's when there is one, and
-//             otherwise the standard text of the licence in scripts/embedded-licences.json.
+//             otherwise the standard text of the licence in scripts/embedded-licences.json, with
+//             the copyright line of the package's own LICENSE file that the table holds.
 //   fonts     base64 TrueType/OpenType strings in the bundles, read with fontkit: their own
 //             copyright, trademark and licence sentence come from the font's name table.
 //   other     an ICC colour profile (pdfkit embeds one in every PDF it writes), by its own tags.
@@ -22,7 +23,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   OFL_1_1, apacheNotice, bundledPackages, copyrightLines, copyrightStatement, iccTags, licenceFromText, licenceKind, renderFontNotices,
-  renderPackageNotices, spliceSection, standardLicence,
+  renderPackageNotices, spliceSection, standardLicence, zlibNotice,
 } from '../src/lib/notices.ts';
 
 const require = createRequire(import.meta.url);
@@ -166,7 +167,7 @@ for (const { name, hosts } of bundled) {
   } else {
     fail(
       `${name} is bundled, but no copy of it is installed and scripts/embedded-licences.json does not know it: ` +
-        'read its licence (its repository, or `npm view` on a machine with network access) and add it there, copyleft or unknown licences excepted: those need a decision first.',
+        'read its licence (its repository, or `npm view` on a machine with network access) and add it there, with the copyright line of its LICENSE file as `holder`; copyleft or unknown licences are excepted: those need a decision first.',
     );
   }
 }
@@ -179,8 +180,25 @@ for (const { name } of bundled) {
   entries.push({
     name,
     note: 'the files that carry an Apache-2.0 header',
+    via: own[0]?.via,
     license: 'Apache-2.0',
     text: `${copyright.length > 0 ? copyright.map(copyrightStatement).join('\n') : copyrightStatement(NO_HOLDER)}\n\n${apacheTerms}`,
+    origin: 'standard',
+  });
+}
+
+// Code under the zlib licence inside a package that is not (pako's own file is MIT, and its zlib-derived files carry zlib's header):
+// the licence asks that its notice stays with that code.
+for (const { name } of bundled) {
+  const copyright = zlibNotice([...(sourceTexts.get(name) ?? [])]);
+  const own = entries.filter((entry) => entry.name === name);
+  if (copyright === null || own.every((entry) => /Zlib/.test(entry.license) && /provided 'as-is'/.test(entry.text))) continue;
+  entries.push({
+    name,
+    note: 'the files that carry a zlib header',
+    via: own[0]?.via,
+    license: 'Zlib',
+    text: standardLicence('Zlib', copyright.length > 0 ? copyright.join('\n') : NO_HOLDER),
     origin: 'standard',
   });
 }
@@ -230,7 +248,7 @@ const fontNotices = [...fontFamilies.values()]
 const sections = [
   `## Packages bundled in the published files
 
-The published files (\`src/logic-functions/*.mjs\`, \`src/front-components/*.mjs\`) are bundles: they hold the code of the npm packages listed here, which the source maps next to them name. A package listed with a version is bundled from the copy installed in this repository, and the text below is its own licence file. A package listed without one is embedded in a prebuilt bundle that brings its own copy (pdfmake’s browser build, the Twenty SDK’s distribution), whose version its map does not record: its text is the licence file of the copy installed here when there is one, and otherwise the standard text of the licence the package is published under, with the copyright line the embedded source carries (or the authors’ name, when it carries none).
+The published files (\`src/logic-functions/*.mjs\`, \`src/front-components/*.mjs\`) are bundles: they hold the code of the npm packages listed here, which the source maps next to them name. A package listed with a version is bundled from the copy installed in this repository, and the text below is its own licence file. A package listed without one is embedded in a prebuilt bundle that brings its own copy (pdfmake’s browser build, the Twenty SDK’s distribution), whose version its map does not record: its text is the licence file of the copy installed here when there is one, and otherwise the standard text of the licence the package is published under, with the copyright line of the package’s own LICENSE file.
 
 ${renderPackageNotices(entries)}`,
 ];

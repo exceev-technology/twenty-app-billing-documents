@@ -185,11 +185,32 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.`;
 
-const STANDARD: Readonly<Record<string, (copyright: string) => string>> = { MIT, ISC, 'BSD-3-Clause': BSD_3 };
+/** The zlib licence, as zlib and its ports (pako) carry it in their file headers; SPDX's `Zlib` has the same words. */
+const ZLIB_TERMS = `This software is provided 'as-is', without any express or implied
+warranty.  In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.`;
+
+const ZLIB = (copyright: string) => `zlib License\n\n${copyright}\n\n${ZLIB_TERMS}`;
+
+const STANDARD: Readonly<Record<string, (copyright: string) => string>> = { MIT, ISC, 'BSD-3-Clause': BSD_3, Zlib: ZLIB };
 
 /** A copyright line as a licence carries it: what already is one is kept, a name gets `Copyright (c)` in front. */
 export function copyrightStatement(holder: string): string {
-  return /^(Copyright\b|\(c\)|©)/.test(holder) ? holder : `Copyright (c) ${holder}`;
+  return /^(Copyright\b|\([cC]\)|©)/.test(holder) ? holder : `Copyright (c) ${holder}`;
 }
 
 /**
@@ -225,6 +246,22 @@ export function apacheNotice(texts: readonly string[]): string[] | null {
     const at = text.search(/Licensed under the Apache License, Version 2\.0/);
     if (at === -1) continue;
     return copyrightLines([text.slice(Math.max(0, at - 400), at)], 2);
+  }
+  return null;
+}
+
+/**
+ * The copyright lines above a zlib header in other people's source, or null when none of the texts
+ * carries one. pako is MIT by its own file, but it is a port of zlib: its zlib-derived files carry
+ * the zlib licence in their headers, and that licence asks that the notice stay with them.
+ */
+export function zlibNotice(texts: readonly string[]): string[] | null {
+  for (const text of texts) {
+    const at = text.search(/This software is provided 'as-is', without any express or implied/);
+    if (at === -1) continue;
+    const above = text.slice(Math.max(0, at - 400), at);
+    const lines = [...above.matchAll(/^[ \t]*(?:\/\/|\/\*+!?|\*|#)?[ \t]*((?:Copyright\s|\([cC]\)\s|©\s?).*?)[ \t]*$/gm)].map((match) => match[1]!.slice(0, 140));
+    return [...new Set(lines)].slice(0, 3);
   }
   return null;
 }
@@ -294,7 +331,8 @@ export function renderPackageNotices(entries: readonly NoticeEntry[]): string {
     groups.set(key, group);
   }
   const blocks = [...groups.values()].map((group) => {
-    const copyright = group.text.match(/^[ \t]*(Copyright\b.*?)[ \t]*$/m)?.[1];
+    // The first `Copyright …` line; a text that has none (zlib's header says `(C) 1995-2013 …`) its first `(C) <year>` line.
+    const copyright = (group.text.match(/^[ \t]*(Copyright\b.*?)[ \t]*$/m) ?? group.text.match(/^[ \t]*(\([cC]\)\s\d.*?)[ \t]*$/m))?.[1];
     const title = `${group.license}${copyright ? ` - ${copyright.slice(0, 100)}` : ''}`;
     const listed = group.entries.sort(byName);
     const standard = listed.filter((entry) => entry.origin === 'standard');

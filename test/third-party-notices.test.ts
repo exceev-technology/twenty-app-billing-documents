@@ -17,6 +17,8 @@ type Fixture = {
   packages?: Record<string, { manifest: Record<string, unknown>; licence?: string }>;
   /** What the build's map names, relative to the map's folder (`.twenty/output/src`). */
   sources?: string[];
+  /** What a source holds (the map's `sourcesContent`), by the source's name; an empty text for the others. */
+  contents?: Record<string, string>;
   /** The scripts/embedded-licences.json table. */
   table?: Record<string, { license: string; via?: string; holder?: string }>;
   /** Extra files of the build, by path under `.twenty/output`. */
@@ -48,7 +50,7 @@ function inFixture<T>(fixture: Fixture, check: (run: () => ReturnType<typeof spa
       if (licence !== undefined) put(`node_modules/${name}/LICENSE`, licence);
     }
     if (!fixture.noBuild) {
-      put('.twenty/output/src/a.mjs.map', JSON.stringify({ version: 3, sources: fixture.sources ?? [], sourcesContent: (fixture.sources ?? []).map(() => ''), mappings: '' }));
+      put('.twenty/output/src/a.mjs.map', JSON.stringify({ version: 3, sources: fixture.sources ?? [], sourcesContent: (fixture.sources ?? []).map((source) => fixture.contents?.[source] ?? ''), mappings: '' }));
       for (const [path, text] of Object.entries(fixture.build ?? {})) put(`.twenty/output/${path}`, text);
     }
     const run = () => spawnSync(process.execPath, [join(root, 'scripts', 'third-party-notices.mjs')], { encoding: 'utf8', cwd: root });
@@ -88,6 +90,36 @@ test('it writes the licences of what the build bundles below the pdfcn section, 
       assert.equal(second.status, 0, String(second.stderr));
       assert.equal(read('THIRD_PARTY_NOTICES.md'), notices);
       assert.match(String(second.stdout), /is up to date/);
+    },
+  );
+});
+
+test('a zlib header in a package that is MIT by its own file puts the zlib licence in the notices, with the copyright lines of the header', () => {
+  const source = 'webpack://pdfmake/node_modules/pako/lib/zlib/deflate.js';
+  const header = "'use strict';\n\n// (C) 1995-2013 Jean-loup Gailly and Mark Adler\n// (C) 2014-2017 Vitaly Puzrin and Andrey Tupitsin\n//\n// This software is provided 'as-is', without any express or implied\n// warranty.\n";
+  inFixture(
+    { packages: { pako: { manifest: { version: '1.0.11', license: '(MIT AND Zlib)' }, licence: MIT('Vitaly Puzrin') } }, sources: [source], contents: { [source]: header } },
+    (run, { read }) => {
+      const result = run();
+      assert.equal(result.status, 0, String(result.stderr));
+      const notices = read('THIRD_PARTY_NOTICES.md');
+      assert.match(notices, /^### \(MIT AND Zlib\) - Copyright \(c\) Vitaly Puzrin$/m);
+      assert.match(notices, /^### Zlib - \(C\) 1995-2013 Jean-loup Gailly and Mark Adler\n\nEmbedded in pdfmake’s prebuilt bundle: `pako` \(the files that carry a zlib header\)\./m);
+      assert.match(notices, /zlib License\n\n\(C\) 1995-2013 Jean-loup Gailly and Mark Adler\n\(C\) 2014-2017 Vitaly Puzrin and Andrey Tupitsin\n\nThis software is provided 'as-is'/);
+      assert.ok(notices.includes('3. This notice may not be removed or altered from any source distribution.'));
+      // A second run changes nothing.
+      const second = run();
+      assert.equal(second.status, 0, String(second.stderr));
+      assert.equal(read('THIRD_PARTY_NOTICES.md'), notices);
+    },
+  );
+  inFixture(
+    { packages: { zl: { manifest: { version: '1.0.0', license: 'Zlib' }, licence: `zlib License\n\n(C) 2000 A\n\n${header}` } }, sources: ['../../../node_modules/zl/index.js'], contents: { '../../../node_modules/zl/index.js': header } },
+    (run, { read }) => {
+      // A package whose own licence file already is the zlib licence gets no second block.
+      const result = run();
+      assert.equal(result.status, 0, String(result.stderr));
+      assert.equal([...read('THIRD_PARTY_NOTICES.md').matchAll(/^### /gm)].length, 1);
     },
   );
 });

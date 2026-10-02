@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  NOTICES_BEGIN, NOTICES_END, OFL_1_1, apacheNotice, bundledPackages, copyrightLines, iccTags, licenceFromText, licenceKind, missingFromNotices,
-  noticesProblem, renderFontNotices, renderPackageNotices, spliceSection, standardLicence, sourcesOfMap,
+  NOTICES_BEGIN, NOTICES_END, OFL_1_1, apacheNotice, bundledPackages, copyrightLines, copyrightStatement, iccTags, licenceFromText, licenceKind, missingFromNotices,
+  noticesProblem, renderFontNotices, renderPackageNotices, spliceSection, standardLicence, sourcesOfMap, zlibNotice,
 } from '../src/lib/notices.ts';
 
 const repository = (name: string) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
@@ -148,6 +148,31 @@ test('code under the Apache licence is told from its header, with the copyright 
   assert.equal(apacheNotice(['// MIT licensed', 'The Apache Software Foundation']), null);
 });
 
+test('code under the zlib licence is told from its header, with the copyright lines above it', () => {
+  const header = "'use strict';\n\n// (C) 1995-2013 Jean-loup Gailly and Mark Adler\n// (C) 2014-2017 Vitaly Puzrin and Andrey Tupitsin\n//\n// This software is provided 'as-is', without any express or implied\n// warranty.";
+  assert.deepEqual(zlibNotice(['const a = 1;', header]), ['(C) 1995-2013 Jean-loup Gailly and Mark Adler', '(C) 2014-2017 Vitaly Puzrin and Andrey Tupitsin']);
+  assert.deepEqual(zlibNotice(["// This software is provided 'as-is', without any express or implied warranty."]), []);
+  assert.equal(zlibNotice(['// MIT licensed', 'const text = "provided as-is";']), null);
+});
+
+test('the zlib text takes the copyright lines of the code it travels with, and a line that is one is not given a second `Copyright (c)`', () => {
+  const zlib = standardLicence('Zlib', '(C) 1995-2013 Jean-loup Gailly and Mark Adler\n(C) 2014-2017 Vitaly Puzrin and Andrey Tupitsin')!;
+  assert.match(zlib, /^zlib License\n\n\(C\) 1995-2013 Jean-loup Gailly and Mark Adler\n\(C\) 2014-2017 Vitaly Puzrin and Andrey Tupitsin\n\nThis software is provided 'as-is', without any express or implied\nwarranty\./);
+  for (const clause of ['1. The origin of this software must not be misrepresented', '2. Altered source versions must be plainly marked as such', '3. This notice may not be removed or altered from any source distribution.']) {
+    assert.ok(zlib.includes(clause), clause);
+  }
+  assert.match(zlib, /source distribution\.$/);
+  assert.equal(copyrightStatement('(C) 1995 A'), '(C) 1995 A');
+  assert.equal(copyrightStatement('Linus Torvalds'), 'Copyright (c) Linus Torvalds');
+});
+
+test('a zlib block is titled by its first (C) line, and an Apache block by its Copyright line though a clause of the licence starts with (c)', () => {
+  const zlib = renderPackageNotices([{ name: 'pako', license: 'Zlib', text: standardLicence('Zlib', '(C) 1995-2013 Jean-loup Gailly and Mark Adler')!, origin: 'standard', via: 'pdfmake' }]);
+  assert.match(zlib, /^### Zlib - \(C\) 1995-2013 Jean-loup Gailly and Mark Adler\n/);
+  const apache = renderPackageNotices([{ name: 'a', license: 'Apache-2.0', text: 'Copyright 2024 X.\n\n     (c) You must retain, in the Source form', origin: 'file' }]);
+  assert.match(apache, /^### Apache-2\.0 - Copyright 2024 X\.\n/);
+});
+
 test('an ICC profile’s description and copyright are read from its tag table', () => {
   const text = (value: string) => Buffer.concat([Buffer.from('text\0\0\0\0'), Buffer.from(`${value}\0`, 'latin1')]);
   const description = (value: string) => {
@@ -260,6 +285,26 @@ test('every package the table stands in for has a permissive licence, a host tha
     assert.ok(standardLicence(license, 'x'), `${name}: no standard text for ${license}`);
     if (via !== undefined) assert.match(via, /^[a-z][a-z0-9-]*$/, name);
   }
+});
+
+test('every package the table stands in for names its own copyright holder, as its LICENSE file does, not a stand-in for the authors', () => {
+  for (const [name, { holder }] of Object.entries(table.packages)) {
+    assert.ok(holder !== undefined, `${name}: no holder`);
+    assert.match(holder, /^(Copyright\b|©|\([cC]\))/, name);
+    for (const line of holder.split('\n')) assert.match(line, /^(Copyright\b|©|\([cC]\)) \S/, `${name}: ${line}`);
+  }
+  // twenty-shared is Twenty's own, MIT by its LICENSE in the twentyhq/twenty repository; the AGPL-3.0 package of that name on npm is not it.
+  assert.deepEqual(table.packages['twenty-shared'], { license: 'MIT', via: 'twenty-sdk', holder: 'Copyright (c) 2023-present Twenty.com, PBC' });
+  const notices = repository('THIRD_PARTY_NOTICES.md');
+  assert.ok(!notices.includes('the authors of each package named above'), 'no package is left with the stand-in line');
+  assert.match(notices, /^### MIT - Copyright \(c\) 2023-present Twenty\.com, PBC$/m);
+  assert.match(notices, /^### BSD-3-Clause - Copyright 2008 Fair Oaks Labs, Inc\.$/m);
+});
+
+test('pako, which is "MIT AND Zlib", has the zlib licence in the notices beside its own MIT file', () => {
+  const notices = repository('THIRD_PARTY_NOTICES.md');
+  assert.match(notices, /^### \(MIT AND Zlib\) - Copyright \(C\) 2014-2017 by Vitaly Puzrin and Andrei Tuputcyn$/m);
+  assert.match(notices, /^### Zlib - \(C\) 1995-2013 Jean-loup Gailly and Mark Adler\n\nEmbedded in pdfmake’s prebuilt bundle: `pako` \(the files that carry a zlib header\)\./m);
 });
 
 test('THIRD_PARTY_NOTICES.md keeps the pdfcn section above the generated one, and names the fonts the package embeds', () => {
