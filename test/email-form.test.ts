@@ -101,7 +101,7 @@ test('a send with no route body that may have gone says so, in the person’s la
 test('a send that never reached the route sent nothing: the buttons’ words, and the person may try again', () => {
   assert.deepEqual(readSent({ status: 404, body: null }, 'en'), {
     ok: false, unconfirmed: false,
-    problems: ['The billing actions need logic functions, which are turned off on this server. See “Issuing documents” in the app’s README.'],
+    problems: ['The billing actions need logic functions, which are turned off on this server. See “Requirements” in the app’s README.'],
   });
   assert.deepEqual(readSent({ status: 400, body: 'Bad Request' }, 'en'), { ok: false, unconfirmed: false, problems: ['The billing action failed (HTTP 400).'] });
   assert.deepEqual(readSent({ status: 429, body: null }, 'fr'), { ok: false, unconfirmed: false, problems: ['L’action de facturation a échoué (HTTP 429).'] });

@@ -37,7 +37,7 @@ const SHOWN = 5;
 const WORDS = {
   en: {
     more: (count: number) => `And ${count} more.`,
-    off: 'The billing actions need logic functions, which are turned off on this server. See “Issuing documents” in the app’s README.',
+    off: 'The billing actions need logic functions, which are turned off on this server. See “Requirements” in the app’s README.',
     failed: (status: number) => `The billing action failed (HTTP ${status}).`,
     unreachable: 'The billing action could not reach the server. Check your connection and try again.',
     cancel: {
@@ -48,7 +48,7 @@ const WORDS = {
   },
   fr: {
     more: (count: number) => `Et ${count} de plus.`,
-    off: 'Les actions de facturation ont besoin des fonctions logiques, désactivées sur ce serveur. Voir «\u00a0Issuing documents\u00a0» dans le README de l’app.',
+    off: 'Les actions de facturation ont besoin des fonctions logiques, désactivées sur ce serveur. Voir «\u00a0Requirements\u00a0» dans le README de l’app.',
     failed: (status: number) => `L’action de facturation a échoué (HTTP ${status}).`,
     unreachable: 'L’action de facturation n’a pas pu joindre le serveur. Vérifiez votre connexion et réessayez.',
     cancel: {

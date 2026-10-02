@@ -101,7 +101,7 @@ test('the buttons’ French words don’t take a plain space before : ; ? ! or i
   for (const text of texts) assert.doesNotMatch(text, / [:;?!]|« | »/, text);
   assert.equal(
     feedbackFor({ status: 404, body: null }, 'fr').message,
-    'Les actions de facturation ont besoin des fonctions logiques, désactivées sur ce serveur. Voir «\u00a0Issuing documents\u00a0» dans le README de l’app.',
+    'Les actions de facturation ont besoin des fonctions logiques, désactivées sur ce serveur. Voir «\u00a0Requirements\u00a0» dans le README de l’app.',
   );
 });
 
