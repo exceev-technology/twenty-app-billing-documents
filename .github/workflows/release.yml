@@ -16,15 +16,17 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # No credentials left in .git/config: npm ci's install scripts run later in this job.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: The tagged commit is on main
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      # No npm cache here: this job holds id-token: write, and a restored cache is not ours.
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: npm
           registry-url: https://registry.npmjs.org
       - name: npm 11.5.1 or later, which trusted publishing needs
         run: |
