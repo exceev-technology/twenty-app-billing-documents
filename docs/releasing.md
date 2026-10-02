@@ -125,12 +125,13 @@ pictures, and leave out any record the image came with.
    the test workspace, which ends with `npm run ids:lock`, and commit `ids.lock.json`. A
    release makes identifiers permanent, so `release:check` refuses an unlocked one.
 2. In `CHANGELOG.md`, date the version's section. For `0.1.0` the file already holds
-   `## 0.1.0 - unreleased`: change that heading to `## 0.1.0 - <date>` and add no second
-   one. For a later version, move what is under `## Unreleased` below a new heading
-   `## X.Y.Z - <date>`. The section says what a user can do with this version, in plain
-   words, and which preset corrections a user must apply by hand, since an upgrade never
-   changes a preset a workspace already has. `release:check -- --tag` refuses a heading that
-   still says "unreleased".
+   `## 0.1.0 - unreleased`: change that heading to `## 0.1.0 - YYYY-MM-DD` (the day of the
+   release, as an ISO date) and add no second one. For a later version, move what is under
+   `## Unreleased` below a new heading `## X.Y.Z - YYYY-MM-DD`. The section says what a user
+   can do with this version, in plain words, and which preset corrections a user must apply
+   by hand, since an upgrade never changes a preset a workspace already has.
+   `release:check -- --tag` refuses a heading without an ISO date that is a day of the
+   calendar: "unreleased", "TBD" and no date at all.
 3. Set `version` in `package.json` (a new field or button is a minor version, a fix a patch).
    If the version needs a newer Twenty server, change `engines.twenty` and the version the
    README names in *Requirements*, and say so in the changelog.

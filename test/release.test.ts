@@ -204,12 +204,26 @@ test('a version with a character a pattern would read is looked for as text, and
 
 test('a version’s heading must be dated before a release: unreleased is refused, in any case, in any heading form', () => {
   assert.equal(changelogProblem(CHANGELOG, '0.1.0'), null);
-  assert.equal(changelogProblem(CHANGELOG, '0.0.9'), null);
+  assert.equal(changelogProblem(CHANGELOG, '0.2.0'), null);
   for (const heading of ['## 0.1.0 - unreleased', '## [0.1.0] - Unreleased', '## 0.1.0 (UNRELEASED)']) {
     assert.match(changelogProblem(`# Changelog\n\n## Unreleased\n\n${heading}\n\nx\n`, '0.1.0')!, /heading of 0\.1\.0 still says “unreleased”/, heading);
   }
   // Only the heading counts: a dated section that mentions the word is a release.
   assert.equal(changelogProblem('## 0.1.0 - 2026-10-02\n\nWhat was unreleased is out.\n', '0.1.0'), null);
+});
+
+test('the heading must carry an ISO date, YYYY-MM-DD, that is a day of the calendar', () => {
+  for (const heading of ['## 0.1.0 - 2026-10-02', '## [0.1.0] - 2026-10-02', '## 0.1.0 (2026-10-02)', '## [0.1.0] - 2026-02-28', '## 0.1.0 - 2028-02-29']) {
+    assert.equal(changelogProblem(`${heading}\n\nx\n`, '0.1.0'), null, heading);
+  }
+  for (const heading of ['## 0.1.0', '## 0.1.0 - TBD', '## 0.1.0 - tbd', '## 0.1.0 - soon', '## 0.1.0 - 10/02/2026', '## 0.1.0 - 2026-1-2', '## 0.1.0 - 20261002']) {
+    assert.match(changelogProblem(`${heading}\n\nx\n`, '0.1.0')!, /heading of 0\.1\.0 has no date .*YYYY-MM-DD/, heading);
+  }
+  for (const heading of ['## 0.1.0 - 2026-13-01', '## 0.1.0 - 2026-02-30', '## 0.1.0 - 2027-02-29', '## 0.1.0 - 2026-00-10']) {
+    assert.match(changelogProblem(`${heading}\n\nx\n`, '0.1.0')!, /date in the heading of 0\.1\.0 is not a day of the calendar/, heading);
+  }
+  // The older version of the sample above has none: a past release is not what is being released, but its heading is judged the same.
+  assert.match(changelogProblem(CHANGELOG, '0.0.9')!, /has no date/);
 });
 
 test('a missing section is the problem, with what to add, and the unreleased heading above does not hide it', () => {

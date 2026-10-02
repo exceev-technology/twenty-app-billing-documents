@@ -196,10 +196,23 @@ export function changelogSection(changelog: string, version: string): string | n
   return section === null || section.body === '' ? null : section.body;
 }
 
+/** The ISO date in a heading, as the three numbers; null when the heading has none. */
+function isoDateOf(heading: string): [number, number, number] | null {
+  const found = heading.match(/(?<![\d-])(\d{4})-(\d{2})-(\d{2})(?![\d-])/);
+  return found === null ? null : [Number(found[1]), Number(found[2]), Number(found[3])];
+}
+
+/** Whether year-month-day is a day of the calendar: 2026-02-30 and 2026-13-01 are not. */
+function isCalendarDay([year, month, day]: readonly [number, number, number]): boolean {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 /**
  * What is wrong with CHANGELOG.md for releasing `version`, or null. A release needs its
- * section, and a section whose heading still says "unreleased" has not been dated by the
- * release's pull request (`## 0.1.0 - unreleased` becomes `## 0.1.0 - 2026-10-02`).
+ * section, and the section's heading must carry the day of the release as an ISO date
+ * (`## 0.1.0 - 2026-10-02`): "unreleased", "TBD" and no date at all mean that the pull request
+ * that releases the version has not dated it.
  */
 export function changelogProblem(changelog: string, version: string): string | null {
   const section = findSection(changelog, version);
@@ -207,7 +220,14 @@ export function changelogProblem(changelog: string, version: string): string | n
     return `CHANGELOG.md has no section for ${version}: add \`## ${version} - <date>\` and what a user can do.`;
   }
   if (/\bunreleased\b/i.test(section.heading)) {
-    return `The CHANGELOG.md heading of ${version} still says “unreleased” (${section.heading}): the pull request that releases it dates it, as \`## ${version} - <date>\`.`;
+    return `The CHANGELOG.md heading of ${version} still says “unreleased” (${section.heading}): the pull request that releases it dates it, as \`## ${version} - YYYY-MM-DD\`.`;
+  }
+  const date = isoDateOf(section.heading);
+  if (date === null) {
+    return `The CHANGELOG.md heading of ${version} has no date (${section.heading}): the pull request that releases it dates it, as \`## ${version} - YYYY-MM-DD\`.`;
+  }
+  if (!isCalendarDay(date)) {
+    return `The date in the heading of ${version} is not a day of the calendar (${section.heading}): write the day of the release, as \`## ${version} - YYYY-MM-DD\`.`;
   }
   return null;
 }
