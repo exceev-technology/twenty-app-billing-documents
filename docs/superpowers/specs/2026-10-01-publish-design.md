@@ -1,13 +1,50 @@
 # Sub-project 5: Publish, design
 
-Status: proposed 2026-10-01, for review. Read [the product overview](2026-09-21-product-overview.md)
-first.
+Status: built 2026-10-02 (proposed 2026-10-01). Read [the product overview](2026-09-21-product-overview.md)
+first. What differs from the text below is in *As built*.
 
 Publish makes the app installable by anyone running Twenty: an npm package
 with provenance, listed in Twenty's marketplace, with a README that serves as
 both the listing and the guide. It also closes the product's success test the
 way a stranger meets it: installed from the package, on a workspace that never
 had it, with the presets seeded by the install itself.
+
+## As built
+
+Where the build differs from what follows, the build is right:
+
+- **The CLI** is `./node_modules/.bin/twenty`, never `npx twenty`: npm has an unrelated
+  package of that name. §7's `npx twenty app:publish` and §8's `twenty dev:catalog-sync` are
+  run that way, and the workflow does the same.
+- **npm credentials.** npm has no classic automation token any more. The first release signs
+  in with a granular access token (Read and write on All Packages, Bypass two-factor
+  authentication ticked, valid 90 days at most), set as the `NPM_TOKEN` secret that §8 calls
+  an automation token. Trusted publishing replaces it afterwards, with `npm publish` among
+  the trusted publisher's *Allowed actions*, since the workflow publishes directly.
+- **`npm run release:check` has modes** (§3). Run alone, it runs the tests, the typecheck, the
+  identifier lock, the build and the package check, and ends by naming what it did not check.
+  `--package-only` (CI, which has run the tests) builds and checks the package and says only
+  that. `--tag vX.Y.Z` adds that the tag matches `package.json`, that `CHANGELOG.md` has the
+  version under a heading with an ISO date, that the gallery holds four images, and that every
+  identifier is in the lock; only the full run with a tag says "Ready to release". It refuses
+  an unknown argument, and a `--tag` that npm took for itself (`npm run release:check --tag …`
+  without the `--`).
+- **Guards beyond §3 and §7.** The workflow refuses a tag whose commit is not on `main`,
+  needs npm 11.5.1 or later, restores no cache and keeps no checkout token (it holds
+  `id-token: write`), and times out after 30 minutes. The package check refuses files that must
+  not ship (state, tests, archives, keys), a package without `LICENSE` or the notices, a source
+  map or bundle that names the builder's folder (but not another tool's URL, such as
+  pdfmake's own `webpack://` sources), and an unlocked identifier. `prepack` refuses to run
+  outside `.twenty/output`.
+- **The gallery is gated by the maintainer's screenshots.** `npm run listing:images` draws the
+  logo and the layouts picture (1600 × 1000 on the canvas, written at twice that size, to
+  fit the marketplace's 8:5 frame); the other three images are screenshots of Twenty that
+  only the maintainer can take, and `release:check --tag` refuses a release with fewer than
+  four.
+- **Third-party notices.** `THIRD_PARTY_NOTICES.md` carries, besides the pdfcn notice (§6),
+  the licences of the npm packages and the fonts the published bundles hold. `npm run
+  notices` writes that part from the build's source maps (`npm run build` first), and
+  `release:check` refuses a package the file does not name.
 
 ## 1. Decisions
 
