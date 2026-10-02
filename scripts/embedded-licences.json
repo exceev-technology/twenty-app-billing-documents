@@ -1,0 +1,170 @@
+{
+  "_": "Packages that a prebuilt bundle (pdfmake’s browser build, twenty-sdk’s distribution) embeds and of which no copy is installed here, so that scripts/third-party-notices.mjs finds no licence file for them: their SPDX licence, and the copyright holder where the embedded source says who it is. Read their licence before adding one; a copyleft or unknown licence stops the script. twenty-shared is Twenty’s own package, bundled in twenty-sdk’s MIT distribution: it takes that distribution’s holder.",
+  "packages": {
+    "@parcel/node-resolver-core": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "assert": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "available-typed-arrays": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "buffer": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Feross Aboukhadijeh"
+    },
+    "call-bind": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "call-bound": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "class-validator": {
+      "license": "MIT",
+      "via": "twenty-sdk"
+    },
+    "core-js": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Denis Pushkarev (zloirock.ru), CoreJS Company (core-js.io)"
+    },
+    "define-data-property": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "define-properties": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "events": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "expose-loader": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "file-saver": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Eli Grey"
+    },
+    "for-each": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "generator-function": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "has-property-descriptors": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "ieee754": {
+      "license": "BSD-3-Clause",
+      "via": "pdfmake",
+      "holder": "Feross Aboukhadijeh"
+    },
+    "inherits": {
+      "license": "ISC",
+      "via": "pdfmake"
+    },
+    "is-arguments": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "is-callable": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "is-generator-function": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "is-nan": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "is-regex": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "is-typed-array": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "object-is": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "object-keys": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "object.assign": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "possible-typed-array-names": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "process": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "readable-stream": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "safe-buffer": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "safe-regex-test": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "set-function-length": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "stream-browserify": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "string_decoder": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "twenty-shared": {
+      "license": "MIT",
+      "via": "twenty-sdk",
+      "holder": "2023-present Twenty.com, PBC"
+    },
+    "util": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "util-deprecate": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "which-typed-array": {
+      "license": "MIT",
+      "via": "pdfmake"
+    },
+    "zod": {
+      "license": "MIT",
+      "via": "twenty-sdk"
+    }
+  }
+}

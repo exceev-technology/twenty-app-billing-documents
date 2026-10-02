@@ -124,9 +124,16 @@ test('the runbook’s npm setup follows npm today: a granular token, trusted pub
   assert.deepEqual(order, [...order].sort((a, b) => a - b), 'the hand publish steps are in order');
 });
 
-test('the runbook dates the changelog heading instead of adding a second one', () => {
+test('the runbook dates the changelog heading with an ISO date instead of adding a second one', () => {
   const text = read('docs/releasing.md').replaceAll(/\s+/g, ' ');
-  for (const wanted of ['## 0.1.0 - unreleased', 'add no second one', 'still says "unreleased"']) assert.ok(text.includes(wanted), wanted);
+  for (const wanted of ['## 0.1.0 - unreleased', '## 0.1.0 - YYYY-MM-DD', 'add no second one', '"unreleased", "TBD" and no date at all']) assert.ok(text.includes(wanted), wanted);
+});
+
+test('the runbook has the notices step and the failures release:check can report about them', () => {
+  const text = read('docs/releasing.md').replaceAll(/\s+/g, ' ');
+  for (const wanted of ['`npm run build` then `npm run notices`', 'does not name some packages the build bundles', 'files name a folder of the machine that built the package', 'npm took --tag for itself', 'Keep the `--` before `--tag`']) {
+    assert.ok(text.includes(wanted), wanted);
+  }
 });
 
 test('every file the runbook and the workflows read exists', () => {

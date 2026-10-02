@@ -106,5 +106,9 @@ Installing the package (`app:install`, the marketplace) does run the post-instal
   tested, identifiers locked.
 - `npm test` and `npm run typecheck` pass. CI also builds the package
   (`npm run release:check -- --package-only`) and scans the history for secrets.
+- A change that adds or upgrades a dependency also updates the third-party notices: the
+  published bundles hold other people's code, and its licences travel with them. Run
+  `npm run build` then `npm run notices`, and commit `THIRD_PARTY_NOTICES.md`; CI's package
+  check fails when it names a package less than the build holds.
 - Comments say why, not what. The words people read come from the language packs.
 - Releases are the maintainer's: see [docs/releasing.md](docs/releasing.md).

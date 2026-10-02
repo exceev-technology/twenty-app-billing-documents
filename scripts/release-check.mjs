@@ -1,6 +1,7 @@
 // Everything a release needs, in one command, with no server and no network.
 //
 //   npm run release:check                      tests, typecheck, identifier lock, build, the package's contents
+//                                              (and that THIRD_PARTY_NOTICES.md names every package the bundles hold)
 //   npm run release:check -- --tag v0.1.0      and: the tag matches package.json, CHANGELOG.md has the
 //                                              version under a dated heading, the listing's gallery is
 //                                              complete, every identifier is in the lock
@@ -25,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import app from '../src/application-config.ts';
 import { IDS } from '../src/ids.ts';
 import { lockViolations } from '../src/lib/id-lock.ts';
+import { bundledPackages, noticesProblem, sourcesOfMap } from '../src/lib/notices.ts';
 import {
   RELEASE_CHECK_USAGE, changelogProblem, galleryProblem, localPathProblems, npmTookTag, packageProblems, parseReleaseArgs, releaseConclusion,
   tagProblem, unlockedIdentifiers,
@@ -114,6 +116,11 @@ const texts = files
   .filter((file) => /\.(mjs|map|json)$/.test(file) && existsSync(join(output, file)))
   .map((file) => ({ path: file, text: readFileSync(join(output, file), 'utf8') }));
 problems.push(...localPathProblems(texts, [root, realpathSync(root), homedir()]));
+
+// Every package the bundles hold is named in THIRD_PARTY_NOTICES.md (`npm run notices` writes it from the same maps).
+const bundled = bundledPackages(texts.filter(({ path }) => path.endsWith('.map')).flatMap(({ text }) => sourcesOfMap(text)));
+const noticesMissing = noticesProblem(bundled.map(({ name }) => name), read('THIRD_PARTY_NOTICES.md'));
+if (noticesMissing) problems.push(noticesMissing);
 
 if (problems.length > 0) {
   console.error(`\nNot ready to release (${problems.length}):\n${problems.map((problem) => `  - ${problem}`).join('\n')}`);

@@ -132,11 +132,17 @@ pictures, and leave out any record the image came with.
    by hand, since an upgrade never changes a preset a workspace already has.
    `release:check -- --tag` refuses a heading without an ISO date that is a day of the
    calendar: "unreleased", "TBD" and no date at all.
-3. Set `version` in `package.json` (a new field or button is a minor version, a fix a patch).
+3. If a dependency changed since the last release, refresh the third-party notices: run
+   `npm run build` then `npm run notices`, read the diff of `THIRD_PARTY_NOTICES.md`, and
+   commit it. The script reads the licence of every package the bundles hold and of every
+   font they embed, and stops on a licence that is copyleft or that it cannot name: that is
+   a decision for the maintainer, not a thing to work around. `release:check` refuses a
+   package the file does not name.
+4. Set `version` in `package.json` (a new field or button is a minor version, a fix a patch).
    If the version needs a newer Twenty server, change `engines.twenty` and the version the
    README names in *Requirements*, and say so in the changelog.
-4. Open a pull request with these, wait for CI, merge it.
-5. On `main`, check the release, then tag the merge commit and push the tag:
+5. Open a pull request with these, wait for CI, merge it.
+6. On `main`, check the release, then tag the merge commit and push the tag:
 
    ```bash
    git checkout main && git pull
@@ -182,6 +188,8 @@ pictures, and leave out any record the image came with.
 | What | What to do |
 |---|---|
 | `release:check` fails before the tag | Read its list; fix it in a pull request. Nothing was published. |
+| `release:check` says `THIRD_PARTY_NOTICES.md` does not name some packages the build bundles | A dependency changed. Run `npm run build` then `npm run notices` (a licence it stops on is for you to decide), commit the file, and check again. |
+| `release:check` says files name a folder of the machine that built the package | Its message quotes the text it found. A path through `node_modules` means `node_modules` was linked from elsewhere: run `npm ci` in the checkout and build again. Anything else is a path in our own source or configuration: remove it. |
 | `release:check` says the package does not hold `LICENSE` or `THIRD_PARTY_NOTICES.md` | npm skipped the `prepack` script that adds them: `ignore-scripts` is set (`npm config get ignore-scripts` prints `true`, or an `.npmrc` or `npm_config_ignore_scripts` sets it). Unset it, run `release:check` again, and never publish with it set. |
 | The workflow's check fails after the tag | Delete the tag (`git push origin :refs/tags/vX.Y.Z`, `git tag -d vX.Y.Z`), fix it in a pull request, tag again. |
 | npm refuses the publish (authentication) | As npm's documentation says (October 2026), check `NPM_TOKEN`: that it has not expired or been revoked, that it has **Read and write (publish and stage)** on **All Packages** (a stage-only token fails with `E_STAGE_REQUIRED`) and that **Bypass two-factor authentication** is ticked (without it: E403). Or check the trusted publisher: its owner, repository and workflow name, and that its **Allowed actions** include `npm publish` (one created after 3 September 2026 allows `npm stage publish` only, and the workflow runs `npm publish`). Re-run the failed job once it is fixed. |

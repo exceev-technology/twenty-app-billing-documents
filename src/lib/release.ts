@@ -13,7 +13,7 @@ const REQUIRED_FILES: readonly { path: string; why: string }[] = [
   { path: 'package.json', why: 'the server reads engines.twenty from it' },
   { path: 'README.md', why: 'it is the listing’s text' },
   { path: 'LICENSE', why: 'the MIT licence asks that it travels with every copy; the prepack script copies it (scripts/package-notices.mjs)' },
-  { path: 'THIRD_PARTY_NOTICES.md', why: 'it carries the pdfcn attribution; the prepack script copies it (scripts/package-notices.mjs)' },
+  { path: 'THIRD_PARTY_NOTICES.md', why: 'it carries the pdfcn attribution and the licences of the packages and fonts the bundles hold; the prepack script copies it (scripts/package-notices.mjs)' },
   { path: 'src/logic-functions/seed-presets.mjs', why: 'the post-install function seeds the presets' },
 ];
 
