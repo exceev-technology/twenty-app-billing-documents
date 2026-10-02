@@ -26,22 +26,25 @@ const LAYOUTS = [
   { name: 'receipt', note: 'retail, 80 mm roll', width: 226.77 },
 ];
 
-// The picture is drawn on a 1600 x 800 canvas and written at twice that size.
-const CANVAS = { width: 1600, height: 800, scale: 2 };
+// The marketplace shows a gallery image in an 8:5 frame, so the picture is drawn on a
+// 1600 x 1000 canvas and written at twice that size, 3200 x 2000 (test/application.test.ts
+// holds every gallery image to 8:5). The pages' width is what limits their size.
+const CANVAS = { width: 1600, height: 1000, scale: 2 };
 const PAGE_A4 = { width: 318, height: 450 };
 const GAP = 24;
-const TOP = 172;
+// The title block above the pages and the captions under them, centred in the canvas.
+const TITLE_Y = 190;
+const TOP = 282;
 
+/** Runs a program; what goes wrong is thrown, so that the caller's `finally` still runs (process.exit would skip it). */
 function run(program, args) {
   try {
     return execFileSync(program, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (error) {
     if (error.code === 'ENOENT') {
-      console.error(`${program} is not installed. Install it with: brew install ${program === 'pdftoppm' ? 'poppler' : 'librsvg'}`);
-    } else {
-      console.error(`${program} failed:\n${error.stderr?.toString() ?? error.message}`);
+      throw new Error(`${program} is not installed. Install it with: brew install ${program === 'pdftoppm' ? 'poppler' : 'librsvg'}`);
     }
-    process.exit(1);
+    throw new Error(`${program} failed:\n${error.stderr?.toString() ?? error.message}`);
   }
 }
 
@@ -57,10 +60,7 @@ const layouts = () => {
     const scale = PAGE_A4.width / 595.28;
     const cards = LAYOUTS.map((layout) => {
       const pdf = at('docs', 'templates', `${layout.name}.pdf`);
-      if (!existsSync(pdf)) {
-        console.error(`${pdf} is missing: run \`npm run render:samples\` first.`);
-        process.exit(1);
-      }
+      if (!existsSync(pdf)) throw new Error(`${pdf} is missing: run \`npm run render:samples\` first.`);
       run('pdftoppm', ['-png', '-r', '150', '-f', '1', '-l', '1', '-singlefile', pdf, join(work, layout.name)]);
       const png = readFileSync(join(work, `${layout.name}.png`));
       return { ...layout, uri: `data:image/png;base64,${png.toString('base64')}`, drawn: layout.width * scale };
@@ -82,7 +82,7 @@ const layouts = () => {
       return out;
     });
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${CANVAS.width}" height="${CANVAS.height}" viewBox="0 0 ${CANVAS.width} ${CANVAS.height}">
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CANVAS.width}" height="${CANVAS.height}" viewBox="0 0 ${CANVAS.width} ${CANVAS.height}">
   <defs>
     <filter id="soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="7"/></filter>
     <style>
@@ -94,9 +94,9 @@ const layouts = () => {
     </style>
   </defs>
   <rect width="${CANVAS.width}" height="${CANVAS.height}" fill="#f4f6f8"/>
-  <text x="80" y="88" class="title">Five PDF layouts, one invoice</text>
-  <text x="80" y="128" class="sub">Pick one for each issuer: the content is the same, only the look changes.</text>${pages.join('')}
-  <text x="${CANVAS.width - 80}" y="${CANVAS.height - 28}" text-anchor="end" class="foot">Sample documents from a fictitious company.</text>
+  <text x="80" y="${TITLE_Y}" class="title">Five PDF layouts, one invoice</text>
+  <text x="80" y="${TITLE_Y + 40}" class="sub">Pick one for each issuer: the content is the same, only the look changes.</text>${pages.join('')}
+  <text x="${CANVAS.width - 80}" y="${CANVAS.height - 48}" text-anchor="end" class="foot">Sample documents from a fictitious company.</text>
 </svg>
 `;
     const source = join(work, 'layouts.svg');
@@ -111,5 +111,10 @@ const layouts = () => {
   }
 };
 
-logo();
-layouts();
+try {
+  logo();
+  layouts();
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}

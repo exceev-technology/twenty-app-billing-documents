@@ -40,14 +40,24 @@ test('every gallery image is listed once, is a PNG kept in public/gallery/, and 
   }
 });
 
-test('the five layouts picture is in the gallery', () => {
+test('the five layouts picture is in the gallery, and is 3200 × 2000: the marketplace’s 8:5 frame, at twice the 1600 × 1000 it is drawn on', () => {
   assert.ok(app.config.galleryImages?.includes('public/gallery/layouts.png'));
+  assert.deepEqual(pngSize(file('public/gallery/layouts.png')), { width: 3200, height: 2000 });
 });
 
-test('the website is the repository and the issue tracker is its issues', () => {
+test('every gallery image is in the 8:5 frame the marketplace shows it in, so the maintainer’s screenshots (1600 × 1000) are held to it too', () => {
+  for (const path of app.config.galleryImages ?? []) {
+    const size = pngSize(file(path))!;
+    assert.equal(size.width * 5, size.height * 8, `${path} is ${size.width} × ${size.height}, not 8:5`);
+  }
+});
+
+test('the website is the repository and the issue tracker is its issues, both https: the marketplace links them', () => {
   assert.equal(app.config.websiteUrl, repository);
   assert.equal(app.config.issueReportUrl, pkg.bugs.url);
   assert.equal(app.config.issueReportUrl, `${repository}/issues`);
+  assert.match(app.config.websiteUrl!, /^https:\/\//);
+  assert.match(app.config.issueReportUrl!, /^https:\/\//);
 });
 
 test('the listing’s text is the README: the manifest’s about text is not set by hand', () => {
