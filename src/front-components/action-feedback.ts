@@ -24,7 +24,7 @@ export const ONE = 'numberOfSelectedRecords == 1 and noneDefined(selectedRecords
 /** Quotes that may become an invoice: one selected, not deleted, in Draft, Sent or Accepted. */
 export const OPEN_QUOTE_ONE =
   'numberOfSelectedRecords == 1 and noneDefined(selectedRecords, "deletedAt") and noneEquals(selectedRecords, "status", "DECLINED") and noneEquals(selectedRecords, "status", "EXPIRED") and noneEquals(selectedRecords, "status", "INVOICED")';
-/** Invoices that may be credited or cancelled: one selected, not deleted, Issued, Sent or Paid. */
+/** Invoices that may be credited, cancelled or sent by email: one selected, not deleted, Issued, Sent or Paid. */
 export const ISSUED_ONE =
   'numberOfSelectedRecords == 1 and noneDefined(selectedRecords, "deletedAt") and noneEquals(selectedRecords, "status", "DRAFT") and noneEquals(selectedRecords, "status", "CANCELLED")';
 

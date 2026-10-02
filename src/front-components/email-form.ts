@@ -49,15 +49,69 @@ export function readPrepared(answer: RouteAnswer, locale: string): { ok: true; f
   return { ok: false, problems: problemsOf(answer.body) ?? [feedbackFor(answer, locale).message] };
 }
 
-/** Send's answer: the snackbar (a warning when the document could not be marked), or the problems to list. */
-export function readSent(
-  answer: RouteAnswer,
-  locale: string,
-): { ok: true; message: string; variant: 'success' | 'warning' } | { ok: false; problems: string[] } {
+/**
+ * Send's answer: the snackbar (a warning when the document could not be marked), or the problems to list.
+ * `unconfirmed` is set when the email may have gone: the person must not be invited to send it again.
+ */
+export type SentRead = { ok: true; message: string; variant: 'success' | 'warning' } | { ok: false; unconfirmed: boolean; problems: string[] };
+
+/** A 4xx without the route's body came from before the route (no function, a gateway, a refused token): nothing was sent. */
+const neverReachedRoute = (status: number | null): boolean => status !== null && status >= 400 && status < 500;
+
+/**
+ * Read Send's answer. The route's own body is read as it words itself. Without one, only a 4xx proves the
+ * request never reached the route; a lost answer (no status), the platform's 30 s cut or a gateway's 5xx, or a
+ * success that is no route body, leaves the email possibly sent (email spec §10): that is said, not retried.
+ */
+export function readSent(answer: RouteAnswer, locale: string): SentRead {
   const sent = answer.body as { ok?: unknown; message?: unknown; marked?: unknown } | null;
   if (sent?.ok === true && typeof sent.message === 'string') return { ok: true, message: sent.message, variant: sent.marked === false ? 'warning' : 'success' };
-  return { ok: false, problems: problemsOf(answer.body) ?? [feedbackFor(answer, locale).message] };
+  const problems = problemsOf(answer.body);
+  if (problems) return { ok: false, unconfirmed: false, problems };
+  if (neverReachedRoute(answer.status)) return { ok: false, unconfirmed: false, problems: [feedbackFor(answer, locale).message] };
+  return { ok: false, unconfirmed: true, problems: [formWords(locale).unconfirmed] };
 }
+
+/** Where a form's Send stands, for the one record the form was prepared for. */
+export type SendPhase = 'unloaded' | 'idle' | 'sending' | 'sent' | 'unconfirmed';
+export type SendState = { record: string | null; phase: SendPhase };
+/**
+ * What moves it. Every event but `select` names the record it was asked for, so that an answer, or a click, for a
+ * record that is no longer the selected one is recognised and dropped.
+ */
+export type SendEvent =
+  | { type: 'select'; record: string | null }
+  | { type: 'loaded'; record: string }
+  | { type: 'send'; record: string }
+  | { type: 'answer'; record: string; read: SentRead };
+
+/** Nothing selected, nothing loaded. */
+export const SEND_START: SendState = { record: null, phase: 'unloaded' };
+
+/**
+ * The send state machine (email spec §6, §8, §10), pure so that node --test can pin it. The selection changing
+ * starts over, on the new record, with no form. Prepare loads the form of the selected record only; Send is accepted
+ * once, from a loaded form of the selected record; its answer unlocks it only when the route refused or was never
+ * reached. A sent or unconfirmed form stays locked until the selection changes. An event that changes nothing returns
+ * the very same state, which is how the component tells it was dropped.
+ */
+export function sendStep(state: SendState, event: SendEvent): SendState {
+  if (event.type === 'select') return { record: event.record, phase: 'unloaded' };
+  if (event.record !== state.record) return state;
+  switch (event.type) {
+    case 'loaded':
+      return state.phase === 'unloaded' ? { record: state.record, phase: 'idle' } : state;
+    case 'send':
+      return state.phase === 'idle' ? { record: state.record, phase: 'sending' } : state;
+    case 'answer':
+      if (state.phase !== 'sending') return state;
+      if (event.read.ok) return { record: state.record, phase: 'sent' };
+      return { record: state.record, phase: event.read.unconfirmed ? 'unconfirmed' : 'idle' };
+  }
+}
+
+/** Send is clickable only for a loaded form that has not been sent, is not being sent, and was not left unconfirmed. */
+export const canSend = (state: SendState): boolean => state.phase === 'idle';
 
 /**
  * The value a form element's change event carries. Twenty's remote DOM serializes it
@@ -87,6 +141,9 @@ export type FormWords = {
   message: string;
   separate: string;
   loading: string;
+  noRecord: string;
+  /** Send's answer was lost or cut: the email may have gone, so the person checks before sending it again. */
+  unconfirmed: string;
   send: string;
   sending: string;
   cancel: string;
@@ -99,15 +156,19 @@ const WORDS = {
     attachmentLine: (name: string) => `Attachment: ${name}`,
     from: 'From', to: 'To', cc: 'Cc', subject: 'Subject', message: 'Message',
     separate: 'Separate several addresses with commas.',
-    loading: 'Preparing the email…', send: 'Send', sending: 'Sending…', cancel: 'Cancel',
+    loading: 'Preparing the email…', noRecord: 'No document is selected.',
+    unconfirmed: 'We could not confirm that the email was sent: check your Sent folder, or the document’s timeline, before sending it again.',
+    send: 'Send', sending: 'Sending…', cancel: 'Cancel',
   },
   fr: {
     kinds: { billingInvoice: 'la facture', billingCreditNote: 'l’avoir', billingQuote: 'le devis' },
     heading: (kind: string, number: string) => `Envoyer ${kind} ${number}`,
-    attachmentLine: (name: string) => `Pièce jointe : ${name}`,
+    attachmentLine: (name: string) => `Pièce jointe\u00a0: ${name}`,
     from: 'De', to: 'À', cc: 'Cc', subject: 'Objet', message: 'Message',
     separate: 'Séparez les adresses par des virgules.',
-    loading: 'Préparation de l’e-mail…', send: 'Envoyer', sending: 'Envoi…', cancel: 'Annuler',
+    loading: 'Préparation de l’e-mail…', noRecord: 'Aucun document n’est sélectionné.',
+    unconfirmed: 'Impossible de confirmer l’envoi de l’e-mail\u00a0: vérifiez vos éléments envoyés, ou l’historique du document, avant de le renvoyer.',
+    send: 'Envoyer', sending: 'Envoi…', cancel: 'Annuler',
   },
 };
 
