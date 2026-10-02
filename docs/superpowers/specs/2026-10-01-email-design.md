@@ -223,14 +223,17 @@ setting later: templates as records are out of scope for v1.
   failures (no route, no network) use the buttons' own words, as in 4a.
 - After a send, a snackbar says "Sent to maria@client.com" and the side panel
   closes.
-- When the form cannot tell whether the email went (no answer from the route,
-  or one from the platform with a status of 500 or more, or the route's
-  `SEND_UNCONFIRMED`), it says so: "We could not confirm that the email was
-  sent: check your Sent folder, or the document's timeline, before sending it
-  again." (and its French). Send stays disabled for the rest of the form's
-  life, as after a success; Cancel still closes the panel. An answer that shows the
-  request never reached the route (404 and other 4xx) is a failure to try
-  again.
+- When the email may have gone, the form says so, and Send stays disabled for
+  the rest of the form's life, as after a success; Cancel still closes the
+  panel, except while a send is in flight. On the route's `SEND_UNCONFIRMED`
+  answer, the form shows the route's own message ("The email may have gone:
+  check your Sent folder before trying again (ref ...)") and locks Send. Its
+  own words, "We could not confirm that the email was sent: check your Sent
+  folder, or the document's timeline, before sending it again." (and its
+  French), are for an answer with no route body (no answer at all, a status of
+  500 or more, or a 200 that is not a route body), and for a stale answer's
+  snackbar (§13). An answer that shows the request never reached the route (404
+  and other 4xx) is a failure to try again.
 
 Labels are in English and French, chosen from the person's Twenty locale, like
 the buttons' transport messages. The form follows Twenty's light or dark scheme
@@ -336,9 +339,18 @@ Prepare does, so a hidden document reveals nothing; Prepare reads the person
 billed as the caller, so a role that cannot see People gets no address; the
 Mailer says "not sent" only when it knows, and any failure that does not say
 whether the email went answers "may have gone" with its own code,
-`SEND_UNCONFIRMED`, on which the form says it could not confirm the send and
-keeps Send disabled (§8, §10). The address, subject and message never reach a
-log.
+`SEND_UNCONFIRMED`, on which the form shows the route's own message and keeps
+Send disabled (§8, §10). The address, subject and message never reach a log.
+
+The fix wave settled how the form behaves around a send. A change of selection
+resets the form, so nothing of one record's form rides on another's id. Cancel
+is disabled while a send is in flight. If the snackbar fails, the sent message
+shows inline in the form. An answer that arrives after the selection moved, or
+the panel closed (a stale answer), is told by snackbar only: that it went, that
+it went but was not marked, or that it could not be confirmed. A refusal says
+nothing then. A per-record guard keeps a second Send from running in parallel
+with one in flight, even from a fresh form of the same document. A 200 that is
+not a route body counts as unconfirmed.
 
 ## Out of scope for 4c
 

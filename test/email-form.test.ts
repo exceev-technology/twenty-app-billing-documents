@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   EMAIL_PATH, SEND_START, SENDS_IN_FLIGHT, canSend, claimSend, formWords, inputValue, postEmail, readPrepared, readSent, releaseSend, sendKey, sendStep,
   staleNotice, withField,
@@ -267,4 +268,59 @@ test('a document’s Send is claimed once at a time, released by any answer, and
   releaseSend(inFlight, key);
   assert.equal(inFlight.has(key), false, 'releasing what is not claimed is harmless');
   assert.equal(SENDS_IN_FLIGHT.size, 0, 'the component’s own set starts empty');
+});
+
+/**
+ * The component's source, comments dropped: its wiring is pinned as text, since a render needs React and the SDK's host.
+ * Every pattern below lets whitespace vary (`\s*`), so a reformat does not break it, and a deleted line does.
+ */
+const FORM_SOURCE = readFileSync(new URL('../src/front-components/send-email-form.tsx', import.meta.url), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/(^|\s)\/\/[^\n]*/g, ' ');
+/** The `submit` handler, and all that follows it. */
+const SUBMIT = FORM_SOURCE.slice(FORM_SOURCE.search(/\bconst submit\s*=\s*async\b/));
+const RELEASE = /\breleaseSend\(\s*SENDS_IN_FLIGHT\s*,\s*key\s*,?\s*\)/;
+
+test('Send claims its document and its form before the first await: a second click in the same tick cannot send again', () => {
+  assert.ok(SUBMIT.length > 0, 'the form has no submit handler');
+  const firstAwait = SUBMIT.search(/\bawait\b/);
+  assert.ok(firstAwait > 0, 'submit never awaits');
+  const claims = [
+    ['the document’s claim', /\bclaimSend\(\s*SENDS_IN_FLIGHT\s*,\s*key\s*,?\s*\)/],
+    ['the form’s step to sending', /\bstep\(\s*\{\s*type:\s*'send'/],
+  ] as const;
+  for (const [name, pattern] of claims) {
+    const at = SUBMIT.search(pattern);
+    assert.ok(at >= 0, `${name} is gone`);
+    assert.ok(at < firstAwait, `${name} comes after the first await`);
+  }
+});
+
+test('Send releases its document in a finally, so any answer, or a throw, frees it for a later Send', () => {
+  const posting = SUBMIT.search(/\bawait\s+postEmail\(/);
+  assert.ok(posting >= 0, 'submit no longer awaits the post');
+  assert.match(SUBMIT.slice(0, posting), /\btry\s*\{[^{}]*$/, 'the post is not in a try');
+  // The first finally after the post, with no brace inside it: the one that belongs to that try.
+  const finallyBlock = /^finally\s*\{([^{}]*)\}/.exec(SUBMIT.slice(posting + SUBMIT.slice(posting).search(/\bfinally\b/)));
+  assert.ok(finallyBlock, 'the post’s try has no finally');
+  assert.match(finallyBlock[1]!, RELEASE, 'the finally does not release the claim');
+});
+
+test('Cancel is disabled while a send is in flight: closing the panel then would lose the answer', () => {
+  assert.match(FORM_SOURCE, /\bconst sending\s*=\s*send\.phase\s*===\s*'sending'/, '`sending` is not the machine’s sending phase');
+  // Whole JSX opening tags; `=>` inside an attribute is not their end.
+  const cancels = (FORM_SOURCE.match(/<button\b(?:=>|[^>])*>/g) ?? []).filter((tag) => /\bonClick=\{\s*close\s*\}/.test(tag));
+  assert.ok(cancels.length > 0, 'no button closes the panel');
+  // The last is the one beside Send, in the loaded form; the first, with no form, has no send to wait for.
+  assert.match(cancels.at(-1)!, /\bdisabled=\{\s*sending\s*\}/, 'the form’s Cancel is not disabled while sending');
+});
+
+test('after a send the snackbar and the closing of the panel each have a try of their own: a failed snackbar still closes, a panel that stays open still leaves the form', () => {
+  const snackbar = SUBMIT.search(/\bawait\s+enqueueSnackbar\(\s*\{\s*message:\s*read\.message\b/);
+  const closing = SUBMIT.search(/\bawait\s+closeSidePanel\(\s*\)/);
+  assert.ok(snackbar >= 0, 'submit no longer shows the sent message');
+  assert.ok(closing > snackbar, 'submit no longer closes the panel after the message');
+  assert.match(SUBMIT.slice(0, snackbar), /\btry\s*\{\s*$/, 'the snackbar is not in a try of its own');
+  assert.match(SUBMIT.slice(0, closing), /\btry\s*\{\s*$/, 'closing the panel is not in a try of its own');
+  assert.match(SUBMIT.slice(snackbar, closing), /\}\s*catch\b[^]*\}\s*try\s*\{\s*$/, 'the snackbar’s try is not closed, with its catch, before the panel’s opens');
 });

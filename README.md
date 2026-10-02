@@ -149,9 +149,10 @@ imports it with your other emails when that mailbox syncs.
 - After a send, an Issued invoice becomes Sent and a Draft quote becomes Sent;
   *Sent at* keeps the date of the first send; every send leaves a row on the
   document's timeline naming who received it.
-- When the form says it could not confirm that the email was sent (the
-  connection dropped, or Twenty did not answer in time), the email may have
-  gone: check your Sent folder, or the document's timeline, before sending it
+- When the form says the email may have gone, or that it could not confirm that
+  the email was sent (the connection dropped, or Twenty did not answer in
+  time), the email may have gone: either message tells you to check your Sent
+  folder, and the second also the document's timeline, before sending it
   again. The form keeps Send disabled until you reopen it.
 
 Before anyone sends:
