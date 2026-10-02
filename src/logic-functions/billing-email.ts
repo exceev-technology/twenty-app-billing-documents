@@ -9,7 +9,7 @@ import { describeAll, packFor, type LifecyclePack, type LifecycleProblem, type W
 import { KINDS, type Kind } from '../../lifecycle/load.ts';
 import { EmailNotAllowedError, SendFailedError, type Mailbox, type Mailer } from '../../lifecycle/mailer.ts';
 import { idOf, textOf } from '../../lifecycle/map.ts';
-import { leaveMessage, NotAllowedError, reasonOf, type CallerStore, type Row, type Store } from '../../lifecycle/store.ts';
+import { leaveMessage, NotAllowedError, type CallerStore, type Row, type Store } from '../../lifecycle/store.ts';
 import { id } from '../lib/id.ts';
 import { callerMailer } from '../lib/mailer.ts';
 import { logLineFor, newReference, respondTo, type RouteContext, type RouteEvent } from '../lib/route.ts';
@@ -52,6 +52,39 @@ export type EmailResponse =
 export type EmailOutcome = { status: 200 | 403 | 422 | 500 | 502; body: EmailResponse };
 
 type Step = (name: string) => void;
+
+/** Shorter than this, a text is not taken out of a message: it would blank half of it, and hide nothing. */
+const SHORTEST_HIDDEN_TEXT = 4;
+const LOGGED_MESSAGE_LENGTH = 200;
+
+const textField = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
+
+/** What the person wrote in a Send, which no log may carry: the recipients' text, the subject (folded as it is sent), the message. */
+const writtenIn = (request: EmailRequest | null): string[] =>
+  request?.step === 'send' ? [request.to, request.cc, request.subject, request.subject.replace(/[\r\n]+/g, ' ').trim(), request.message] : [];
+
+/**
+ * An error as a log entry shows it: its name, an HTTP status, the `code` and `subCode` of Twenty's answer, and its
+ * message cut short with every address replaced. Never a whole body: a Twenty client's error carries its response
+ * body in its message, which can echo the address, the subject or the message of the email. `written` is what the
+ * person wrote, taken out of the message first.
+ */
+export function scrubbed(error: unknown, written: readonly string[] = []): Record<string, unknown> {
+  const failure = (error ?? {}) as { name?: unknown; status?: unknown; body?: unknown; errors?: unknown };
+  const body = (failure.body !== null && typeof failure.body === 'object' ? failure.body : {}) as { statusCode?: unknown; code?: unknown; subCode?: unknown };
+  const graphql = Array.isArray(failure.errors) ? failure.errors.map((entry: { extensions?: { code?: unknown; subCode?: unknown } | null } | null) => entry?.extensions) : [];
+  const codeOf = (key: 'code' | 'subCode'): string | undefined => textField(body[key]) ?? graphql.map((extensions) => textField(extensions?.[key])).find((code) => code !== undefined);
+  const status = [failure.status, body.statusCode].find((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  let message = error instanceof Error ? error.message : String(error);
+  for (const text of written) if (text.trim().length >= SHORTEST_HIDDEN_TEXT) message = message.split(text).join('[removed]');
+  return {
+    errorName: error instanceof Error ? error.name : typeof error,
+    ...(status === undefined ? {} : { httpStatus: status }),
+    ...(codeOf('code') === undefined ? {} : { code: codeOf('code') }),
+    ...(codeOf('subCode') === undefined ? {} : { subCode: codeOf('subCode') }),
+    error: message.replace(/\S+@\S+/g, '[address]').slice(0, LOGGED_MESSAGE_LENGTH),
+  };
+}
 
 function refuse(status: 403 | 422 | 502, pack: LifecyclePack, problems: readonly LifecycleProblem[]): EmailOutcome {
   return { status, body: { ok: false, problems: describeAll(problems.map((problem) => ({ source: 'lifecycle' as const, ...problem })), pack.code) } };
@@ -201,10 +234,7 @@ async function send(request: SendRequest, deps: EmailDeps, pack: LifecyclePack, 
   } catch (error) {
     const reference = deps.reference();
     // The layout runEmail's own log has: the request's step as `emailStep`, the stage that failed as `step`.
-    deps.log({
-      reference, object: kind.object, recordId: document.id, emailStep: request.step, step: 'record',
-      error: error instanceof Error ? error.message : String(error), ...reasonOf(error),
-    });
+    deps.log({ reference, object: kind.object, recordId: document.id, emailStep: request.step, step: 'record', ...scrubbed(error, writtenIn(request)) });
     return { status: 200, body: { ok: true, message: pack.messages.sentNotMarked(checked.to, kind.kind, reference), marked: false } };
   }
   return { status: 200, body: { ok: true, message: pack.messages.sentTo(checked.to), marked: true } };
@@ -225,10 +255,10 @@ export async function runEmail(raw: unknown, deps: EmailDeps): Promise<EmailOutc
     return request.step === 'prepare' ? await prepare(request, deps, pack, setStep) : await send(request, deps, pack, setStep);
   } catch (error) {
     const reference = deps.reference();
-    // Ids and the step only: never an address, a subject or a message.
+    // Ids, the step and a scrubbed error: never an address, a subject or a message.
     deps.log({
       reference, object: request?.object ?? null, recordId: request?.recordId ?? null, emailStep: request?.step ?? null, step,
-      error: error instanceof Error ? error.message : String(error), ...reasonOf(error),
+      ...scrubbed(error, writtenIn(request)),
     });
     // A failure while the email was going is not "something went wrong, try again": it may have gone, and a retry would send it twice.
     const message = step === 'send' ? pack.messages.sendUnknown(reference) : pack.messages.unexpected(reference);
@@ -243,7 +273,7 @@ export function liveDeps(): EmailDeps {
 
 /** Answers the form (src/lib/route.ts: refused without a signed-in person, as the email goes from the caller's own mailbox). */
 export const respond = (event: RouteEvent, context: RouteContext, makeDeps: () => EmailDeps): Promise<TwentyResponse> =>
-  respondTo(event, context, { name: ROUTE, run: runEmail, makeDeps });
+  respondTo(event, context, { name: ROUTE, run: runEmail, makeDeps, errorEntry: (error) => scrubbed(error) });
 
 export default defineLogicFunction({
   universalIdentifier: id('logicFunction.billingEmail'),

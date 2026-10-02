@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import billingEmail, { respond, runEmail, type EmailDeps, type EmailOutcome } from '../src/logic-functions/billing-email.ts';
+import billingEmail, { respond, runEmail, scrubbed, type EmailDeps, type EmailOutcome } from '../src/logic-functions/billing-email.ts';
 import { EmailNotAllowedError, SendFailedError, type Mailbox, type Mailer, type OutgoingEmail } from '../lifecycle/mailer.ts';
 import type { Row } from '../lifecycle/store.ts';
 import { IDS } from '../src/ids.ts';
@@ -439,7 +439,7 @@ test('a failure after the send is answered as sent, says the document is not mar
   assert.equal(sent.length, 1);
   // The layout runEmail's own log has: the request's step as `emailStep`, the stage that failed as `step`.
   assert.deepEqual(logs, [{
-    reference: 'ref-7f3a', object: 'billingInvoice', recordId: w.invoice.id, emailStep: 'send', step: 'record', error: 'injected failure',
+    reference: 'ref-7f3a', object: 'billingInvoice', recordId: w.invoice.id, emailStep: 'send', step: 'record', errorName: 'Error', error: 'injected failure',
   }]);
   assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'ISSUED');
 });
@@ -466,7 +466,7 @@ test('a send that fails in transit may have gone: it says to check the Sent fold
     assert.deepEqual(w.db.writes.slice(before).map((write) => write.source), ['MANUAL'], `${locale}: the caller’s write only`);
     assert.deepEqual([sentState(w.db.row('billingInvoices', w.invoice.id)!), w.db.timeline], [['ISSUED', null], []], locale);
     assert.deepEqual(logs, [{
-      reference: 'ref-7f3a', object: 'billingInvoice', recordId: w.invoice.id, emailStep: 'send', step: 'send', error: 'socket hang up',
+      reference: 'ref-7f3a', object: 'billingInvoice', recordId: w.invoice.id, emailStep: 'send', step: 'send', errorName: 'Error', error: 'socket hang up',
     }], locale);
     // A log that holds no address, subject or message.
     assert.doesNotMatch(JSON.stringify(logs), /camille|Bonjour|Facture/);
@@ -549,4 +549,79 @@ test('a document deleted while the email is in flight is answered as sent but no
     assert.deepEqual(w.db.timeline, []);
     assert.deepEqual(logs.map((entry) => [entry.reference, entry.emailStep, entry.step]), [['ref-7f3a', 'send', 'record']]);
   }
+});
+
+/** The recipient, the subject and the message the tests send: nothing of them may reach a log. */
+const WRITTEN = { to: 'camille@calibre.example', subject: 'Facture F2026-0001 de Verdal Studio', message: 'Bonjour Camille, voici la facture du mois.' };
+const NOT_LOGGED = /camille|calibre|Facture|Verdal|voici/i;
+
+/** An error as Twenty’s clients throw it: the response body in the message, and the body itself with its codes. */
+function echoingError(): Error {
+  const echoed = `Invalid recipients ${WRITTEN.to} for “${WRITTEN.subject}”: ${WRITTEN.message}`;
+  return Object.assign(new Error(`Bad Request: ${JSON.stringify({ errors: [{ message: echoed }] })}`.padEnd(400, '.')), {
+    name: 'RestApiClientError', status: 502,
+    body: { statusCode: 502, code: 'MAILBOX_UNAVAILABLE', subCode: 'SMTP_REJECTED', messages: [echoed], to: [WRITTEN.to], subject: WRITTEN.subject },
+  });
+}
+
+test('an error that echoes the address, the subject and the message is logged without them, at every step', async () => {
+  // The send step: the email may have gone.
+  const w = workspace();
+  await issuedInvoice(w);
+  const { mailer } = fakeMailer({
+    send: async () => {
+      throw echoingError();
+    },
+  });
+  const sending = setup(w, { mailer });
+  assert.equal((await runEmail(sendBody(w, WRITTEN), sending.deps)).status, 500);
+  // The record step: the email has gone, the document is not marked.
+  const v = workspace();
+  await issuedInvoice(v);
+  const recording = setup(v);
+  v.db.failNext((op, plural, data) => op === 'update' && plural === 'billingInvoices' && data?.status === 'SENT', echoingError());
+  assert.equal((await runEmail(sendBody(v, WRITTEN), recording.deps)).status, 200);
+  // The caller's write.
+  const x = workspace();
+  await issuedInvoice(x);
+  const writing = setup(x);
+  x.db.failNext((op, plural) => op === 'update' && plural === 'billingInvoices', echoingError());
+  assert.equal((await runEmail(sendBody(x, WRITTEN), writing.deps)).status, 500);
+
+  for (const [name, { logs }] of [['send', sending], ['record', recording], ['caller', writing]] as const) {
+    assert.equal(logs.length, 1, name);
+    assert.doesNotMatch(JSON.stringify(logs), NOT_LOGGED, name);
+    assert.equal(logs[0]!.errorName, 'RestApiClientError', name);
+    assert.deepEqual([logs[0]!.httpStatus, logs[0]!.code, logs[0]!.subCode], [502, 'MAILBOX_UNAVAILABLE', 'SMTP_REJECTED'], name);
+    assert.ok(String(logs[0]!.error).length <= 200, name);
+    assert.ok(!('body' in logs[0]!) && !('messages' in logs[0]!), `${name}: never a body`);
+  }
+});
+
+test('a route whose dependencies cannot be built logs a scrubbed error, under the route’s name', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {});
+  const w = workspace();
+  const failing = (): EmailDeps => {
+    throw new Error(`The mailbox of ${WRITTEN.to} could not be opened`);
+  };
+  const answer = await respond({ body: prepareBody(w), userWorkspaceId: 'uw-1' }, { workspaceMemberId: 'member-1' }, failing);
+  assert.equal(answer.status, 500);
+  assert.equal(logged.mock.callCount(), 1);
+  const entry = JSON.parse(String(logged.mock.calls[0]!.arguments[0])) as Record<string, unknown>;
+  assert.deepEqual([entry.route, entry.step, entry.errorName, entry.error], ['billing-email', 'setup', 'Error', 'The mailbox of [address] could not be opened']);
+});
+
+test('the scrubbed error keeps the name, a numeric status, the codes of a body or of GraphQL errors, and a message of 200 characters at most with each address replaced', () => {
+  assert.deepEqual(scrubbed(new TypeError('fetch failed')), { errorName: 'TypeError', error: 'fetch failed' });
+  assert.deepEqual(scrubbed('plain text'), { errorName: 'string', error: 'plain text' });
+  assert.deepEqual(scrubbed(Object.assign(new Error('Forbidden'), { status: '403', body: { statusCode: 403, code: 'FORBIDDEN', subCode: 7 } })), {
+    errorName: 'Error', httpStatus: 403, code: 'FORBIDDEN', error: 'Forbidden',
+  });
+  const graphql = Object.assign(new Error('x'), { errors: [{ message: 'm' }, { message: 'n', extensions: { code: 'BAD_USER_INPUT', subCode: 'INVALID_RECIPIENT' } }] });
+  assert.deepEqual(scrubbed(graphql), { errorName: 'Error', code: 'BAD_USER_INPUT', subCode: 'INVALID_RECIPIENT', error: 'x' });
+  // Whatever sticks to an address goes with it: a comma, brackets, quotes.
+  assert.equal(scrubbed(new Error('Invalid: a@b.example, <c@d.example> and e@f')).error, 'Invalid: [address] [address] and [address]');
+  assert.equal(String(scrubbed(new Error('x'.repeat(500))).error).length, 200);
+  // What the person wrote is taken out first, when it is long enough to hide anything; a short text is left alone.
+  assert.equal(scrubbed(new Error('Rejected: Hello there. Re: S'), ['Hello there.', 'S']).error, 'Rejected: [removed] Re: S');
 });
