@@ -37,7 +37,8 @@
     "status": "twenty remote:status",
     "plan": "twenty plan",
     "apply": "twenty apply",
-    "deploy": "node scripts/deploy.mjs"
+    "deploy": "node scripts/deploy.mjs",
+    "listing:images": "node scripts/listing-images.mjs"
   },
   "devDependencies": {
     "@types/node": "24.13.6",
