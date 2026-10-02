@@ -62,8 +62,8 @@ export type Store = {
   timeline(entry: TimelineEntry): Promise<void>;
 };
 
-/** The caller's side of the route: its first write, an update or a creation, with the caller's own token. */
-export type CallerStore = Pick<Store, 'update' | 'create'>;
+/** The caller's side of a route, with their own token: a read, and the first write (an update or a creation). */
+export type CallerStore = Pick<Store, 'get' | 'update' | 'create'>;
 
 /** A unique key refused a value another record holds. */
 export class DuplicateError extends Error {

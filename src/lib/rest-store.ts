@@ -190,6 +190,15 @@ export function restStore(deps: RestStoreDeps): Store {
 /** The caller's side: their delegated token. A record hidden from them is refused as well. */
 export function restCallerStore(rest: RestLike): CallerStore {
   return {
+    async get(plural, id) {
+      try {
+        return single(await rest.get(`/rest/${plural}/${id}`, { query: { depth: 0 } }), `${plural} record`);
+      } catch (error) {
+        // Hidden from the caller, or gone: nothing of theirs to act on.
+        if (statusOf(error) === 404) return null;
+        throw translate(error);
+      }
+    },
     async update(plural, id, data) {
       try {
         return single(await rest.patch(`/rest/${plural}/${id}`, data), `updated ${plural} record`);

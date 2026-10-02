@@ -192,3 +192,14 @@ test('the caller creates a record with their own token, and a refusal is NOT_ALL
   const refused = fakeRest(() => restError(400, { statusCode: 400, error: 'Error', messages: ['Entity performing the request does not have permission'], code: 'PERMISSION_DENIED' }));
   await assert.rejects(restCallerStore(refused.rest).create('billingInvoices', {}), NotAllowedError);
 });
+
+test('the caller reads with their own token: a record hidden from them is null, a refusal NOT_ALLOWED', async () => {
+  const { rest, calls } = fakeRest((call) =>
+    call.path === '/rest/billingInvoices/r1' ? { data: { billingInvoice: { id: 'r1', number: 'F2026-0001' } } } : restError(404, { messages: ['Record not found'] }),
+  );
+  assert.deepEqual(await restCallerStore(rest).get('billingInvoices', 'r1'), { id: 'r1', number: 'F2026-0001' });
+  assert.deepEqual(calls[0], { method: 'GET', path: '/rest/billingInvoices/r1', query: { depth: 0 } });
+  assert.equal(await restCallerStore(rest).get('billingInvoices', 'r2'), null);
+  const denied = fakeRest(() => restError(400, { statusCode: 400, error: 'Error', messages: ['Entity performing the request does not have permission'], code: 'PERMISSION_DENIED' }));
+  await assert.rejects(restCallerStore(denied.rest).get('billingInvoices', 'r1'), NotAllowedError);
+});
