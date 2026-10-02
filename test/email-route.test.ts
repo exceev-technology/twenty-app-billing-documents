@@ -4,10 +4,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import billingEmail, { respond, runEmail, scrubbed, type EmailDeps, type EmailOutcome } from '../src/logic-functions/billing-email.ts';
+import billingEmail, { respond, runEmail, scrubbed, scrubbedLog, type EmailDeps, type EmailOutcome } from '../src/logic-functions/billing-email.ts';
 import { EmailNotAllowedError, SendFailedError, type Mailbox, type Mailer, type OutgoingEmail } from '../lifecycle/mailer.ts';
-import type { Row } from '../lifecycle/store.ts';
+import type { Row, Store } from '../lifecycle/store.ts';
 import { metadataMailer } from '../src/lib/mailer.ts';
+import { restStore, type RestLike } from '../src/lib/rest-store.ts';
 import { IDS } from '../src/ids.ts';
 import { TODAY, money, now, workspace, type Workspace } from './lifecycle/helpers/fixtures.ts';
 import { bundleLogicFunction } from './helpers/logic-function-build.ts';
@@ -550,6 +551,33 @@ test('a send that fails in transit may have gone: SEND_UNCONFIRMED says to check
   }
 });
 
+test('a throw at the record step, after the email went, is “may have gone” as well: the form is never told “not sent”', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const logs: Record<string, unknown>[] = [];
+  let thrown = false;
+  // The record step’s own catch logs first: that log throws once, so the failure escapes it and reaches runEmail’s catch.
+  const log = (entry: Record<string, unknown>): void => {
+    if (!thrown) {
+      thrown = true;
+      throw new Error('the log is down');
+    }
+    logs.push(entry);
+  };
+  const { deps, sent } = setup(w, { log });
+  w.db.failNext((op, plural, data) => op === 'update' && plural === 'billingInvoices' && data?.status === 'SENT');
+  const outcome = await runEmail(sendBody(w), deps);
+  assert.equal(thrown, true);
+  assert.equal(outcome.status, 500);
+  assert.deepEqual(outcome.body, {
+    ok: false, problems: [{ code: 'SEND_UNCONFIRMED', message: 'The email may have gone: check your Sent folder before trying again (ref ref-7f3a).' }],
+  });
+  assert.equal(sent.length, 1, 'the email did go');
+  assert.deepEqual(logs, [{
+    reference: 'ref-7f3a', object: 'billingInvoice', recordId: w.invoice.id, emailStep: 'send', step: 'record', errorName: 'Error', error: 'the log is down',
+  }]);
+});
+
 test('Twenty’s server error on the send is not “not sent”: the form is told the email may have gone, and the mailer’s own refusals stay SEND_FAILED', async () => {
   const serverError = Object.assign(new Error('Internal server error'), { errors: [{ message: 'Internal server error', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] });
   const badInput = Object.assign(new Error('Invalid recipients'), { errors: [{ message: 'Invalid recipients', extensions: { code: 'BAD_USER_INPUT' } }] });
@@ -694,6 +722,71 @@ test('an error that echoes the address, the subject and the message is logged wi
   }
 });
 
+/** The REST client of an app store whose every call fails with `failure`. */
+const failingRest = (failure: Error): RestLike => ({
+  get: async () => {
+    throw failure;
+  },
+  post: async () => {
+    throw failure;
+  },
+  patch: async () => {
+    throw failure;
+  },
+  delete: async () => {
+    throw failure;
+  },
+});
+
+test('a timeline write that fails is logged through the scrubber: its message and body echo the address and the subject, and neither reaches the log', async () => {
+  const echoed = `Invalid ${WRITTEN.to} for “${WRITTEN.subject}”: ${WRITTEN.message}`;
+  // rest-store logs a body that carries `messages` as those messages, and any other body whole.
+  const bodies = [
+    { statusCode: 400, code: 'BAD_REQUEST', messages: [echoed] },
+    { statusCode: 502, code: 'MAILBOX_UNAVAILABLE', subCode: 'SMTP_REJECTED', to: [WRITTEN.to], subject: WRITTEN.subject, message: WRITTEN.message },
+  ];
+  for (const body of bodies) {
+    const w = workspace();
+    await issuedInvoice(w);
+    const logs: Record<string, unknown>[] = [];
+    // What liveDeps does: the app store logs through the scrubber, and runEmail tells it what the person wrote.
+    const written: string[] = [];
+    const failure = Object.assign(new Error(`Request failed: ${JSON.stringify(body)}`), { name: 'RestApiClientError', status: body.statusCode, body });
+    const { timeline } = restStore({
+      rest: failingRest(failure),
+      uploadFile: async () => ({ id: 'file-9' }),
+      fetchFile: async () => ({ ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) }),
+      timelineTypes: async () => [{ id: 'type-sent', universalIdentifier: 'uid-sent', isActive: true }],
+      fieldId: (object, field) => `field:${object}.${field}`,
+      timelineTypeIds: { ISSUED: 'uid-issued', CORRECTION: 'uid-fix', INVOICED: 'uid-invoiced', CREDITED: 'uid-credited', CANCELLED: 'uid-cancelled', SENT: 'uid-sent' },
+      log: scrubbedLog((entry) => logs.push(entry), written),
+    });
+    const app: Store = { ...w.app, timeline };
+    const outcome = await runEmail(sendBody(w, WRITTEN), setup(w, { app, written }).deps);
+    // The timeline row is the one write that failed: the document is marked, and the answer says so.
+    assert.deepEqual([outcome.status, outcome.body.ok && 'marked' in outcome.body && outcome.body.marked], [200, true], JSON.stringify(body));
+    assert.equal(logs.length, 1, JSON.stringify(body));
+    assert.deepEqual([logs[0]!.timeline, logs[0]!.kind, logs[0]!.object, logs[0]!.recordId], ['failed', 'SENT', 'billingInvoice', w.invoice.id]);
+    assert.doesNotMatch(JSON.stringify(logs), NOT_LOGGED, JSON.stringify(body));
+    assert.ok(String(logs[0]!.error).length <= 200);
+    assert.ok(!('body' in logs[0]!) && !('messages' in logs[0]!), 'never a body');
+    if (!('messages' in body)) assert.deepEqual([logs[0]!.httpStatus, logs[0]!.code, logs[0]!.subCode], [502, 'MAILBOX_UNAVAILABLE', 'SMTP_REJECTED']);
+  }
+});
+
+test('the app store’s log lets an entry with no error through as it is, and scrubs every entry that carries one', () => {
+  const out: Record<string, unknown>[] = [];
+  const log = scrubbedLog((entry) => out.push(entry));
+  log({ timeline: 'skipped', reason: 'the type is missing or muted', kind: 'SENT', object: 'billingInvoice', recordId: 'r1' });
+  log({ download: 'failed', status: 404, fileId: 'f1' });
+  log({ download: 'failed', fileId: 'f2', error: 'fetch failed for camille@calibre.example' });
+  assert.deepEqual(out, [
+    { timeline: 'skipped', reason: 'the type is missing or muted', kind: 'SENT', object: 'billingInvoice', recordId: 'r1' },
+    { download: 'failed', status: 404, fileId: 'f1' },
+    { download: 'failed', fileId: 'f2', errorName: 'Error', error: 'fetch failed for [address]' },
+  ]);
+});
+
 test('a route whose dependencies cannot be built logs a scrubbed error, under the route’s name', async (t) => {
   const logged = t.mock.method(console, 'error', () => {});
   const w = workspace();
@@ -720,4 +813,28 @@ test('the scrubbed error keeps the name, a numeric status, the codes of a body o
   assert.equal(String(scrubbed(new Error('x'.repeat(500))).error).length, 200);
   // What the person wrote is taken out first, when it is long enough to hide anything; a short text is left alone.
   assert.equal(scrubbed(new Error('Rejected: Hello there. Re: S'), ['Hello there.', 'S']).error, 'Rejected: [removed] Re: S');
+});
+
+test('what the person wrote is also taken out as JSON escapes it: a quote, a line break, inside a response body', () => {
+  const subject = 'Facture "F2026-0001" de Verdal';
+  const message = 'Bonjour Camille,\n\nVoici la facture du mois.';
+  // As a Twenty client puts a body in its error’s message: the texts are JSON strings there, quotes and line breaks escaped.
+  const body = JSON.stringify({ errors: [{ message: `Rejected ${subject}: ${message}` }] });
+  assert.ok(body.includes('Facture \\"F2026-0001\\" de Verdal') && body.includes('Camille,\\n\\nVoici'), 'the fixture is escaped');
+  const out = String(scrubbed(new Error(`Bad Request: ${body}`), [subject, message]).error);
+  assert.doesNotMatch(out, /F2026|Verdal|Camille|Voici/);
+  assert.match(out, /^Bad Request: \{"errors":\[\{"message":"Rejected \[removed\]: \[removed\]/);
+  // The same text unescaped is still taken out.
+  assert.equal(scrubbed(new Error(`Rejected ${subject}`), [subject]).error, 'Rejected [removed]');
+});
+
+test('the scrubber never throws: a message that is not a string, or an error that cannot be printed, is “[unprintable error]”', () => {
+  const written = ['Facture F2026-0001'];
+  const numeric = Object.assign(new Error('x'), { message: 42 });
+  assert.equal(scrubbed(numeric, written).error, '[unprintable error]');
+  assert.equal(scrubbed(numeric).error, '[unprintable error]');
+  assert.equal(scrubbed({ toString: () => { throw new Error('no text'); } }, written).error, '[unprintable error]');
+  assert.equal(scrubbed(Object.create(null), written).error, '[unprintable error]');
+  const hostile = Object.defineProperty(new Error('x'), 'message', { get: () => { throw new Error('no message'); } });
+  assert.equal(scrubbed(hostile, written).error, '[unprintable error]');
 });

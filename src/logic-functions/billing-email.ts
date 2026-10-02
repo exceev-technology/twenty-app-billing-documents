@@ -29,7 +29,13 @@ export type EmailDeps = {
   /** A short reference for an unexpected failure, which the person can quote. */
   reference: () => string;
   log: (entry: Record<string, unknown>) => void;
+  /**
+   * Filled by runEmail with what the person wrote in a Send, as soon as the request is read. For a log written
+   * elsewhere (the app store's, see scrubbedLog), which cannot know the request, to take those texts out.
+   */
+  written?: string[];
 };
+type Log = EmailDeps['log'];
 
 /** The form Prepare fills (email spec §5). */
 export type PreparedForm = {
@@ -56,6 +62,7 @@ type Step = (name: string) => void;
 /** Shorter than this, a text is not taken out of a message: it would blank half of it, and hide nothing. */
 const SHORTEST_HIDDEN_TEXT = 4;
 const LOGGED_MESSAGE_LENGTH = 200;
+const UNPRINTABLE = '[unprintable error]';
 
 const textField = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
 
@@ -63,11 +70,21 @@ const textField = (value: unknown): string | undefined => (typeof value === 'str
 const writtenIn = (request: EmailRequest | null): string[] =>
   request?.step === 'send' ? [request.to, request.cc, request.subject, request.subject.replace(/[\r\n]+/g, ' ').trim(), request.message] : [];
 
+/** An error's text, or a placeholder: a message that is no string, or an error that cannot be printed, must never make a log throw. */
+function printable(error: unknown): string {
+  try {
+    const text = error instanceof Error ? error.message : String(error);
+    return typeof text === 'string' ? text : UNPRINTABLE;
+  } catch {
+    return UNPRINTABLE;
+  }
+}
+
 /**
  * An error as a log entry shows it: its name, an HTTP status, the `code` and `subCode` of Twenty's answer, and its
  * message cut short with every address replaced. Never a whole body: a Twenty client's error carries its response
  * body in its message, which can echo the address, the subject or the message of the email. `written` is what the
- * person wrote, taken out of the message first.
+ * person wrote, taken out of the message first, as typed and as JSON escapes it. Total: it never throws.
  */
 export function scrubbed(error: unknown, written: readonly string[] = []): Record<string, unknown> {
   const failure = (error ?? {}) as { name?: unknown; status?: unknown; body?: unknown; errors?: unknown };
@@ -75,8 +92,12 @@ export function scrubbed(error: unknown, written: readonly string[] = []): Recor
   const graphql = Array.isArray(failure.errors) ? failure.errors.map((entry: { extensions?: { code?: unknown; subCode?: unknown } | null } | null) => entry?.extensions) : [];
   const codeOf = (key: 'code' | 'subCode'): string | undefined => textField(body[key]) ?? graphql.map((extensions) => textField(extensions?.[key])).find((code) => code !== undefined);
   const status = [failure.status, body.statusCode].find((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  let message = error instanceof Error ? error.message : String(error);
-  for (const text of written) if (text.trim().length >= SHORTEST_HIDDEN_TEXT) message = message.split(text).join('[removed]');
+  let message = printable(error);
+  for (const text of written) {
+    if (text.trim().length < SHORTEST_HIDDEN_TEXT) continue;
+    // Also as JSON writes it, inside a response body: a quote or a line break is escaped there, and the exact text is not found.
+    for (const form of [text, JSON.stringify(text).slice(1, -1)]) message = message.split(form).join('[removed]');
+  }
   return {
     errorName: error instanceof Error ? error.name : typeof error,
     ...(status === undefined ? {} : { httpStatus: status }),
@@ -85,6 +106,21 @@ export function scrubbed(error: unknown, written: readonly string[] = []): Recor
     error: message.replace(/\S+@\S+/g, '[address]').slice(0, LOGGED_MESSAGE_LENGTH),
   };
 }
+
+/**
+ * The app store's log line (src/lib/rest-store.ts) as this route lets it out. The store logs a failed timeline write
+ * with the error's raw message and the whole body (or its messages), which can echo what the person wrote: every
+ * entry that carries an `error` is rewritten through `scrubbed`, and any other is logged as it is. `written` is read at
+ * each call, since runEmail fills it once the request is read.
+ */
+export const scrubbedLog =
+  (log: Log, written: readonly string[] = []): Log =>
+  (entry) => {
+    if (!('error' in entry)) return log(entry);
+    const { error, body, messages, ...rest } = entry;
+    const failure = Object.assign(new Error(printable(error)), { body: body ?? (messages === undefined ? undefined : { messages }) });
+    log({ ...rest, ...scrubbed(failure, written) });
+  };
 
 function refuse(status: 403 | 422 | 502, pack: LifecyclePack, problems: readonly LifecycleProblem[]): EmailOutcome {
   return { status, body: { ok: false, problems: describeAll(problems.map((problem) => ({ source: 'lifecycle' as const, ...problem })), pack.code) } };
@@ -251,6 +287,7 @@ export async function runEmail(raw: unknown, deps: EmailDeps): Promise<EmailOutc
   };
   try {
     request = parseEmailRequest(raw);
+    deps.written?.push(...writtenIn(request));
     if (!request) throw new Error('The request is not one the email route answers');
     return request.step === 'prepare' ? await prepare(request, deps, pack, setStep) : await send(request, deps, pack, setStep);
   } catch (error) {
@@ -261,15 +298,19 @@ export async function runEmail(raw: unknown, deps: EmailDeps): Promise<EmailOutc
       ...scrubbed(error, writtenIn(request)),
     });
     // A failure while the email was going is not "something went wrong, try again": it may have gone, and a retry would send it twice.
+    // So is one at the record step, which is set only after the email went: it escaped the step's own catch (a log that threw).
     // Its own code lets the form lock Send, which it must not after an earlier step's UNEXPECTED, when nothing was sent.
-    if (step === 'send') return { status: 500, body: { ok: false, problems: [{ code: 'SEND_UNCONFIRMED', message: pack.messages.sendUnknown(reference) }] } };
+    if (step === 'send' || step === 'record') return { status: 500, body: { ok: false, problems: [{ code: 'SEND_UNCONFIRMED', message: pack.messages.sendUnknown(reference) }] } };
     return { status: 500, body: { ok: false, problems: [{ code: 'UNEXPECTED', message: pack.messages.unexpected(reference) }] } };
   }
 }
 
 /** The route's dependencies in production, built on each call: clients cache their token. */
 export function liveDeps(): EmailDeps {
-  return { app: appStore(logLine), caller: callerStore(), mailer: callerMailer(), now: () => new Date(), reference: newReference, log: logLine };
+  const written: string[] = [];
+  return {
+    app: appStore(scrubbedLog(logLine, written)), caller: callerStore(), mailer: callerMailer(), now: () => new Date(), reference: newReference, log: logLine, written,
+  };
 }
 
 /** Answers the form (src/lib/route.ts: refused without a signed-in person, as the email goes from the caller's own mailbox). */
