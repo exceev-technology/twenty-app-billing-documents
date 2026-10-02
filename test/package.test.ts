@@ -40,9 +40,13 @@ test('it lists no files: the build publishes its own folder', () => {
   assert.equal('files' in pkg, false);
 });
 
-test('prepack runs the script that adds the licence files, which exists', () => {
+test('it sets no publishConfig: app:publish passes the access, the tag and the provenance itself', () => {
+  assert.equal('publishConfig' in pkg, false);
+});
+
+test('prepack ends by running the script that adds the licence files, which exists', () => {
   // npm runs prepack in .twenty/output, two folders below the repository root.
-  assert.equal(pkg.scripts.prepack, 'node ../../scripts/package-notices.mjs');
+  assert.match(pkg.scripts.prepack, /&& node \.\.\/\.\.\/scripts\/package-notices\.mjs$/);
   assert.ok(exists('scripts/package-notices.mjs'));
 });
 

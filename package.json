@@ -38,7 +38,7 @@
     "apply": "twenty apply",
     "deploy": "node scripts/deploy.mjs",
     "listing:images": "node scripts/listing-images.mjs",
-    "prepack": "node ../../scripts/package-notices.mjs",
+    "prepack": "node -e \"const d=process.cwd().split(require('path').sep);if(d.at(-1)!=='output'||d.at(-2)!=='.twenty'){console.error('prepack: not a Twenty build output (the working folder is not <repo>/.twenty/output). Publish with ./node_modules/.bin/twenty app:publish, never with npm publish or npm pack in the repository root.');process.exit(1)}\" && node ../../scripts/package-notices.mjs",
     "release:check": "node scripts/release-check.mjs"
   },
   "devDependencies": {
