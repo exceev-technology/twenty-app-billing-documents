@@ -37,8 +37,16 @@ is on npm.
 
 - **Settings → Code security → Private vulnerability reporting**: turn it on. `SECURITY.md`
   and the issue chooser send people there.
-- Keep `main` protected as for any change: the workflow refuses a tag whose commit is not
-  on `main`.
+- Keep `main` protected as for any change. The workflow refuses a tag whose commit is not
+  on `main`, but that check lives in the tagged commit's own workflow file: someone with
+  push access could tag a branch whose workflow lacks it. What really stops an unreviewed
+  publish is a tag protection ruleset: **Settings → Rules → Rulesets → New ruleset → New
+  tag ruleset**, target `v*`, restrict creations, and let only the maintainers bypass it.
+- Optionally, add an environment named `release` (**Settings → Environments**) with a
+  required reviewer, put `environment: release` under the job in
+  `.github/workflows/release.yml`, and keep `NPM_TOKEN` as that environment's secret
+  instead of a repository secret. A release then waits for the reviewer's approval, and a
+  workflow file that does not name the environment gets no token.
 - Create the labels `preset` and `language` (`bug` exists already): the issue forms apply them,
   and GitHub skips a label that does not exist.
 
@@ -102,6 +110,10 @@ Twenty, which only a signed-in person can take:
    match `package.json`, a version with no changelog section and an incomplete gallery. The
    workflow runs the same command before it publishes.
 
+   Push the tag, as above; never create the release in GitHub's interface. Creating it there
+   pushes the tag too, and the workflow's last step, which creates the release itself, then
+   fails because the release already exists, after the package has gone out.
+
    Never publish with npm's `ignore-scripts` set, whether in an `.npmrc`, in the
    environment or as a flag: it skips the `prepack` script that adds `LICENSE` and
    `THIRD_PARTY_NOTICES.md` to the package, and the version would go out without its
@@ -126,7 +138,8 @@ Twenty, which only a signed-in person can take:
 | `release:check` says the package does not hold `LICENSE` or `THIRD_PARTY_NOTICES.md` | npm skipped the `prepack` script that adds them: `ignore-scripts` is set (`npm config get ignore-scripts` prints `true`, or an `.npmrc` or `npm_config_ignore_scripts` sets it). Unset it, run `release:check` again, and never publish with it set. |
 | The workflow's check fails after the tag | Delete the tag (`git push origin :refs/tags/vX.Y.Z`, `git tag -d vX.Y.Z`), fix it in a pull request, tag again. |
 | npm refuses the publish (authentication) | Check `NPM_TOKEN`, or the trusted publisher's owner, repository and workflow name. Re-run the failed job. |
-| npm published, the GitHub release failed | Create it by hand: `node scripts/release-notes.mjs vX.Y.Z > notes.md`, then `gh release create vX.Y.Z --verify-tag --notes-file notes.md`. |
+| npm published, the GitHub release failed | Do not re-run the workflow: its publish step comes first and npm refuses the same version twice. Create the release by hand: `gh release create vX.Y.Z --verify-tag --notes-file <(node scripts/release-notes.mjs vX.Y.Z)`, or write the notes to a file with `node scripts/release-notes.mjs vX.Y.Z > notes.md` and pass `--notes-file notes.md`. |
+| The workflow's last step fails because the release already exists | The release was created in GitHub's interface, which pushed the tag too. The package is published. Put the changelog section (`node scripts/release-notes.mjs vX.Y.Z`) in that release's notes, and push the tag next time. |
 | A published version is wrong | Publish a fixed patch version. npm does not let a version be published twice. |
 
 ## Rehearsal on a local Twenty server

@@ -54,6 +54,14 @@ test('the runbook warns about ignore-scripts, and quotes the refusal the root pr
   assert.ok((JSON.parse(read('package.json')) as { scripts: Record<string, string> }).scripts.prepack.includes(refusal), 'package.json’s prepack');
 });
 
+test('the runbook says what really stops an unreviewed publish, and how a release is and is not made', () => {
+  const runbook = read('docs/releasing.md');
+  // The workflow's "tagged commit is on main" check is in the tagged commit's own file, so a ruleset is the lock.
+  for (const text of ['tag ruleset', '`v*`', 'environment: release', 'never create the release in GitHub\'s interface', 'Do not re-run the workflow', '--notes-file <(node scripts/release-notes.mjs vX.Y.Z)']) {
+    assert.ok(runbook.includes(text), text);
+  }
+});
+
 test('every file the runbook and the workflows read exists', () => {
   for (const path of ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'scripts/release-notes.mjs', 'docs/templates/classic.pdf', 'assets/logo.svg']) assert.ok(existsSync(new URL(`../${path}`, import.meta.url)), path);
 });
