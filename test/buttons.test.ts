@@ -7,7 +7,7 @@ import { loadEntities } from './helpers/entities.ts';
 import { bundleFrontComponent } from './helpers/front-component-build.ts';
 import { objectId } from '../src/schema/fields.ts';
 import { IDS } from '../src/ids.ts';
-import { DRAFT_ONE, ONE, OPEN_QUOTE_ONE, ISSUED_ONE, cancelConfirmation, callRoute, feedbackFor, localDateOf, type ButtonRequest } from '../src/front-components/action-feedback.ts';
+import { DRAFT_ONE, ONE, OPEN_QUOTE_ONE, ISSUED_ONE, ISSUED_CREDIT_NOTE_ONE, cancelConfirmation, callRoute, feedbackFor, localDateOf, type ButtonRequest } from '../src/front-components/action-feedback.ts';
 
 const COMPONENTS = fileURLToPath(new URL('../src/front-components/', import.meta.url));
 
@@ -22,6 +22,14 @@ const BUTTONS = [
   { file: 'cancel-invoice', label: 'Cancel invoice', shortLabel: 'Cancel', object: 'billingInvoice', expression: ISSUED_ONE, pinned: false },
 ] as const;
 
+/** Send by email, one per document type: each opens the shared form in the side panel. */
+const SENDS = [
+  { file: 'send-invoice', label: 'Send by email', shortLabel: 'Email', object: 'billingInvoice', expression: ISSUED_ONE, pinned: true },
+  { file: 'send-credit-note', label: 'Send by email', shortLabel: 'Email', object: 'billingCreditNote', expression: ISSUED_CREDIT_NOTE_ONE, pinned: true },
+  { file: 'send-quote', label: 'Send by email', shortLabel: 'Email', object: 'billingQuote', expression: ONE, pinned: true },
+] as const;
+const ITEMS = [...BUTTONS, ...SENDS];
+
 const camel = (file: string) => file.replace(/-(\w)/g, (_, letter: string) => letter.toUpperCase());
 const REQUEST: ButtonRequest = { action: 'issue', object: 'billingInvoice', recordId: 'r1', localDate: '2026-09-26', locale: 'en' };
 const restError = (status: number | undefined, body: unknown) => Object.assign(new Error('failed'), { name: 'RestApiClientError', status, body });
@@ -31,24 +39,28 @@ test('the two availability expressions are the ones the front end evaluates', ()
   assert.equal(ONE, 'numberOfSelectedRecords == 1 and noneDefined(selectedRecords, "deletedAt")');
 });
 
-test('every button validates, each on one record of its object, opening its own component', async () => {
+test('every command menu item validates, each on one record of its object, opening its own component', async () => {
   const items = await loadEntities('command-menu-items');
-  assert.deepEqual(items.map((item) => item.file), BUTTONS.map((button) => `${button.file}.command-menu-item.ts`).sort());
-  for (const button of BUTTONS) {
-    const { result } = items.find((item) => item.file === `${button.file}.command-menu-item.ts`)!;
-    assert.equal(result.success, true, `${button.file}: ${result.errors.join('; ')}`);
-    assert.deepEqual((result as { warnings?: string[] }).warnings ?? [], [], button.file);
+  assert.deepEqual(items.map((item) => item.file), ITEMS.map((item) => `${item.file}.command-menu-item.ts`).sort());
+  for (const item of ITEMS) {
+    const { result } = items.find((entity) => entity.file === `${item.file}.command-menu-item.ts`)!;
+    assert.equal(result.success, true, `${item.file}: ${result.errors.join('; ')}`);
+    assert.deepEqual((result as { warnings?: string[] }).warnings ?? [], [], item.file);
     assert.deepEqual(result.config, {
-      universalIdentifier: IDS[`commandMenuItem.${camel(button.file)}`],
-      label: button.label,
-      shortLabel: button.shortLabel,
-      isPinned: button.pinned,
+      universalIdentifier: IDS[`commandMenuItem.${camel(item.file)}`],
+      label: item.label,
+      shortLabel: item.shortLabel,
+      isPinned: item.pinned,
       availabilityType: 'RECORD_SELECTION',
-      availabilityObjectUniversalIdentifier: objectId(button.object),
-      frontComponentUniversalIdentifier: IDS[`frontComponent.${camel(button.file)}`],
-      conditionalAvailabilityExpression: button.expression,
+      availabilityObjectUniversalIdentifier: objectId(item.object),
+      frontComponentUniversalIdentifier: IDS[`frontComponent.${camel(item.file)}`],
+      conditionalAvailabilityExpression: item.expression,
     });
   }
+});
+
+test('a credit note may be sent once issued, selected alone and not deleted', () => {
+  assert.equal(ISSUED_CREDIT_NOTE_ONE, 'numberOfSelectedRecords == 1 and noneDefined(selectedRecords, "deletedAt") and everyEquals(selectedRecords, "status", "ISSUED")');
 });
 
 test('the flows’ availability expressions are the ones the front end evaluates', () => {
@@ -94,20 +106,21 @@ test('the buttons’ French words don’t take a plain space before : ; ? ! or i
 });
 
 /**
- * What a button's component renders, read from its bundle: React's JSX runtime, the SDK's
- * defineFrontComponent and ActionCommand are stand-ins that keep what they are given, and
- * action-feedback.ts is left to Node, so the props hold the very functions this test imports.
+ * A component file's default export, read from its bundle: React's JSX runtime, the SDK's
+ * defineFrontComponent, ActionCommand and SendEmailForm are stand-ins that keep what they are
+ * given, and action-feedback.ts is left to Node, so the props hold the very functions this test imports.
  */
-async function rendered(file: string): Promise<{ type: unknown; props: Record<string, unknown> }> {
+async function loadComponent(file: string): Promise<{ isHeadless?: boolean; component: () => { type: unknown; props: Record<string, unknown> } }> {
   const standIns: Record<string, string> = {
     'react/jsx-runtime': 'export const jsx = (type, props) => ({ type, props }); export const jsxs = jsx; export const Fragment = "Fragment";',
     'twenty-sdk/define': 'export const defineFrontComponent = (config) => config;',
     './action-command.tsx': 'export const ActionCommand = "ActionCommand";',
+    './send-email-form.tsx': 'export const SendEmailForm = "SendEmailForm";',
   };
   const plugin: Plugin = {
     name: 'stand-ins',
     setup(builder) {
-      builder.onResolve({ filter: /^(react\/jsx-runtime|twenty-sdk\/define|\.\/action-command\.tsx)$/ }, ({ path }) => ({ path, namespace: 'stand-in' }));
+      builder.onResolve({ filter: /^(react\/jsx-runtime|twenty-sdk\/define|\.\/action-command\.tsx|\.\/send-email-form\.tsx)$/ }, ({ path }) => ({ path, namespace: 'stand-in' }));
       builder.onLoad({ filter: /.*/, namespace: 'stand-in' }, ({ path }) => ({ contents: standIns[path], loader: 'js' }));
       builder.onResolve({ filter: /\/action-feedback\.ts$/ }, ({ path, resolveDir }) => ({ path: pathToFileURL(resolve(resolveDir, path)).href, external: true }));
     },
@@ -116,8 +129,10 @@ async function rendered(file: string): Promise<{ type: unknown; props: Record<st
     entryPoints: [`${COMPONENTS}${file}.tsx`], bundle: true, format: 'esm', jsx: 'automatic', write: false, logLevel: 'silent', plugins: [plugin],
   });
   const bundled = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0]!.text).toString('base64')}`);
-  return bundled.default.component();
+  return bundled.default;
 }
+
+const rendered = async (file: string) => (await loadComponent(file)).component();
 
 test('Cancel invoice asks first, with its confirmation, and opens what it made; no other button asks', async () => {
   const opens = ['create-invoice', 'credit-note', 'cancel-invoice'];
@@ -179,5 +194,26 @@ test('each button bundles for the browser as the CLI builds it, around the share
     assert.ok(!inputs.some((input) => input.startsWith('node:')), `${file}: ${inputs.filter((input) => input.startsWith('node:')).join(', ')}`);
     assert.ok(!inputs.some((input) => input.endsWith('src/lib/id.ts')), `${file} imports src/lib/id.ts`);
     assert.ok(inputs.some((input) => input.endsWith('action-command.tsx')), `${file} does not use ActionCommand`);
+  }
+});
+
+test('each Send by email shows the shared form for its own object, in the side panel: none is headless', async () => {
+  for (const { file, object } of SENDS) {
+    const config = await loadComponent(file);
+    assert.equal(config.isHeadless ?? false, false, `${file} is headless`);
+    const { type, props } = config.component();
+    assert.equal(type, 'SendEmailForm', file);
+    assert.deepEqual(props, { object }, file);
+  }
+});
+
+test('each Send by email bundles for the browser as the CLI builds it, around the shared form, with no node module', async () => {
+  for (const { file } of SENDS) {
+    const { exports, inputs } = await bundleFrontComponent(`${COMPONENTS}${file}.tsx`);
+    assert.deepEqual(exports, ['default'], file);
+    assert.ok(!inputs.some((input) => input.startsWith('node:')), `${file}: ${inputs.filter((input) => input.startsWith('node:')).join(', ')}`);
+    assert.ok(!inputs.some((input) => input.endsWith('src/lib/id.ts')), `${file} imports src/lib/id.ts`);
+    assert.ok(inputs.some((input) => input.endsWith('send-email-form.tsx')), `${file} does not use SendEmailForm`);
+    assert.ok(inputs.some((input) => input.endsWith('/email-form.ts')), `${file} does not use email-form.ts`);
   }
 });

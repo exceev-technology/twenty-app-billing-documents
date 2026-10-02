@@ -28,6 +28,10 @@ export const OPEN_QUOTE_ONE =
 export const ISSUED_ONE =
   'numberOfSelectedRecords == 1 and noneDefined(selectedRecords, "deletedAt") and noneEquals(selectedRecords, "status", "DRAFT") and noneEquals(selectedRecords, "status", "CANCELLED")';
 
+/** Credit notes that may be sent: one selected, not deleted, issued. */
+export const ISSUED_CREDIT_NOTE_ONE =
+  'numberOfSelectedRecords == 1 and noneDefined(selectedRecords, "deletedAt") and everyEquals(selectedRecords, "status", "ISSUED")';
+
 const SHOWN = 5;
 
 const WORDS = {
@@ -76,16 +80,20 @@ const parsed = (body: unknown): unknown => {
   }
 };
 
-/** Posts the request to the route; every answer is kept, a refusal included, and never thrown. */
-export async function callRoute(post: (path: string, body: unknown) => Promise<unknown>, request: ButtonRequest): Promise<RouteAnswer> {
+/** Posts a body to one of the app's routes; every answer is kept, a refusal included, and never thrown. */
+export async function postTo(post: (path: string, body: unknown) => Promise<unknown>, path: string, body: unknown): Promise<RouteAnswer> {
   try {
-    return { status: 200, body: await post('/s/billing/action', request) };
+    return { status: 200, body: await post(path, body) };
   } catch (error) {
     const failure = error as { name?: unknown; status?: unknown; body?: unknown } | null;
     if (failure?.name === 'RestApiClientError' && typeof failure.status === 'number') return { status: failure.status, body: parsed(failure.body) };
     return { status: null, body: null };
   }
 }
+
+/** Posts a button's request to the actions route. */
+export const callRoute = (post: (path: string, body: unknown) => Promise<unknown>, request: ButtonRequest): Promise<RouteAnswer> =>
+  postTo(post, '/s/billing/action', request);
 
 type Answer = { ok: true; message: string } | { ok: false; problems: { message: string }[] };
 
