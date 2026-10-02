@@ -87,6 +87,16 @@ function single(response: unknown, what: string): Row {
   return row as Row;
 }
 
+/** A live record by id, under whichever token `rest` carries; a 404 is null, Twenty's refusals the Store's errors. */
+async function readOne(rest: RestLike, plural: string, id: string): Promise<Row | null> {
+  try {
+    return single(await rest.get(`/rest/${plural}/${id}`, { query: { depth: 0 } }), `${plural} record`);
+  } catch (error) {
+    if (statusOf(error) === 404) return null;
+    throw translate(error);
+  }
+}
+
 const capital = (name: string): string => name.charAt(0).toUpperCase() + name.slice(1);
 
 /** The type an image's first bytes prove; the Renderer refuses anything else. */
@@ -124,12 +134,7 @@ export function restStore(deps: RestStoreDeps): Store {
   return {
     async get(plural, id, options) {
       if (options?.deleted) return (await list(plural, { id }, { deleted: 'include', limit: 1 }))[0] ?? null;
-      try {
-        return single(await rest.get(`/rest/${plural}/${id}`, { query: { depth: 0 } }), `${plural} record`);
-      } catch (error) {
-        if (statusOf(error) === 404) return null;
-        throw translate(error);
-      }
+      return readOne(rest, plural, id);
     },
     list,
     create: async (plural, data) => single(await call(() => rest.post(`/rest/${plural}`, data)), `created ${plural} record`),
@@ -187,18 +192,11 @@ export function restStore(deps: RestStoreDeps): Store {
   };
 }
 
-/** The caller's side: their delegated token. A record hidden from them is refused as well. */
+/** The caller's side: their delegated token. A record hidden from them reads as null, and a write to it is refused. */
 export function restCallerStore(rest: RestLike): CallerStore {
   return {
-    async get(plural, id) {
-      try {
-        return single(await rest.get(`/rest/${plural}/${id}`, { query: { depth: 0 } }), `${plural} record`);
-      } catch (error) {
-        // Hidden from the caller, or gone: nothing of theirs to act on.
-        if (statusOf(error) === 404) return null;
-        throw translate(error);
-      }
-    },
+    // Hidden from the caller, or gone: nothing of theirs to act on.
+    get: (plural, id) => readOne(rest, plural, id),
     async update(plural, id, data) {
       try {
         return single(await rest.patch(`/rest/${plural}/${id}`, data), `updated ${plural} record`);

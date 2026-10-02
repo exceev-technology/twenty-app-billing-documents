@@ -21,7 +21,11 @@ function fakeClient(answer: (call: Call) => unknown) {
   return { client, calls };
 }
 
-const graphqlError = (code: string, message: string) => Object.assign(new Error(message), { errors: [{ message, extensions: { code } }], data: null });
+const graphqlError = (code: string, message: string, extensions: Record<string, unknown> = {}) =>
+  Object.assign(new Error(message), { errors: [{ message, extensions: { code, ...extensions } }], data: null });
+
+/** A refused "Send email" as live Twenty throws it: FORBIDDEN, with a PERMISSION_DENIED sub-code. */
+const forbidden = (message: string) => graphqlError('FORBIDDEN', message, { subCode: 'PERMISSION_DENIED', userFriendlyMessage: 'User does not have permission.' });
 
 const EMAIL: OutgoingEmail = {
   mailboxId: 'mailbox-1', to: ['camille@calibre.example', 'compta@calibre.example'], cc: [], subject: 'Facture F2026-0001',
@@ -67,7 +71,15 @@ test('a send Twenty answers as failed is SendFailedError, with Twenty’s reason
 });
 
 test('a refused permission is EmailNotAllowedError, any other GraphQL error SendFailedError, and a network failure stays as it is', async () => {
-  await assert.rejects(metadataMailer(fakeClient(() => graphqlError('FORBIDDEN', 'Forbidden resource')).client).send(EMAIL), EmailNotAllowedError);
+  await assert.rejects(
+    metadataMailer(fakeClient(() => forbidden('Entity performing the request does not have permission')).client).send(EMAIL),
+    (error) => error instanceof EmailNotAllowedError && error.message === 'Entity performing the request does not have permission',
+  );
+  // An error with no words of its own leaves the class's default message.
+  await assert.rejects(
+    metadataMailer(fakeClient(() => forbidden('')).client).send(EMAIL),
+    (error) => error instanceof EmailNotAllowedError && error.message === 'Not allowed to send email',
+  );
   await assert.rejects(
     metadataMailer(fakeClient(() => graphqlError('NOT_FOUND', 'Connected account not found')).client).send(EMAIL),
     (error) => error instanceof SendFailedError && error.reason === 'Connected account not found',

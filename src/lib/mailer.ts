@@ -51,7 +51,7 @@ export function metadataMailer(client: MetadataLike): Mailer {
       } catch (error) {
         const errors = graphqlErrors(error);
         if (!errors) throw error;
-        if (errors.some((entry) => FORBIDDEN_CODES.includes(String(entry?.extensions?.code)))) throw new EmailNotAllowedError(reasonOf(errors));
+        if (errors.some((entry) => FORBIDDEN_CODES.includes(String(entry?.extensions?.code)))) throw new EmailNotAllowedError(reasonOf(errors) || undefined);
         throw new SendFailedError(reasonOf(errors));
       }
       if (result.sendEmail?.success !== true) {
