@@ -132,17 +132,27 @@ goes from your own mailbox, so it appears in your sent folder, and Twenty
 imports it with your other emails when that mailbox syncs.
 
 - The message starts from a template for each document type, and from a
-  reminder for an invoice whose due date has passed. The templates are in the
-  app's language files (`lifecycle/lang/en.ts` and `fr.ts`): change them in
-  your fork to use your own wording every time.
-- *To* starts with the email of the person the document is billed to. A
-  company has no email address in Twenty, so a document billed to a company
-  alone starts with an empty *To*. Separate several addresses with commas.
+  reminder for an invoice, Issued or Sent, whose due date has passed. The
+  templates are in the app's language files (`lifecycle/lang/en.ts` and
+  `fr.ts`): change them in your fork to use your own wording every time.
+- *To* starts with the email of the person the document is billed to, and is
+  filled only when you can see that person: a role that cannot read People gets
+  an empty *To*, and a greeting with no name. A company has no email address
+  in Twenty, so a document billed to a company alone starts with an empty *To*.
+  Separate several addresses with commas.
 - *From* starts with the mailbox whose address is the issuer's email, when you
-  have connected it.
+  have connected it. A mailbox whose connection has failed in Twenty, or that
+  was archived, is not offered: reconnect it in **Settings → Accounts**.
+- A quote sends its newest generated PDF, so run **Generate PDF** after
+  changing a quote, before you send it. The message carries the quote's current
+  total, which may differ from the total printed on an older PDF.
 - After a send, an Issued invoice becomes Sent and a Draft quote becomes Sent;
   *Sent at* keeps the date of the first send; every send leaves a row on the
   document's timeline naming who received it.
+- When the form says it could not confirm that the email was sent (the
+  connection dropped, or Twenty did not answer in time), the email may have
+  gone: check your Sent folder, or the document's timeline, before sending it
+  again. The form keeps Send disabled until you reopen it.
 
 Before anyone sends:
 
