@@ -22,6 +22,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # Builds the package and lists what would be published: no server, no network.
+      - run: npm run release:check -- --package-only
       # Runs as the runner's user: git refuses a repository owned by another
       # user ("dubious ownership"), which is what the container would be.
       - name: Secret scan, whole history
