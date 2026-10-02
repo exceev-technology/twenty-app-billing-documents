@@ -42,9 +42,9 @@ generated, never typed:
 
 - After declaring an object, a field, an option or any other entity, run `npm run ids:sync`.
 - Never edit or delete an entry of `src/ids.ts`.
-- `ids.lock.json` lists the identifiers that have reached a workspace. Only `npm run deploy`
-  then `npm run ids:lock` change it, and a test fails when a locked identifier changes: Twenty
-  would read it as deleting the object and creating another.
+- `ids.lock.json` lists the identifiers that have reached a workspace. Only `npm run deploy`,
+  which ends with `npm run ids:lock`, changes it, and a test fails when a locked identifier
+  changes: Twenty would read it as deleting the object and creating another.
 
 ## Adding or correcting a preset
 

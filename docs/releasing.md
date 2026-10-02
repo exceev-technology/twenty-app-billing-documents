@@ -9,24 +9,56 @@ is on npm.
 
 ### npm
 
+What this section says about npm's screens and limits is as npm's documentation says
+(October 2026), except the 90 days a write token lives, which GitHub's changelog announced
+in 2025. npm changes these, so read the current pages before you set anything up:
+[Creating and viewing access tokens](https://docs.npmjs.com/creating-and-viewing-access-tokens)
+and [Trusted publishing for npm packages](https://docs.npmjs.com/trusted-publishers).
+
 1. Create or sign in to the npm account that will own `twenty-app-billing-documents`, with
    two-factor authentication on.
 2. Choose how the workflow signs in to npm:
-   - **A token, for the first release.** Create an npm access token that can publish
-     (a granular token with read and write access to packages, or a classic automation
-     token) and add it to the repository: **Settings → Secrets and variables → Actions →
-     New repository secret**, named `NPM_TOKEN`. The provenance badge needs no more than
-     this: the workflow already has `id-token: write`.
+   - **A token, for the first release (recommended).** Classic tokens, the automation kind
+     included, no longer exist: npm supports granular access tokens only. On npmjs.com, click
+     your profile picture → **Access Tokens → Generate New Token**, and set:
+     - **Packages and scopes**: permission **Read and write (publish and stage)**, on **All
+       Packages**. `0.1.0` does not exist yet, so the package cannot be picked by name. Not
+       *stage only*: the workflow publishes directly, which npm refuses from a stage-only
+       token (`E_STAGE_REQUIRED`).
+     - **Bypass two-factor authentication**, ticked. Without it, a publish that nobody
+       is there to type a one-time code for fails with E403.
+     - **Expiration**: a token with write access expires after at most 90 days.
+
+     Add it to the repository: **Settings → Secrets and variables → Actions → New repository
+     secret**, named `NPM_TOKEN`. The provenance badge needs no more than this: the workflow
+     already has `id-token: write`, and the repository must be public (see *GitHub*). npm
+     plans to stop direct publishing with a granular token in January 2027, so the token is
+     for the first release, not for good.
    - **Trusted publishing, afterwards.** npm cannot attach a trusted publisher to a package
-     that does not exist yet, so publish `0.1.0` with the token first. Then, on npmjs.com,
+     that does not exist yet, so `0.1.0` goes out with the token first. Then, on npmjs.com,
      open the package → **Settings → Trusted Publisher → GitHub Actions** and enter the
      owner `exceev-technology`, the repository `twenty-app-billing-documents` and the
-     workflow `release.yml`. Once a release has gone out that way, delete the `NPM_TOKEN`
-     secret and the `env:` lines of the workflow's *Publish to npm* step.
-   - Publishing `0.1.0` by hand instead (`./node_modules/.bin/twenty app:publish` from your
-     machine) gives that version no provenance badge. If you do, do not push the `v0.1.0`
-     tag until trusted publishing works, and create the GitHub release yourself. Check
-     first that npm's `ignore-scripts` is not set (see *When something fails*).
+     workflow `release.yml` (the file name only). Leave **Environment name** blank, unless
+     you use `environment: release` (see *GitHub*): then enter exactly `release`. Under
+     **Allowed actions**, allow `npm publish`. `npm stage publish` is always allowed, and a
+     trusted publisher created after 3 September 2026 allows nothing more by default, but the
+     workflow's `app:publish` runs a direct `npm publish --access public`, which npm would
+     refuse. npm does not check the form when you save it, and a connection cannot be edited:
+     a mistake shows at the next publish, and you delete the connection and add it again.
+     Once a release has gone out that way, delete the `NPM_TOKEN` secret, revoke the token
+     on npmjs.com, and delete the `env:` lines of the workflow's *Publish to npm* step.
+   - **Publishing `0.1.0` by hand is a last resort**: that version gets no provenance badge.
+     Once `0.1.0` is on npm, the workflow of a pushed `v0.1.0` tag fails at *Publish to npm*
+     (npm refuses a version twice) and never reaches its release step. So, in this order:
+     1. Do everything the release needs first: the screenshots, the changelog section dated,
+        `version`, all merged to `main`. On `main`, run
+        `npm run release:check -- --tag v0.1.0`, with npm's `ignore-scripts` unset (see
+        *When something fails*).
+     2. `npm login` (npm asks for a one-time code), then
+        `./node_modules/.bin/twenty app:publish` in the same checkout.
+     3. Push the tag `v0.1.0`. Expect one red run, at *Publish to npm*.
+     4. Create the release by hand:
+        `gh release create v0.1.0 --verify-tag --notes-file <(node scripts/release-notes.mjs v0.1.0)`.
 
    Never run `npm publish` in the repository root: Twenty publishes the build's own folder,
    `.twenty/output`, not the root. The root's `prepack` hook refuses to run outside that
@@ -35,6 +67,9 @@ is on npm.
 
 ### GitHub
 
+- Make the repository public before the first release: as npm's documentation says
+  (October 2026), npm gives a package provenance only when it is published from a public
+  repository.
 - **Settings → Code security → Private vulnerability reporting**: turn it on. `SECURITY.md`
   and the issue chooser send people there.
 - Keep `main` protected as for any change. The workflow refuses a tag whose commit is not
@@ -54,7 +89,10 @@ is on npm.
 
 The listing's gallery holds four images (`galleryImages` in `src/application-config.ts`).
 `npm run listing:images` draws one, the five PDF layouts. The other three are screenshots of
-Twenty, which only a signed-in person can take:
+Twenty, which only a signed-in person can take. The [rehearsal on a local Twenty
+server](#rehearsal-on-a-local-twenty-server), further down, is a good moment to take them:
+that workspace holds none of your clients. Make up the companies, people and amounts in the
+pictures, and leave out any record the image came with.
 
 | File | Shows |
 |---|---|
@@ -83,14 +121,16 @@ Twenty, which only a signed-in person can take:
 
 ## Each release
 
-1. Make sure the identifiers are locked: deploy to the test workspace
-   (`npm run deploy -- --remote <name>`), which ends with `npm run ids:lock`, and commit
-   `ids.lock.json`. A release makes identifiers permanent, so `release:check` refuses an
-   unlocked one.
-2. In `CHANGELOG.md`, move what is under `## Unreleased` below a new heading
-   `## X.Y.Z - <date>`: what a user can do with this version, in plain words. Say which
-   preset corrections a user must apply by hand, since an upgrade never changes a preset a
-   workspace already has.
+1. Make sure the identifiers are locked: run `npm run deploy -- --remote <name>` against
+   the test workspace, which ends with `npm run ids:lock`, and commit `ids.lock.json`. A
+   release makes identifiers permanent, so `release:check` refuses an unlocked one.
+2. In `CHANGELOG.md`, date the version's section. For `0.1.0` the file already holds
+   `## 0.1.0 - unreleased`: change that heading to `## 0.1.0 - <date>` and add no second
+   one. For a later version, move what is under `## Unreleased` below a new heading
+   `## X.Y.Z - <date>`. The section says what a user can do with this version, in plain
+   words, and which preset corrections a user must apply by hand, since an upgrade never
+   changes a preset a workspace already has. `release:check -- --tag` refuses a heading that
+   still says "unreleased".
 3. Set `version` in `package.json` (a new field or button is a minor version, a fix a patch).
    If the version needs a newer Twenty server, change `engines.twenty` and the version the
    README names in *Requirements*, and say so in the changelog.
@@ -137,7 +177,8 @@ Twenty, which only a signed-in person can take:
 | `release:check` fails before the tag | Read its list; fix it in a pull request. Nothing was published. |
 | `release:check` says the package does not hold `LICENSE` or `THIRD_PARTY_NOTICES.md` | npm skipped the `prepack` script that adds them: `ignore-scripts` is set (`npm config get ignore-scripts` prints `true`, or an `.npmrc` or `npm_config_ignore_scripts` sets it). Unset it, run `release:check` again, and never publish with it set. |
 | The workflow's check fails after the tag | Delete the tag (`git push origin :refs/tags/vX.Y.Z`, `git tag -d vX.Y.Z`), fix it in a pull request, tag again. |
-| npm refuses the publish (authentication) | Check `NPM_TOKEN`, or the trusted publisher's owner, repository and workflow name. Re-run the failed job. |
+| npm refuses the publish (authentication) | As npm's documentation says (October 2026), check `NPM_TOKEN`: that it has not expired or been revoked, that it has **Read and write (publish and stage)** on **All Packages** (a stage-only token fails with `E_STAGE_REQUIRED`) and that **Bypass two-factor authentication** is ticked (without it: E403). Or check the trusted publisher: its owner, repository and workflow name, and that its **Allowed actions** include `npm publish` (one created after 3 September 2026 allows `npm stage publish` only, and the workflow runs `npm publish`). Re-run the failed job once it is fixed. |
+| `NPM_TOKEN` has expired | A token with write access expires after at most 90 days. Create a new one as in *One-time setup* and replace the repository secret before the date npm shows for the old one, or move to trusted publishing. |
 | npm published, the GitHub release failed | Do not re-run the workflow: its publish step comes first and npm refuses the same version twice. Create the release by hand: `gh release create vX.Y.Z --verify-tag --notes-file <(node scripts/release-notes.mjs vX.Y.Z)`, or write the notes to a file with `node scripts/release-notes.mjs vX.Y.Z > notes.md` and pass `--notes-file notes.md`. |
 | The workflow's last step fails because the release already exists | The release was created in GitHub's interface, which pushed the tag too. The package is published. Put the changelog section (`node scripts/release-notes.mjs vX.Y.Z`) in that release's notes, and push the tag next time. |
 | A published version is wrong | Publish a fixed patch version. npm does not let a version be published twice. |

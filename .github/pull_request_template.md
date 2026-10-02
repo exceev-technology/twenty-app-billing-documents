@@ -10,7 +10,7 @@
 
 - [ ] I added no object, field, option or other entity, or I ran `npm run ids:sync` after adding it.
 - [ ] I did not edit or delete an entry of `src/ids.ts` by hand.
-- [ ] `ids.lock.json` is unchanged, or it changed only through `npm run deploy` followed by `npm run ids:lock`.
+- [ ] `ids.lock.json` is unchanged, or it changed only through `npm run deploy`, which ends with `npm run ids:lock`.
 
 ## Presets and languages
 
