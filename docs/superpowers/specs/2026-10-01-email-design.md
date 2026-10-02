@@ -217,6 +217,7 @@ templates, in English and French.
 | The caller cannot edit the document | `NOT_ALLOWED`; HTTP 403. Nothing is sent. |
 | The permission is missing | `EMAIL_NOT_ALLOWED`; HTTP 403. Nothing is sent. |
 | The mail server refuses | `SEND_FAILED` with Twenty's reason; HTTP 502. |
+| The send fails with neither Twenty's refusal nor its answer (the network, a lost response) | "The email may have gone: check your Sent folder before trying again (ref 7f3a…)"; HTTP 500 `UNEXPECTED`, logged. It does not invite a resend. |
 | Anything unexpected | "Something went wrong (ref 7f3a…)"; HTTP 500, logged. |
 
 ## 11. Testing and acceptance

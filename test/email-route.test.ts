@@ -275,10 +275,12 @@ test('a caller whose role cannot edit the document gets NOT_ALLOWED, and nothing
   const w = workspace();
   await issuedInvoice(w);
   const { deps, sent } = setup(w, { caller: w.db.store('MANUAL', { canUpdate: () => false }) });
+  const before = w.db.writes.length;
   const outcome = await runEmail(sendBody(w), deps);
   assert.equal(outcome.status, 403);
   assert.deepEqual(problemCodes(outcome), ['NOT_ALLOWED']);
-  assert.deepEqual(sent, []);
+  assert.deepEqual([sent, w.db.writes.length, w.db.timeline], [[], before, []], 'no email, no write as the app, no timeline row');
+  assert.deepEqual(sentState(w.db.row('billingInvoices', w.invoice.id)!), ['ISSUED', null]);
 });
 
 test('an issued invoice goes from the chosen mailbox as the person: the recipients, the subject on one line, the message as HTML, its PDF', async () => {
@@ -380,22 +382,116 @@ test('a failure after the send is answered as sent, says the document is not mar
     ok: true, message: 'Sent to camille@calibre.example, but the invoice could not be marked as sent (ref ref-7f3a).', marked: false,
   });
   assert.equal(sent.length, 1);
-  assert.deepEqual([logs[0]?.reference, logs[0]?.step], ['ref-7f3a', 'record']);
+  // The layout runEmail's own log has: the request's step as `emailStep`, the stage that failed as `step`.
+  assert.deepEqual(logs, [{
+    reference: 'ref-7f3a', object: 'billingInvoice', recordId: w.invoice.id, emailStep: 'send', step: 'record', error: 'injected failure',
+  }]);
   assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'ISSUED');
 });
 
-test('a send that fails in transit is unexpected: a reference, and a log that holds no address, subject or message', async () => {
+test('a send that fails in transit may have gone: it says to check the Sent folder, in either language, and writes nothing as the app', async () => {
+  const cases = [
+    ['en', 'The email may have gone: check your Sent folder before trying again (ref ref-7f3a).'],
+    ['fr-FR', 'L’e-mail est peut-être parti\u00a0: vérifiez vos éléments envoyés avant de réessayer (réf. ref-7f3a).'],
+  ] as const;
+  for (const [locale, message] of cases) {
+    const w = workspace();
+    await issuedInvoice(w);
+    const { mailer, sent } = fakeMailer({
+      send: async () => {
+        throw new Error('socket hang up');
+      },
+    });
+    const { deps, logs } = setup(w, { mailer });
+    const before = w.db.writes.length;
+    const outcome = await runEmail(sendBody(w, { locale }), deps);
+    assert.equal(outcome.status, 500, locale);
+    assert.deepEqual(outcome.body, { ok: false, problems: [{ code: 'UNEXPECTED', message }] }, locale);
+    assert.deepEqual(sent, [], locale);
+    assert.deepEqual(w.db.writes.slice(before).map((write) => write.source), ['MANUAL'], `${locale}: the caller’s write only`);
+    assert.deepEqual([sentState(w.db.row('billingInvoices', w.invoice.id)!), w.db.timeline], [['ISSUED', null], []], locale);
+    assert.deepEqual(logs, [{
+      reference: 'ref-7f3a', object: 'billingInvoice', recordId: w.invoice.id, emailStep: 'send', step: 'send', error: 'socket hang up',
+    }], locale);
+    // A log that holds no address, subject or message.
+    assert.doesNotMatch(JSON.stringify(logs), /camille|Bonjour|Facture/);
+  }
+});
+
+test('a caller with no mailbox gets NO_MAILBOX with no field: nothing is written or sent', async () => {
   const w = workspace();
   await issuedInvoice(w);
-  const { mailer } = fakeMailer({
-    send: async () => {
-      throw new TypeError('fetch failed');
-    },
+  const { mailer, sent } = fakeMailer({ accounts: [] });
+  const { deps } = setup(w, { mailer });
+  const before = w.db.writes.length;
+  const outcome = await runEmail(sendBody(w), deps);
+  assert.equal(outcome.status, 422);
+  assert.deepEqual(outcome.body, {
+    ok: false,
+    problems: [{ code: 'NO_MAILBOX', message: 'You have no mailbox connected to Twenty: connect yours in Settings → Accounts, then open this form again.' }],
   });
-  const { deps, logs } = setup(w, { mailer });
+  assert.deepEqual([w.db.writes.length, w.db.timeline.length, sent.length], [before, 0, 0]);
+});
+
+test('a caller’s write that fails for another reason than the role is unexpected: nothing is sent, and the log names the step', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const { deps, sent, logs } = setup(w);
+  const before = w.db.writes.length;
+  w.db.failNext((op, plural) => op === 'update' && plural === 'billingInvoices', new Error('connection reset'));
   const outcome = await runEmail(sendBody(w), deps);
   assert.equal(outcome.status, 500);
   assert.deepEqual(outcome.body, { ok: false, problems: [{ code: 'UNEXPECTED', message: 'Something went wrong (ref ref-7f3a).' }] });
-  assert.equal(logs[0]?.step, 'send');
-  assert.doesNotMatch(JSON.stringify(logs), /camille|Bonjour|Facture/);
+  assert.deepEqual([sent, w.db.writes.length, w.db.timeline], [[], before, []]);
+  assert.deepEqual(logs.map((entry) => [entry.emailStep, entry.step, entry.error]), [['send', 'caller', 'connection reset']]);
+});
+
+/** A mailer whose send first does `during`, as a person or an action does while the email is in flight, then succeeds. */
+const mailerDoing = (during: () => Promise<unknown>) => fakeMailer({ send: async () => void (await during()) });
+
+test('an invoice paid or cancelled while the email is in flight keeps its status: only the date is marked, and the answer is still marked', async () => {
+  for (const moved of [{ status: 'PAID', paidAt: TODAY }, { status: 'CANCELLED' }]) {
+    const w = workspace();
+    await issuedInvoice(w);
+    const { mailer, sent } = mailerDoing(() => w.app.update('billingInvoices', w.invoice.id, moved));
+    const { deps, logs } = setup(w, { mailer });
+    const outcome = await runEmail(sendBody(w), deps);
+    assert.deepEqual(outcome.body, { ok: true, message: 'Sent to camille@calibre.example.', marked: true }, moved.status);
+    assert.equal(sent.length, 1, moved.status);
+    assert.deepEqual(sentState(w.db.row('billingInvoices', w.invoice.id)!), [moved.status, '2026-09-26T09:30:00.000Z'], moved.status);
+    assert.deepEqual(w.db.writes.at(-1)?.data, { sentAt: '2026-09-26T09:30:00.000Z' }, `${moved.status}: the app’s last write holds no status`);
+    assert.deepEqual(w.db.timeline.map((entry) => entry.kind), ['SENT'], moved.status);
+    assert.deepEqual(logs, [], moved.status);
+  }
+});
+
+test('a quote accepted while the email is in flight stays Accepted, and gets its date', async () => {
+  const w = workspace();
+  const quote = w.addQuote({ status: 'DRAFT', number: 'D2026-0004', version: 2, pdf: QUOTE_PDFS, total: money(600_000_000), personId: w.person.id });
+  const { mailer } = mailerDoing(() => w.app.update('billingQuotes', quote.id, { status: 'ACCEPTED', acceptedAt: TODAY }));
+  const outcome = await runEmail(sendBody(w, { object: 'billingQuote', recordId: quote.id }), setup(w, { mailer }).deps);
+  assert.deepEqual(outcome.body, { ok: true, message: 'Sent to camille@calibre.example.', marked: true });
+  assert.deepEqual(sentState(w.db.row('billingQuotes', quote.id)!), ['ACCEPTED', '2026-09-26T09:30:00.000Z']);
+  assert.deepEqual(w.db.timeline.map((entry) => entry.kind), ['SENT']);
+});
+
+test('a document deleted while the email is in flight is answered as sent but not marked, with a reference: nothing is written to it', async () => {
+  // A store may hide the deleted row (null) or hand it back with `deletedAt` set: both mean it is gone.
+  for (const hides of [true, false]) {
+    const w = workspace();
+    await issuedInvoice(w);
+    const app = hides ? w.app : { ...w.app, get: (plural: string, id: string) => w.app.get(plural, id, { deleted: true }) };
+    const { mailer, sent } = mailerDoing(() => w.app.softDelete('billingInvoices', w.invoice.id));
+    const { deps, logs } = setup(w, { app, mailer });
+    const before = w.db.writes.length;
+    const outcome = await runEmail(sendBody(w), deps);
+    assert.equal(outcome.status, 200, `hides: ${hides}`);
+    assert.deepEqual(outcome.body, {
+      ok: true, message: 'Sent to camille@calibre.example, but the invoice could not be marked as sent (ref ref-7f3a).', marked: false,
+    }, `hides: ${hides}`);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(w.db.writes.slice(before).map((write) => [write.op, write.source]), [['update', 'MANUAL'], ['softDelete', 'APPLICATION']], 'nothing after the deletion');
+    assert.deepEqual(w.db.timeline, []);
+    assert.deepEqual(logs.map((entry) => [entry.reference, entry.emailStep, entry.step]), [['ref-7f3a', 'send', 'record']]);
+  }
 });

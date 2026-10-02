@@ -124,9 +124,16 @@ async function prepare(request: PrepareRequest, deps: EmailDeps, pack: Lifecycle
  * After a send, as the app (spec §6, step 5): an Issued invoice and a Draft quote
  * become Sent, `sentAt` keeps the first send's date, and a row names who received
  * it, in the document's language. The status and the date are one write.
+ *
+ * The document is read again first: the send took seconds, in which a person may
+ * have marked the invoice Paid or a credit note cancelled it, and nothing puts
+ * back a status the app overwrote (only the app moves a numbered invoice out of
+ * Cancelled). One deleted meanwhile is "not marked", never written to.
  */
-async function recordSend(deps: EmailDeps, kind: Kind, document: Row, checked: CheckedMessage, mailbox: Mailbox): Promise<void> {
+async function recordSend(deps: EmailDeps, kind: Kind, sentDocument: Row, checked: CheckedMessage, mailbox: Mailbox): Promise<void> {
   // Read before writing: a failure here is "not marked", never a half-told success.
+  const document = await deps.app.get(kind.plural, sentDocument.id);
+  if (!document || textOf(document.deletedAt) !== '') throw new Error(`The ${kind.object} ${sentDocument.id} was deleted while the email was being sent`);
   const documentPack = await packForDocument(deps.app, document);
   const patch: Record<string, unknown> = {};
   if ((kind.kind === 'INVOICE' && document.status === 'ISSUED') || (kind.kind === 'QUOTE' && document.status === 'DRAFT')) patch.status = 'SENT';
@@ -155,6 +162,8 @@ async function send(request: SendRequest, deps: EmailDeps, pack: LifecyclePack, 
   if (problems.length > 0 || !document || !mailbox) return refuse(422, pack, problems);
   // sendRefusal found a PDF to attach.
   const attachment = attachmentOf(kind, document)!;
+  // Built before the send: whatever throws here, no email has gone.
+  const html = messageHtml(checked.message);
 
   step('caller');
   try {
@@ -167,12 +176,11 @@ async function send(request: SendRequest, deps: EmailDeps, pack: LifecyclePack, 
 
   step('send');
   try {
-    await deps.mailer.send({
-      mailboxId: mailbox.id, to: checked.to, cc: checked.cc, subject: checked.subject, html: messageHtml(checked.message), files: [attachment],
-    });
+    await deps.mailer.send({ mailboxId: mailbox.id, to: checked.to, cc: checked.cc, subject: checked.subject, html, files: [attachment] });
   } catch (error) {
     if (error instanceof EmailNotAllowedError) return refuse(403, pack, [{ code: 'EMAIL_NOT_ALLOWED' }]);
     if (error instanceof SendFailedError) return refuse(502, pack, [{ code: 'SEND_FAILED', ...(error.reason === '' ? {} : { value: error.reason }) }]);
+    // Neither Twenty's refusal nor its answer (the network, a lost response): the email may have gone. runEmail words it for this step.
     throw error;
   }
 
@@ -182,7 +190,11 @@ async function send(request: SendRequest, deps: EmailDeps, pack: LifecyclePack, 
     await recordSend(deps, kind, document, checked, mailbox);
   } catch (error) {
     const reference = deps.reference();
-    deps.log({ reference, object: kind.object, recordId: document.id, step: 'record', error: error instanceof Error ? error.message : String(error), ...reasonOf(error) });
+    // The layout runEmail's own log has: the request's step as `emailStep`, the stage that failed as `step`.
+    deps.log({
+      reference, object: kind.object, recordId: document.id, emailStep: request.step, step: 'record',
+      error: error instanceof Error ? error.message : String(error), ...reasonOf(error),
+    });
     return { status: 200, body: { ok: true, message: pack.messages.sentNotMarked(checked.to, kind.kind, reference), marked: false } };
   }
   return { status: 200, body: { ok: true, message: pack.messages.sentTo(checked.to), marked: true } };
@@ -208,7 +220,9 @@ export async function runEmail(raw: unknown, deps: EmailDeps): Promise<EmailOutc
       reference, object: request?.object ?? null, recordId: request?.recordId ?? null, emailStep: request?.step ?? null, step,
       error: error instanceof Error ? error.message : String(error), ...reasonOf(error),
     });
-    return { status: 500, body: { ok: false, problems: [{ code: 'UNEXPECTED', message: pack.messages.unexpected(reference) }] } };
+    // A failure while the email was going is not "something went wrong, try again": it may have gone, and a retry would send it twice.
+    const message = step === 'send' ? pack.messages.sendUnknown(reference) : pack.messages.unexpected(reference);
+    return { status: 500, body: { ok: false, problems: [{ code: 'UNEXPECTED', message }] } };
   }
 }
 

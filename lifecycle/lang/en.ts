@@ -179,6 +179,7 @@ export const en: LifecyclePack = {
     quoteReinvoiced: 'The invoice made from this quote was restored: the quote is Invoiced again.',
     sentTo: (to) => `Sent to ${list(to)}.`,
     sentNotMarked: (to, kind, ref) => `Sent to ${list(to)}, but the ${kinds[kind]} could not be marked as sent (ref ${ref}).`,
+    sendUnknown: (ref) => `The email may have gone: check your Sent folder before trying again (ref ${ref}).`,
     sentTimeline: (to, cc, from) => `Email sent from ${from} to ${list(to)}${cc.length > 0 ? `, copied to ${list(cc)}` : ''}.`,
   },
 };

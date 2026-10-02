@@ -194,6 +194,7 @@ export const fr: LifecyclePack = {
     quoteReinvoiced: 'La facture issue de ce devis a été restaurée\u00a0: le devis est de nouveau Facturé.',
     sentTo: (to) => `E-mail envoyé à ${list(to)}.`,
     sentNotMarked: (to, kind, ref) => `E-mail envoyé à ${list(to)}, mais ${notMarked[kind]} (réf. ${ref}).`,
+    sendUnknown: (ref) => `L’e-mail est peut-être parti\u00a0: vérifiez vos éléments envoyés avant de réessayer (réf. ${ref}).`,
     sentTimeline: (to, cc, from) => `E-mail envoyé depuis ${from} à ${list(to)}${cc.length > 0 ? `, en copie à ${list(cc)}` : ''}.`,
   },
 };

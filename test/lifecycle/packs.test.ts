@@ -39,6 +39,7 @@ function everyMessage(pack: LifecyclePack): string[] {
     m.cancelledTimeline('AV2026-0002'), m.quoteReopened, m.quoteReinvoiced,
     m.sentTo(['camille@calibre.example']), m.sentTo(['a@x.example', 'b@x.example']),
     ...(['QUOTE', 'INVOICE', 'CREDIT_NOTE'] as const).map((kind) => m.sentNotMarked(['camille@calibre.example'], kind, '7f3a09')),
+    m.sendUnknown('7f3a09'),
     m.sentTimeline(['camille@calibre.example'], [], 'bonjour@verdal.example'),
     m.sentTimeline(['a@x.example'], ['b@x.example', 'c@x.example'], 'bonjour@verdal.example'),
     m.ledgerDuplicateRemoved, m.ledgerChangePutBack(['Last number']), m.ledgerRestored,

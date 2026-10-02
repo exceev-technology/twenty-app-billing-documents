@@ -129,6 +129,8 @@ export type LifecyclePack = {
     sentTo: (to: readonly string[]) => string;
     /** The answer when the email went but the document could not be marked. */
     sentNotMarked: (to: readonly string[], kind: DocumentKind, ref: string) => string;
+    /** The answer when the send failed in a way that does not say whether the email went: it must not invite a resend. */
+    sendUnknown: (ref: string) => string;
     /** The "sent" timeline row's text. */
     sentTimeline: (to: readonly string[], cc: readonly string[], from: string) => string;
   };
