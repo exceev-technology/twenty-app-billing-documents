@@ -66,7 +66,7 @@ test('a source map or bundle that names the builder’s home is refused, absolut
   ];
   const problems = localPathProblems(files, roots);
   assert.equal(problems.length, 1);
-  assert.match(problems[0], /^2 file\(s\) name \/Users\/camille\/Data\/billing.*\(b\.mjs\.map, c\.mjs\)/);
+  assert.match(problems[0], /^2 file\(s\) name \/Users\/camille\/Data\/billing, a folder of the machine that built the package \(b\.mjs\.map, c\.mjs\)/);
 });
 
 test('five tainted files make one problem naming the first three', () => {
@@ -78,6 +78,68 @@ test('five tainted files make one problem naming the first three', () => {
 
 test('a folder name too short to be told from ordinary text is not looked for', () => {
   assert.deepEqual(localPathProblems([{ path: 'a.mjs', text: 'the /root of the tree' }], ['/root', '/']), []);
+});
+
+// What pdfmake’s own source map says: it was built on a GitHub runner, and esbuild copies the names of its
+// sources into ours. The folder is pdfmake’s build, not ours, so it is no leak, even on a runner.
+const RUNNER_CHECKOUT = '/home/runner/work/twenty-app-billing-documents/twenty-app-billing-documents';
+const RUNNER_ROOTS = [RUNNER_CHECKOUT, '/home/runner'];
+const PDFMAKE_IGNORED = [
+  'webpack://pdfmake/ignored%7C/home/runner/work/pdfmake/pdfmake/node_modules/js-md5/src%7Cbuffer',
+  'webpack://pdfmake/ignored|/home/runner/work/pdfmake/pdfmake/node_modules/stream-browserify/node_modules/readable-stream/lib%7Cutil',
+];
+const mapOf = (sources: string[], rest: Record<string, unknown> = {}) => JSON.stringify({ version: 3, sources, sourcesContent: sources.map(() => ''), mappings: '', ...rest });
+
+test('pdfmake’s own paths, named by a webpack:// source, are no leak on a runner, in a map or in a bundle', () => {
+  const files = [
+    { path: 'src/logic-functions/billing-action.mjs.map', text: mapOf(['../../../../src/a.ts', 'webpack://pdfmake/src/PDFDocument.js', ...PDFMAKE_IGNORED]) },
+    // A bundle may repeat the name in a comment: the URL it sits in is still pdfmake’s.
+    { path: 'src/logic-functions/billing-action.mjs', text: `// ${PDFMAKE_IGNORED[0]}\nconst x = "${PDFMAKE_IGNORED[1]}";\n` },
+  ];
+  assert.deepEqual(localPathProblems(files, RUNNER_ROOTS), []);
+});
+
+test('only a URL of another tool is skipped: file:// and a bare path of the runner still count', () => {
+  for (const [path, text] of [
+    ['a.mjs.map', mapOf([`file://${RUNNER_CHECKOUT}/src/a.ts`])],
+    ['b.mjs.map', mapOf([`../../../../../../../home/runner/work/twenty-app-billing-documents/twenty-app-billing-documents/node_modules/x/index.ts`])],
+    ['c.mjs.map', mapOf(['../../../../src/a.ts'], { sourceRoot: `${RUNNER_CHECKOUT}/` })],
+    ['d.mjs', `// ${RUNNER_CHECKOUT}/src/d.ts`],
+    ['e.mjs', `const dir = "file://${RUNNER_CHECKOUT}/src";`],
+    ['f.json', `{"path":"/home/runner/.cache/x"}`],
+  ]) {
+    assert.equal(localPathProblems([{ path, text }], RUNNER_ROOTS).length, 1, path);
+  }
+});
+
+test('a real leak is found in a map that also holds pdfmake’s string, and the message quotes the text that matched', () => {
+  const leak = '../../../../../../../home/runner/work/twenty-app-billing-documents/twenty-app-billing-documents/node_modules/x/index.ts';
+  const files = [
+    { path: 'a.mjs.map', text: mapOf([...PDFMAKE_IGNORED, leak, '../../../../src/ok.ts']) },
+    { path: 'b.mjs', text: 'const ok = 1;' },
+  ];
+  const problems = localPathProblems(files, RUNNER_ROOTS);
+  assert.equal(problems.length, 1);
+  assert.ok(problems[0].startsWith(`1 file(s) name ${RUNNER_CHECKOUT}, a folder of the machine that built the package (a.mjs.map).`), problems[0]);
+  assert.ok(problems[0].includes(`a.mjs.map, holds “${leak}”`), problems[0]);
+  assert.ok(!problems[0].includes('pdfmake'), problems[0]);
+});
+
+test('the excerpt of a bundle’s match is the text around it, on one line and not longer than a screen', () => {
+  const text = `${'x'.repeat(300)}\n// built in ${RUNNER_CHECKOUT}/src/long.ts\n${'y'.repeat(300)}`;
+  const [problem] = localPathProblems([{ path: 'a.mjs', text }], RUNNER_ROOTS);
+  const quoted = problem.match(/holds “([^”]*)”/)![1];
+  assert.ok(quoted.includes(`${RUNNER_CHECKOUT}/src/long.ts`));
+  assert.ok(!quoted.includes('\n') && quoted.length < 220, `${quoted.length}`);
+});
+
+test('the remedy tells a linked node_modules from a path in our own source', () => {
+  const [problem] = localPathProblems([{ path: 'a.mjs', text: '// /Users/camille/x' }], ['/Users/camille']);
+  assert.match(problem, /If that goes through node_modules, it is linked from elsewhere: run `npm ci` in the checkout and build again\. Otherwise the path is in our own source or configuration: remove it\.$/);
+});
+
+test('a map that is not JSON is read as text, so a leak in it is still found', () => {
+  assert.equal(localPathProblems([{ path: 'a.mjs.map', text: 'not json /Users/camille/Data/x' }], ['/Users/camille']).length, 1);
 });
 
 test('the tag of a version is v and the version, and nothing else', () => {

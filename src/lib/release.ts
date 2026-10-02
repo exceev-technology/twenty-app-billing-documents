@@ -52,11 +52,76 @@ export function packageProblems(files: readonly string[], expected: PackageExpec
 }
 
 /**
+ * A URL of another tool, such as `webpack://pdfmake/ignored|/home/runner/work/pdfmake/…`: not a
+ * path of this machine, whatever folder it names. `file://` is a path of this machine.
+ */
+const isForeignUrl = (text: string): boolean => /^[a-z][a-z0-9+.-]+:\/\//i.test(text) && !/^file:\/\//i.test(text);
+
+/** Where a token of a bundle ends, so that the URL it sits in can be told: spaces, quotes, brackets, commas. */
+const TOKEN_BREAK = /[\s"'`<>()[\]{},;]/;
+
+const EXCERPT_CONTEXT = 48;
+const EXCERPT_MAX = 160;
+
+/** `text` around [start, end), on one line and cut to a screen's width, with … where it was cut. */
+function excerptAround(text: string, start: number, end: number): string {
+  const from = Math.max(0, start - EXCERPT_CONTEXT);
+  const to = Math.min(text.length, end + EXCERPT_CONTEXT);
+  const cut = text.slice(from, to).replace(/\s+/g, ' ');
+  const shown = cut.length > EXCERPT_MAX ? `${cut.slice(0, EXCERPT_MAX)}…` : cut;
+  return `${from > 0 ? '…' : ''}${shown}${to < text.length && shown === cut ? '…' : ''}`;
+}
+
+/** The names a source map gives its sources, or null when the text is not a source map. */
+function mapSources(text: string): string[] | null {
+  try {
+    const map: unknown = JSON.parse(text);
+    if (typeof map !== 'object' || map === null || !('sources' in map) || !Array.isArray(map.sources)) return null;
+    const { file, sourceRoot } = map as { file?: unknown; sourceRoot?: unknown };
+    return [file, sourceRoot, ...map.sources].filter((entry): entry is string => typeof entry === 'string' && entry !== '');
+  } catch {
+    return null;
+  }
+}
+
+/** The first thing in a file that names one of the folders, as the text to show; null when nothing does. */
+function firstLeak(path: string, text: string, markers: readonly string[]): { marker: string; excerpt: string } | null {
+  // A source map is looked at where it names paths: its sources. Its sourcesContent is the text
+  // of other people's code and not a path of ours.
+  const entries = path.endsWith('.map') ? mapSources(text) : null;
+  if (entries !== null) {
+    for (const marker of markers) {
+      const entry = entries.find((candidate) => !isForeignUrl(candidate) && candidate.includes(marker));
+      if (entry !== undefined) return { marker, excerpt: excerptAround(entry, entry.indexOf(marker), entry.indexOf(marker) + marker.length) };
+    }
+    return null;
+  }
+  for (const marker of markers) {
+    for (let at = text.indexOf(marker); at !== -1; at = text.indexOf(marker, at + 1)) {
+      let start = at;
+      while (start > 0 && !TOKEN_BREAK.test(text[start - 1]!)) start -= 1;
+      if (isForeignUrl(text.slice(start, at))) continue;
+      return { marker, excerpt: excerptAround(text, at, at + marker.length) };
+    }
+  }
+  return null;
+}
+
+/**
  * Files that name a folder of the machine that built the package. Source maps and the
  * bundles' own comments hold paths, and with `node_modules` linked from elsewhere they
  * hold the real one, climbed to from the filesystem's root (`../../Users/name/...`), so
  * the roots are looked for with their leading slash and not only at the start of a path.
- * One problem at most, naming the first three files: a linked `node_modules` taints all of them.
+ *
+ * A path that belongs to someone else's build does not count. pdfmake's prebuilt bundle comes
+ * with a source map made on a GitHub runner (`webpack://pdfmake/ignored|/home/runner/work/…`),
+ * which esbuild copies into ours, so on a runner the home folder would be "found" in every
+ * package. What decides is the form: a URL with a scheme other than `file` (in a map, a source
+ * entry that is one; in a bundle, the token the folder sits in) is another tool's name for
+ * one of its own files, while a path of this machine, climbed to or absolute or `file://`, is a leak.
+ *
+ * One problem at most, naming the first three files and quoting what matched in the first:
+ * a linked `node_modules` taints all of them.
  */
 export function localPathProblems(
   files: readonly { path: string; text: string }[],
@@ -65,14 +130,17 @@ export function localPathProblems(
   // A root of a few characters (`/root` as a home) would match ordinary text.
   const markers = [...new Set(roots.map((root) => root.replaceAll('\\', '/').replace(/\/+$/, '')))].filter((root) => root.length >= 6);
   const named = files.flatMap(({ path, text }) => {
-    const marker = markers.find((candidate) => text.includes(candidate));
-    return marker === undefined ? [] : [{ path, marker }];
+    const leak = firstLeak(path, text, markers);
+    return leak === null ? [] : [{ path, ...leak }];
   });
   if (named.length === 0) return [];
+  const [first] = named;
   const examples = named.slice(0, 3).map(({ path }) => path).join(', ');
   return [
-    `${named.length} file(s) name ${named[0].marker}, a folder of the machine that built the package (${examples}${named.length > 3 ? ', …' : ''}): ` +
-      'build from a checkout whose node_modules is installed in it, not linked from elsewhere.',
+    `${named.length} file(s) name ${first!.marker}, a folder of the machine that built the package (${examples}${named.length > 3 ? ', …' : ''}). ` +
+      `The first, ${first!.path}, holds “${first!.excerpt}”. ` +
+      'If that goes through node_modules, it is linked from elsewhere: run `npm ci` in the checkout and build again. ' +
+      'Otherwise the path is in our own source or configuration: remove it.',
   ];
 }
 
