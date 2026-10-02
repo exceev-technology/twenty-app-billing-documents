@@ -81,6 +81,23 @@ test('a call no signed-in person made is refused as NOT_ALLOWED, in the caller�
   });
 });
 
+test('a call with only one of the two signs of a signed-in person is refused too: the user workspace alone, or the member alone', async () => {
+  const w = workspace();
+  const noDeps = (): EmailDeps => {
+    throw new Error('the route must not build its dependencies for this call');
+  };
+  const calls = [
+    [{ userWorkspaceId: 'uw-1' }, { workspaceMemberId: null }],
+    [{ userWorkspaceId: null }, { workspaceMemberId: 'member-1' }],
+    [{ userWorkspaceId: '' }, { workspaceMemberId: 'member-1' }],
+  ] as const;
+  for (const [event, context] of calls) {
+    const answer = await respond({ body: prepareBody(w), ...event }, context, noDeps);
+    assert.equal(answer.status, 403, JSON.stringify([event, context]));
+    assert.deepEqual((answer.body as { problems: { code: string }[] }).problems.map((problem) => problem.code), ['NOT_ALLOWED']);
+  }
+});
+
 test('a signed-in person’s request runs, its body read as JSON, and the answer carries the outcome’s status', async () => {
   const w = workspace();
   await issuedInvoice(w);
@@ -221,6 +238,64 @@ test('a person the caller’s read fails on, for another reason than the role, i
   const outcome = await runEmail(prepareBody(w), deps);
   assert.equal(outcome.status, 500);
   assert.deepEqual(logs.map((entry) => [entry.emailStep, entry.step, entry.error]), [['prepare', 'prefill', 'connection reset']]);
+});
+
+test('on a refused Prepare the mailboxes are never asked for: nothing of the caller’s mail is touched for a document they may not see', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  let asked = 0;
+  const mailer: Mailer = {
+    accounts: async () => {
+      asked++;
+      return MAILBOXES;
+    },
+    send: async () => {},
+  };
+  for (const caller of [w.db.store('MANUAL', { canRead: () => false }), { ...w.db.store('MANUAL'), get: async () => null }]) {
+    const outcome = await runEmail(prepareBody(w), setup(w, { caller, mailer }).deps);
+    assert.equal(outcome.status, 403);
+  }
+  assert.equal(asked, 0);
+});
+
+test('a caller’s read that fails for another reason than the role is unexpected at the read step, on Prepare and on Send: nothing is asked of the mailboxes, sent or written', async () => {
+  for (const body of [prepareBody, sendBody] as const) {
+    const w = workspace();
+    await issuedInvoice(w);
+    const caller = {
+      ...w.db.store('MANUAL'),
+      get: async (): Promise<Row | null> => {
+        throw new Error('connection reset');
+      },
+    };
+    const { mailer, sent } = fakeMailer();
+    const { deps, logs } = setup(w, { caller, mailer });
+    const before = w.db.writes.length;
+    const outcome = await runEmail(body(w), deps);
+    assert.equal(outcome.status, 500, body.name);
+    assert.deepEqual(outcome.body, { ok: false, problems: [{ code: 'UNEXPECTED', message: 'Something went wrong (ref ref-7f3a).' }] }, body.name);
+    assert.deepEqual(logs.map((entry) => [entry.emailStep, entry.step, entry.error]), [[body === prepareBody ? 'prepare' : 'send', 'read', 'connection reset']], body.name);
+    assert.deepEqual([sent, w.db.writes.length], [[], before], body.name);
+  }
+});
+
+test('mailboxes that cannot be listed are unexpected at the mailboxes step, on Prepare and on Send: nothing is sent or written', async () => {
+  for (const body of [prepareBody, sendBody] as const) {
+    const w = workspace();
+    await issuedInvoice(w);
+    const mailer: Mailer = {
+      accounts: async () => {
+        throw new Error('metadata unavailable');
+      },
+      send: async () => {},
+    };
+    const { deps, logs } = setup(w, { mailer });
+    const before = w.db.writes.length;
+    const outcome = await runEmail(body(w), deps);
+    assert.deepEqual([outcome.status, problemCodes(outcome)], [500, ['UNEXPECTED']], body.name);
+    assert.deepEqual(logs.map((entry) => [entry.emailStep, entry.step, entry.error]), [[body === prepareBody ? 'prepare' : 'send', 'mailboxes', 'metadata unavailable']], body.name);
+    assert.equal(w.db.writes.length, before, body.name);
+  }
 });
 
 test('a request the route does not answer is unexpected: a reference, and a log', async () => {
@@ -564,7 +639,7 @@ test('a document deleted while the email is in flight is answered as sent but no
     assert.deepEqual(outcome.body, {
       ok: true, message: 'Sent to camille@calibre.example, but the invoice could not be marked as sent (ref ref-7f3a).', marked: false,
     }, `hides: ${hides}`);
-    assert.equal(sent.length, 1);
+    assert.equal(sent.length, 1, `hides: ${hides}`);
     assert.deepEqual(w.db.writes.slice(before).map((write) => [write.op, write.source]), [['update', 'MANUAL'], ['softDelete', 'APPLICATION']], 'nothing after the deletion');
     assert.deepEqual(w.db.timeline, []);
     assert.deepEqual(logs.map((entry) => [entry.reference, entry.emailStep, entry.step]), [['ref-7f3a', 'send', 'record']]);
