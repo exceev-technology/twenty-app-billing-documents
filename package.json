@@ -38,7 +38,8 @@
     "apply": "twenty apply",
     "deploy": "node scripts/deploy.mjs",
     "listing:images": "node scripts/listing-images.mjs",
-    "prepack": "node ../../scripts/package-notices.mjs"
+    "prepack": "node ../../scripts/package-notices.mjs",
+    "release:check": "node scripts/release-check.mjs"
   },
   "devDependencies": {
     "@types/node": "24.13.6",
