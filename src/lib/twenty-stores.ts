@@ -23,10 +23,11 @@ export type UploadClient = { uploadFile: PositionalUpload | OptionsUpload };
  * A function's `twenty-client-sdk/metadata` is external to its bundle, so at
  * runtime the class is the server's, not the version this app is built with, and
  * Twenty 2.42 changed `uploadFile` from positional arguments to one options
- * object. The app supports both (Twenty >= 2.40), so the shape is read from the
- * declared parameters: the options form declares one, the positional form two
- * (a parameter with a default, here the content type, and those after it are not
- * counted).
+ * object. The app reads the shape from the declared parameters, so it needs no
+ * version check: the options form declares one, the positional form two (a
+ * parameter with a default, here the content type, and those after it are not
+ * counted). The package requires Twenty 2.43.0 or later, whose client takes the
+ * options object; the positional branch stays, tested, for a client that does not.
  */
 const takesOptions = (uploadFile: UploadClient['uploadFile']): uploadFile is OptionsUpload => uploadFile.length <= 1;
 
