@@ -54,3 +54,7 @@ test('what prepack copies is in the repository, and the build state is not commi
   assert.ok(exists('LICENSE') && exists('THIRD_PARTY_NOTICES.md'));
   assert.match(read('.gitignore'), /^\.twenty\/$/m);
 });
+
+test('a worktree the tooling makes inside the checkout is ignored, so that git add -A cannot take a copy of the repository', () => {
+  assert.match(read('.gitignore'), /^\.claude\/worktrees\/$/m);
+});

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readPlan, readRemoteStatus } from '../src/lib/deploy-checks.ts';
 
 // Trimmed from real `twenty` 2.41 output; 2.43 prints these lines unchanged.
-const STATUS = `Using remote: billing-test
-  Remote:  billing-test
+const STATUS = `Using remote: test-workspace
+  Remote:  test-workspace
   Server:  https://example.test
   Auth:    api-key (valid)`;
 
@@ -26,7 +26,7 @@ const UNREGISTERED = `Computing metadata plan (read-only, nothing will be applie
 Sync failed with error: No registration found for "046d0988-b217-403e-a50f-d2a57e70780d". Create one first with createApplicationRegistration.`;
 
 test('reads the remote, its server and whether its credentials are valid', () => {
-  assert.deepEqual(readRemoteStatus(STATUS), { remote: 'billing-test', server: 'https://example.test', authValid: true });
+  assert.deepEqual(readRemoteStatus(STATUS), { remote: 'test-workspace', server: 'https://example.test', authValid: true });
   assert.equal(readRemoteStatus(STATUS.replace('(valid)', '(expired)')).authValid, false);
 });
 
