@@ -1,15 +1,14 @@
 import { defineLogicFunction } from 'twenty-sdk/define';
 import { Response as TwentyResponse, type LogicFunctionExecutionContext, type RoutePayload } from 'twenty-sdk/logic-function';
 import { runAction, type ActionDeps } from '../../lifecycle/actions.ts';
-import { describeAll, packFor } from '../../lifecycle/lang/pack.ts';
 import { id } from '../lib/id.ts';
-import { bodyOf, logLineFor, newReference, signedIn, type RouteContext, type RouteEvent } from '../lib/route.ts';
+import { bodyOf, logLineFor, newReference, respondTo, type RouteContext, type RouteEvent } from '../lib/route.ts';
 import { appStore, callerStore } from '../lib/twenty-stores.ts';
 
 export { bodyOf };
-export type { RouteContext, RouteEvent };
 
-const logLine = logLineFor('billing-action');
+const ROUTE = 'billing-action';
+const logLine = logLineFor(ROUTE);
 
 /** Hex SHA-256, from Web Crypto. */
 export async function sha256(bytes: Uint8Array): Promise<string> {
@@ -22,29 +21,9 @@ export function liveDeps(): ActionDeps {
   return { app: appStore(logLine), caller: callerStore(), now: () => new Date(), sha256, reference: newReference, log: logLine };
 }
 
-/**
- * Answers a button. A call without a signed-in person (an API key) is refused:
- * the caller's own token is what lets Twenty's role check decide who may act.
- * The answer is never 401, which the front client would take for an expired
- * token and post again.
- */
-export async function respond(event: RouteEvent, context: RouteContext, makeDeps: () => ActionDeps): Promise<TwentyResponse> {
-  const body = bodyOf(event);
-  const locale = (body as { locale?: unknown } | null)?.locale;
-  const pack = packFor(typeof locale === 'string' ? locale : null);
-  if (!signedIn(event, context)) {
-    return new TwentyResponse({ ok: false, problems: describeAll([{ source: 'lifecycle', code: 'NOT_ALLOWED' }], pack.code) }, { status: 403 });
-  }
-  try {
-    const outcome = await runAction(body, makeDeps());
-    return new TwentyResponse(outcome.body, { status: outcome.status });
-  } catch (error) {
-    // runAction answers every failure itself: this is a failure to build its dependencies.
-    const reference = newReference();
-    logLine({ reference, step: 'setup', error: error instanceof Error ? error.message : String(error) });
-    return new TwentyResponse({ ok: false, problems: [{ code: 'UNEXPECTED', message: pack.messages.unexpected(reference) }] }, { status: 500 });
-  }
-}
+/** Answers a button (src/lib/route.ts: refused without a signed-in person, runAction's outcome as the answer). */
+export const respond = (event: RouteEvent, context: RouteContext, makeDeps: () => ActionDeps): Promise<TwentyResponse> =>
+  respondTo(event, context, { name: ROUTE, run: runAction, makeDeps });
 
 export default defineLogicFunction({
   universalIdentifier: id('logicFunction.billingAction'),

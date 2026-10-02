@@ -12,10 +12,11 @@ import { idOf, textOf } from '../../lifecycle/map.ts';
 import { leaveMessage, NotAllowedError, reasonOf, type CallerStore, type Row, type Store } from '../../lifecycle/store.ts';
 import { id } from '../lib/id.ts';
 import { callerMailer } from '../lib/mailer.ts';
-import { bodyOf, logLineFor, newReference, signedIn, type RouteContext, type RouteEvent } from '../lib/route.ts';
+import { logLineFor, newReference, respondTo, type RouteContext, type RouteEvent } from '../lib/route.ts';
 import { appStore, callerStore } from '../lib/twenty-stores.ts';
 
-const logLine = logLineFor('billing-email');
+const ROUTE = 'billing-email';
+const logLine = logLineFor(ROUTE);
 
 export type EmailDeps = {
   /** Reads, and the record of a send, as the app. */
@@ -231,28 +232,9 @@ export function liveDeps(): EmailDeps {
   return { app: appStore(logLine), caller: callerStore(), mailer: callerMailer(), now: () => new Date(), reference: newReference, log: logLine };
 }
 
-/**
- * Answers the form. A call without a signed-in person (an API key) is refused:
- * the email goes from the caller's own mailbox, as them. The answer is never 401,
- * which the front client would take for an expired token and post again.
- */
-export async function respond(event: RouteEvent, context: RouteContext, makeDeps: () => EmailDeps): Promise<TwentyResponse> {
-  const body = bodyOf(event);
-  const locale = (body as { locale?: unknown } | null)?.locale;
-  const pack = packFor(typeof locale === 'string' ? locale : null);
-  if (!signedIn(event, context)) {
-    return new TwentyResponse({ ok: false, problems: describeAll([{ source: 'lifecycle', code: 'NOT_ALLOWED' }], pack.code) }, { status: 403 });
-  }
-  try {
-    const outcome = await runEmail(body, makeDeps());
-    return new TwentyResponse(outcome.body, { status: outcome.status });
-  } catch (error) {
-    // runEmail answers every failure itself: this is a failure to build its dependencies.
-    const reference = newReference();
-    logLine({ reference, step: 'setup', error: error instanceof Error ? error.message : String(error) });
-    return new TwentyResponse({ ok: false, problems: [{ code: 'UNEXPECTED', message: pack.messages.unexpected(reference) }] }, { status: 500 });
-  }
-}
+/** Answers the form (src/lib/route.ts: refused without a signed-in person, as the email goes from the caller's own mailbox). */
+export const respond = (event: RouteEvent, context: RouteContext, makeDeps: () => EmailDeps): Promise<TwentyResponse> =>
+  respondTo(event, context, { name: ROUTE, run: runEmail, makeDeps });
 
 export default defineLogicFunction({
   universalIdentifier: id('logicFunction.billingEmail'),
