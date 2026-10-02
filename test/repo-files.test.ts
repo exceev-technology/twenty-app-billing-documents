@@ -129,6 +129,13 @@ test('the runbook dates the changelog heading with an ISO date instead of adding
   for (const wanted of ['## 0.1.0 - unreleased', '## 0.1.0 - YYYY-MM-DD', 'add no second one', '"unreleased", "TBD" and no date at all']) assert.ok(text.includes(wanted), wanted);
 });
 
+test('the runbook says what to hide in a screenshot, what listing:images needs, and which test to change with the workflow', () => {
+  const text = read('docs/releasing.md').replaceAll(/\s+/g, ' ');
+  for (const wanted of ["the workspace's name", "member's name and avatar", "your browser's own chrome", 'crop them out or hide them', '`brew install librsvg poppler`', '`npm run render:samples`', 'Update `test/workflows.test.ts` in the same pull request']) {
+    assert.ok(text.includes(wanted), wanted);
+  }
+});
+
 test('the runbook has the notices step and the failures release:check can report about them', () => {
   const text = read('docs/releasing.md').replaceAll(/\s+/g, ' ');
   for (const wanted of ['`npm run build` then `npm run notices`', 'does not name some packages the build bundles', 'files name a folder of the machine that built the package', 'npm took --tag for itself', 'Keep the `--` before `--tag`']) {

@@ -15,6 +15,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # A hung step would otherwise hold id-token: write for GitHub's six-hour default.
+    timeout-minutes: 30
     steps:
       # No credentials left in .git/config: npm ci's install scripts run later in this job.
       - uses: actions/checkout@v4

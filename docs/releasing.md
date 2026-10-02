@@ -46,7 +46,11 @@ and [Trusted publishing for npm packages](https://docs.npmjs.com/trusted-publish
      refuse. npm does not check the form when you save it, and a connection cannot be edited:
      a mistake shows at the next publish, and you delete the connection and add it again.
      Once a release has gone out that way, delete the `NPM_TOKEN` secret, revoke the token
-     on npmjs.com, and delete the `env:` lines of the workflow's *Publish to npm* step.
+     on npmjs.com, and delete the `env:` lines of the workflow's *Publish to npm* step. Update
+     `test/workflows.test.ts` in the same pull request: two of its tests pin those lines (the
+     one that lists the workflow's expressions, `${{ secrets.NPM_TOKEN }}` among them, and the
+     one that matches `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`), and CI fails without the
+     change.
    - **Publishing `0.1.0` by hand is a last resort**: that version gets no provenance badge.
      Once `0.1.0` is on npm, the workflow of a pushed `v0.1.0` tag fails at *Publish to npm*
      (npm refuses a version twice) and never reaches its release step. So, in this order:
@@ -88,8 +92,11 @@ and [Trusted publishing for npm packages](https://docs.npmjs.com/trusted-publish
 ## Before the first release: the Twenty screenshots
 
 The listing's gallery holds four images (`galleryImages` in `src/application-config.ts`).
-`npm run listing:images` draws one, the five PDF layouts. The other three are screenshots of
-Twenty, which only a signed-in person can take. The [rehearsal on a local Twenty
+`npm run listing:images` draws one, the five PDF layouts, and the logo. It needs two programs
+that are not npm packages, once (`brew install librsvg poppler`), and the layouts it draws
+come from `docs/templates/*.pdf`, which `npm run render:samples` writes from made-up data: run
+that first. The other three images are screenshots of Twenty, which only a signed-in person
+can take. The [rehearsal on a local Twenty
 server](#rehearsal-on-a-local-twenty-server), further down, is a good moment to take them:
 that workspace holds none of your clients. Make up the companies, people and amounts in the
 pictures, and leave out any record the image came with.
@@ -102,10 +109,15 @@ pictures, and leave out any record the image came with.
 
 1. On the test workspace, with sample data only: made-up companies, people and amounts. No
    image may show a real client, a real email address or a real number.
-2. Capture at 1600 × 1000 pixels (the marketplace shows a gallery in an 8:5 frame), PNG, each
+2. Look at what Twenty shows around the data. It prints the workspace's name, the signed-in
+   member's name and avatar, and your browser's own chrome (tabs, address bar, bookmarks,
+   profile picture): crop them out or hide them, so that no image shows your workspace or
+   you. Twenty's own sample records are not a safe default either: leave out any record the
+   workspace came with.
+3. Capture at 1600 × 1000 pixels (the marketplace shows a gallery in an 8:5 frame), PNG, each
    well under 10 MB (the marketplace skips a larger one).
-3. Save them under the names above, in `public/gallery/`.
-4. List them in `src/application-config.ts`, in the order a visitor should see them:
+4. Save them under the names above, in `public/gallery/`.
+5. List them in `src/application-config.ts`, in the order a visitor should see them:
 
    ```ts
    galleryImages: [

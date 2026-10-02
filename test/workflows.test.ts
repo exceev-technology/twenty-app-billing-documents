@@ -66,6 +66,13 @@ test('the checkout keeps the whole history and no token, and the setup-node step
   assert.doesNotMatch(code(release), /^\s+cache:/m);
 });
 
+test('the release job stops after 30 minutes, and runs npm ci with its install scripts as it did', () => {
+  // A hung step must not hold id-token: write for GitHub's six-hour default.
+  assert.match(code(release), /^ {2}release:\n {4}runs-on: ubuntu-latest\n {4}timeout-minutes: 30\n {4}steps:$/m);
+  // Not --ignore-scripts: the CLI the later steps run is installed by npm ci and may need its own install scripts.
+  assert.match(code(release), /^\s+- run: npm ci$/m);
+});
+
 test('it uses the installed CLI, never npx, and Node from .nvmrc', () => {
   assert.match(release, /run: \.\/node_modules\/\.bin\/twenty app:publish/);
   assert.doesNotMatch(release, /npx twenty/);
