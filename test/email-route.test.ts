@@ -185,6 +185,43 @@ test('a person who cannot read the document, or from whom it is hidden, gets NOT
   assert.deepEqual([hidden.status, problemCodes(hidden)], [403, ['NOT_ALLOWED']]);
 });
 
+test('a caller who cannot see the person billed gets the form with no recipient, and no name or address of theirs', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const blind = [
+    w.db.store('MANUAL', { canRead: (plural) => plural !== 'people' }),
+    { ...w.db.store('MANUAL'), get: async (plural: string, id: string) => (plural === 'people' ? null : w.db.store('MANUAL').get(plural, id)) },
+  ];
+  for (const caller of blind) {
+    const outcome = await runEmail(prepareBody(w), setup(w, { caller }).deps);
+    assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
+    assert.deepEqual(formOf(outcome), {
+      number: 'F2026-0001', mailboxes: MAILBOXES, from: 'mailbox-studio', to: '', cc: '',
+      subject: 'Facture F2026-0001 de Verdal Studio',
+      message: 'Bonjour,\n\nVeuillez trouver ci-joint la facture F2026-0001 d’un montant de 9\u00a0792,00\u00a0€, à régler au plus tard le 26/10/2026.\n\nCordialement,\nVerdal Studio',
+      attachment: 'F2026-0001.pdf',
+    });
+    assert.doesNotMatch(JSON.stringify(outcome.body), /camille|durand|calibre\.example/i);
+  }
+});
+
+test('a person the caller’s read fails on, for another reason than the role, is unexpected: the failure is not read as an empty To', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const { deps, logs } = setup(w, {
+    caller: {
+      ...w.db.store('MANUAL'),
+      get: async (plural, id) => {
+        if (plural === 'people') throw new Error('connection reset');
+        return w.db.store('MANUAL').get(plural, id);
+      },
+    },
+  });
+  const outcome = await runEmail(prepareBody(w), deps);
+  assert.equal(outcome.status, 500);
+  assert.deepEqual(logs.map((entry) => [entry.emailStep, entry.step, entry.error]), [['prepare', 'prefill', 'connection reset']]);
+});
+
 test('a request the route does not answer is unexpected: a reference, and a log', async () => {
   const w = workspace();
   const { deps, logs } = setup(w);
@@ -255,6 +292,24 @@ test('Send refuses as Prepare does when the document changed while the form was 
   assert.equal(outcome.status, 422);
   assert.deepEqual(problemCodes(outcome), ['NOT_SENDABLE']);
   assert.deepEqual([w.db.writes.length, sent.length], [before, 0]);
+});
+
+test('a document hidden from the caller, or one their role cannot read, is NOT_ALLOWED on Send, and nothing of it is revealed', async () => {
+  const w = workspace();
+  // Cancelled and with no PDF: were the caller's read skipped, Send would answer NOT_SENDABLE, and name the status.
+  await issuedInvoice(w, { status: 'CANCELLED', pdf: [] });
+  const callers = [w.db.store('MANUAL', { canRead: () => false }), { ...w.db.store('MANUAL'), get: async () => null }];
+  for (const caller of callers) {
+    const { deps, sent } = setup(w, { caller });
+    const before = w.db.writes.length;
+    const outcome = await runEmail(sendBody(w), deps);
+    assert.equal(outcome.status, 403);
+    assert.deepEqual(outcome.body, {
+      ok: false, problems: [{ code: 'NOT_ALLOWED', message: 'Your role cannot edit this document, so it cannot run this action.' }],
+    });
+    assert.doesNotMatch(JSON.stringify(outcome.body), /NOT_SENDABLE|NO_PDF|cancel|F2026|camille/i);
+    assert.deepEqual([sent, w.db.writes.length, w.db.timeline], [[], before, []], 'no email, no write, no timeline row');
+  }
 });
 
 test('a mailbox no longer connected, or not the caller’s, is NO_MAILBOX: nothing is written or sent', async () => {

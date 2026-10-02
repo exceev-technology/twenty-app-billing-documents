@@ -66,25 +66,30 @@ function refusalsOf(kind: Kind, document: Row | null, mailboxes: readonly Mailbo
   return problems;
 }
 
-/** Whether the caller's own token reads the document (spec §5): one hidden from them, or refused, is not theirs to send, nor its client's address theirs to learn. */
-async function callerReads(caller: CallerStore, kind: Kind, documentId: string): Promise<boolean> {
+/** A record read with the caller's own token (spec §5): null when Twenty hides it from them or refuses their role. */
+async function readAsCaller(caller: CallerStore, plural: string, recordId: string): Promise<Row | null> {
   try {
-    return (await caller.get(kind.plural, documentId)) !== null;
+    return await caller.get(plural, recordId);
   } catch (error) {
-    if (error instanceof NotAllowedError) return false;
+    if (error instanceof NotAllowedError) return null;
     throw error;
   }
 }
 
-/** What the message is made of, read as the app once the caller has read the document: the issuer and its profile, the person billed, a credit note's invoice. */
-async function sourcesOf(store: Store, kind: Kind, document: Row): Promise<EmailSources> {
+/**
+ * What the message is made of. The issuer, its profile and a credit note's invoice are the app's reads, once the
+ * caller has read the document; the person billed is the caller's own read, since their address and name are
+ * theirs to learn only if their role reads People.
+ */
+async function sourcesOf(deps: EmailDeps, kind: Kind, document: Row): Promise<EmailSources> {
   const read = async (plural: string, value: unknown): Promise<Row | null> => {
     const key = idOf(value);
-    return key ? store.get(plural, key) : null;
+    return key ? deps.app.get(plural, key) : null;
   };
   const issuer = await read('billingIssuers', document.issuerId);
   const profile = issuer ? await read('billingProfiles', issuer.profileId) : null;
-  const person = await read('people', document.personId);
+  const personId = idOf(document.personId);
+  const person = personId ? await readAsCaller(deps.caller, 'people', personId) : null;
   const invoice = kind.kind === 'CREDIT_NOTE' ? await read('billingInvoices', document.invoiceId) : null;
   return { kind, document, issuer, profile, person, invoice };
 }
@@ -94,7 +99,7 @@ async function prepare(request: PrepareRequest, deps: EmailDeps, pack: Lifecycle
   const kind = KINDS[request.object];
   step('read');
   const document = await deps.app.get(kind.plural, request.recordId);
-  if (document && !(await callerReads(deps.caller, kind, document.id))) return refuse(403, pack, [{ code: 'NOT_ALLOWED' }]);
+  if (document && !(await readAsCaller(deps.caller, kind.plural, document.id))) return refuse(403, pack, [{ code: 'NOT_ALLOWED' }]);
 
   step('mailboxes');
   const mailboxes = await deps.mailer.accounts();
@@ -102,7 +107,7 @@ async function prepare(request: PrepareRequest, deps: EmailDeps, pack: Lifecycle
   if (problems.length > 0 || !document) return refuse(422, pack, problems);
 
   step('prefill');
-  const sources = await sourcesOf(deps.app, kind, document);
+  const sources = await sourcesOf(deps, kind, document);
   return {
     status: 200,
     body: {
@@ -154,8 +159,11 @@ async function send(request: SendRequest, deps: EmailDeps, pack: LifecyclePack, 
   if (checked.problems.length > 0) return refuse(422, pack, checked.problems);
 
   // It may have changed while the form was open: refused as Prepare refuses it, and a mailbox gone is named.
+  // The caller's read comes first, as in Prepare: a document hidden from them is answered NOT_ALLOWED and nothing of it (no status, no PDF).
   step('read');
   const document = await deps.app.get(kind.plural, request.recordId);
+  if (document && !(await readAsCaller(deps.caller, kind.plural, document.id))) return refuse(403, pack, [{ code: 'NOT_ALLOWED' }]);
+  step('mailboxes');
   const mailboxes = await deps.mailer.accounts();
   const mailbox = mailboxes.find((candidate) => candidate.id === request.from);
   const problems = refusalsOf(kind, document, mailboxes);
@@ -169,6 +177,7 @@ async function send(request: SendRequest, deps: EmailDeps, pack: LifecyclePack, 
   step('caller');
   try {
     // Rewritten as it is: Twenty's role check decides whether the caller may act on the document, as for every action.
+    // It runs on every update, whatever the values (twenty-server 2.43, validateOperationIsPermittedOrThrow), so a write that changes nothing is still refused.
     await deps.caller.update(kind.plural, document.id, { sentAt: document.sentAt ?? null });
   } catch (error) {
     if (error instanceof NotAllowedError) return refuse(403, pack, [{ code: 'NOT_ALLOWED' }]);

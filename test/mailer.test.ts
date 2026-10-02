@@ -35,9 +35,25 @@ const EMAIL: OutgoingEmail = {
 test('the caller’s mailboxes are their connected accounts, each by id and address', async () => {
   const { client, calls } = fakeClient(() => ({ myConnectedAccounts: [{ id: 'mailbox-1', handle: 'bonjour@verdal.example', provider: 'google' }, { id: 7 }, null] }));
   assert.deepEqual(await metadataMailer(client).accounts(), [{ id: 'mailbox-1', handle: 'bonjour@verdal.example' }]);
-  assert.deepEqual(calls, [{ kind: 'query', request: { myConnectedAccounts: { id: true, handle: true } } }]);
+  assert.deepEqual(calls, [{
+    kind: 'query', request: { myConnectedAccounts: { id: true, handle: true, authFailedAt: true, archivedAt: true } },
+  }]);
   const none = fakeClient(() => ({ myConnectedAccounts: null }));
   assert.deepEqual(await metadataMailer(none.client).accounts(), []);
+});
+
+test('a mailbox whose authorisation failed, or that was archived, is not offered: it cannot send', async () => {
+  const { client } = fakeClient(() => ({
+    myConnectedAccounts: [
+      { id: 'mailbox-1', handle: 'bonjour@verdal.example', authFailedAt: null, archivedAt: null },
+      { id: 'mailbox-2', handle: 'compta@verdal.example', authFailedAt: '2026-09-20T08:00:00.000Z', archivedAt: null },
+      { id: 'mailbox-3', handle: 'ancien@verdal.example', authFailedAt: null, archivedAt: '2026-09-01T08:00:00.000Z' },
+      { id: 'mailbox-4', handle: 'studio@verdal.example' },
+    ],
+  }));
+  assert.deepEqual(await metadataMailer(client).accounts(), [
+    { id: 'mailbox-1', handle: 'bonjour@verdal.example' }, { id: 'mailbox-4', handle: 'studio@verdal.example' },
+  ]);
 });
 
 test('an email goes through sendEmail: the recipients joined by commas, no cc when there is none, the attachments by file id', async () => {
@@ -66,11 +82,15 @@ test('an email goes through sendEmail: the recipients joined by commas, no cc wh
 test('a send Twenty answers as failed is SendFailedError, with Twenty’s reason', async () => {
   const { client } = fakeClient(() => ({ sendEmail: { success: false, error: 'Invalid recipient: not-an-address' } }));
   await assert.rejects(metadataMailer(client).send(EMAIL), (error) => error instanceof SendFailedError && error.reason === 'Invalid recipient: not-an-address');
-  const silent = fakeClient(() => ({ sendEmail: null }));
+  const silent = fakeClient(() => ({ sendEmail: { success: false, error: null } }));
   await assert.rejects(metadataMailer(silent.client).send(EMAIL), (error) => error instanceof SendFailedError && error.reason === '');
 });
 
-test('a refused permission is EmailNotAllowedError, any other GraphQL error SendFailedError, and a network failure stays as it is', async () => {
+/** The rejection is neither of the mailer’s typed errors: the route answers it as “may have gone”. */
+const unclassified = (expected?: Error) => (error: unknown) =>
+  error instanceof Error && !(error instanceof SendFailedError) && !(error instanceof EmailNotAllowedError) && (expected === undefined || error === expected);
+
+test('a refused permission is EmailNotAllowedError', async () => {
   await assert.rejects(
     metadataMailer(fakeClient(() => forbidden('Entity performing the request does not have permission')).client).send(EMAIL),
     (error) => error instanceof EmailNotAllowedError && error.message === 'Entity performing the request does not have permission',
@@ -80,10 +100,35 @@ test('a refused permission is EmailNotAllowedError, any other GraphQL error Send
     metadataMailer(fakeClient(() => forbidden('')).client).send(EMAIL),
     (error) => error instanceof EmailNotAllowedError && error.message === 'Not allowed to send email',
   );
-  await assert.rejects(
-    metadataMailer(fakeClient(() => graphqlError('NOT_FOUND', 'Connected account not found')).client).send(EMAIL),
-    (error) => error instanceof SendFailedError && error.reason === 'Connected account not found',
-  );
-  const network = new TypeError('fetch failed');
-  await assert.rejects(metadataMailer(fakeClient(() => network).client).send(EMAIL), (error) => error === network);
+});
+
+test('a request Twenty turned down before sending is SendFailedError, with its reason: a bad input, a missing mailbox, another refusal, no session', async () => {
+  const refusals = [
+    ['BAD_USER_INPUT', 'Invalid recipients', {}],
+    ['NOT_FOUND', 'Connected account not found', {}],
+    ['FORBIDDEN', 'Connected account is not yours', { subCode: 'CONNECTED_ACCOUNT_NOT_OWNED' }],
+    ['FORBIDDEN', 'Forbidden', {}],
+    ['UNAUTHENTICATED', 'Unauthenticated', {}],
+  ] as const;
+  for (const [code, reason, extensions] of refusals) {
+    await assert.rejects(
+      metadataMailer(fakeClient(() => graphqlError(code, reason, extensions)).client).send(EMAIL),
+      (error) => error instanceof SendFailedError && error.reason === reason,
+      `${code}: ${reason}`,
+    );
+  }
+});
+
+test('a failure that does not say whether the email went is rethrown as it is, never SendFailedError: a server error, no code, a null answer, the network', async () => {
+  const lost = [
+    graphqlError('INTERNAL_SERVER_ERROR', 'Internal server error'),
+    Object.assign(new Error('Something broke'), { errors: [{ message: 'Something broke' }], data: null }),
+    Object.assign(new Error('Something broke'), { errors: [{ message: 'No code', extensions: null }, { message: 'Refused', extensions: { code: 'BAD_USER_INPUT' } }] }),
+    new TypeError('fetch failed'),
+  ];
+  for (const failure of lost) {
+    await assert.rejects(metadataMailer(fakeClient(() => failure).client).send(EMAIL), unclassified(failure), failure.message);
+  }
+  await assert.rejects(metadataMailer(fakeClient(() => ({ sendEmail: null })).client).send(EMAIL), unclassified());
+  await assert.rejects(metadataMailer(fakeClient(() => ({})).client).send(EMAIL), unclassified());
 });
