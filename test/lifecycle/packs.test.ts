@@ -209,32 +209,32 @@ test('the French messages are pinned exactly: the invoice, a credit note and a q
   assert.equal(PACKS.FR.emails.INVOICE.subject(ALL_FACTS), 'Facture F2026-0017 d’Acme');
   assert.equal(
     PACKS.FR.emails.INVOICE.message(ALL_FACTS),
-    'Bonjour Maria,\n\nVeuillez trouver ci-joint la facture F2026-0017 d’un montant de 1 234,00 €, à régler au plus tard le 31/10/2026.\n\nCordialement,\nAcme',
+    'Bonjour Maria,\n\nVeuillez trouver ci-joint la facture F2026-0017 d’un montant de 1\u00a0234,00\u00a0€, à régler au plus tard le 31/10/2026.\n\nCordialement,\nAcme',
   );
   assert.equal(PACKS.FR.emails.CREDIT_NOTE.subject(ALL_FACTS), 'Avoir F2026-0017 d’Acme');
   assert.equal(
     PACKS.FR.emails.CREDIT_NOTE.message(ALL_FACTS),
-    'Bonjour Maria,\n\nVeuillez trouver ci-joint l’avoir F2026-0017 d’un montant de 1 234,00 €, qui corrige la facture F2026-0001.\n\nCordialement,\nAcme',
+    'Bonjour Maria,\n\nVeuillez trouver ci-joint l’avoir F2026-0017 d’un montant de 1\u00a0234,00\u00a0€, qui corrige la facture F2026-0001.\n\nCordialement,\nAcme',
   );
   assert.equal(PACKS.FR.emails.QUOTE.subject(ALL_FACTS), 'Devis F2026-0017 (version 2) d’Acme');
   assert.equal(
     PACKS.FR.emails.QUOTE.message(ALL_FACTS),
-    'Bonjour Maria,\n\nVeuillez trouver ci-joint notre devis F2026-0017 (version 2) d’un montant de 1 234,00 €, valable jusqu’au 31/10/2026.\n\nCordialement,\nAcme',
+    'Bonjour Maria,\n\nVeuillez trouver ci-joint notre devis F2026-0017 (version 2) d’un montant de 1\u00a0234,00\u00a0€, valable jusqu’au 31/10/2026.\n\nCordialement,\nAcme',
   );
   assert.equal(
     PACKS.FR.emails.REMINDER.message(ALL_FACTS),
-    'Bonjour Maria,\n\nSauf erreur de notre part, la facture F2026-0017 d’un montant de 1 234,00 €, échue le 31/10/2026, n’est pas encore réglée. Vous la trouverez de nouveau ci-jointe.\n\nSi vous l’avez déjà réglée, merci de ne pas tenir compte de ce message.\n\nCordialement,\nAcme',
+    'Bonjour Maria,\n\nSauf erreur de notre part, la facture F2026-0017 d’un montant de 1\u00a0234,00\u00a0€, échue le 31/10/2026, n’est pas encore réglée. Vous la trouverez de nouveau ci-jointe.\n\nSi vous l’avez déjà réglée, merci de ne pas tenir compte de ce message.\n\nCordialement,\nAcme',
   );
 });
 
 test('the English credit note’s and quote’s messages are pinned exactly', () => {
   assert.equal(
     PACKS.EN.emails.CREDIT_NOTE.message(ALL_FACTS),
-    'Hello Maria,\n\nPlease find attached credit note F2026-0017 for 1 234,00 €, which corrects invoice F2026-0001.\n\nKind regards,\nAcme',
+    'Hello Maria,\n\nPlease find attached credit note F2026-0017 for 1\u00a0234,00\u00a0€, which corrects invoice F2026-0001.\n\nKind regards,\nAcme',
   );
   assert.equal(
     PACKS.EN.emails.QUOTE.message(ALL_FACTS),
-    'Hello Maria,\n\nPlease find attached our quote F2026-0017 (version 2) for 1 234,00 €, valid until 31/10/2026.\n\nKind regards,\nAcme',
+    'Hello Maria,\n\nPlease find attached our quote F2026-0017 (version 2) for 1\u00a0234,00\u00a0€, valid until 31/10/2026.\n\nKind regards,\nAcme',
   );
 });
 
