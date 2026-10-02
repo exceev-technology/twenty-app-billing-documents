@@ -4,8 +4,8 @@ Quotes, invoices and credit notes, issued as PDFs, inside [Twenty](https://twent
 Your clients are already in Twenty, so your documents can be too.
 
 > **Status: under construction.** Quotes, invoices and credit notes can be
-> issued, turned into one another and followed to payment; sending by email is
-> still to come. Do not use it for real invoices until the first release.
+> issued, turned into one another, followed to payment and sent by email. Do
+> not use it for real invoices until the first release.
 
 ## What it will do
 
@@ -122,6 +122,36 @@ invoices whose due date has passed.
 and a Pipeline board by status. Credit notes: Drafts. They add up no amounts:
 documents in several currencies cannot be summed.
 
+## Sending documents by email
+
+**Send by email**, on an issued invoice (Issued, Sent or Paid), an issued
+credit note, or a quote that has a PDF, opens a form in the side panel: from,
+to, cc, subject and message, prefilled in the document's language, with the
+PDF attached. Review it, change what you like, and click **Send**. The email
+goes from your own mailbox, so it appears in your sent folder, and Twenty
+imports it with your other emails when that mailbox syncs.
+
+- The message starts from a template for each document type, and from a
+  reminder for an invoice whose due date has passed. The templates are in the
+  app's language files (`lifecycle/lang/en.ts` and `fr.ts`): change them in
+  your fork to use your own wording every time.
+- *To* starts with the email of the person the document is billed to. A
+  company has no email address in Twenty, so a document billed to a company
+  alone starts with an empty *To*. Separate several addresses with commas.
+- *From* starts with the mailbox whose address is the issuer's email, when you
+  have connected it.
+- After a send, an Issued invoice becomes Sent and a Draft quote becomes Sent;
+  *Sent at* keeps the date of the first send; every send leaves a row on the
+  document's timeline naming who received it.
+
+Before anyone sends:
+
+1. Each person who sends connects their mailbox in **Settings → Accounts**.
+   Without one, the form says how.
+2. Their role allows sending email: **Settings → Roles**, the role, **Send
+   email**. The app's own role asks for it on install. Without it, Send answers
+   that the role cannot send email, and names that setting.
+
 ## Do not let users destroy billing records
 
 Twenty can delete a record permanently ("destroy" it, for example by emptying
@@ -171,6 +201,7 @@ npm run typecheck
 - [Engine plan](docs/superpowers/plans/2026-09-22-engine.md)
 - [Issue path plan](docs/superpowers/plans/2026-09-26-issue-path.md)
 - [Flows plan](docs/superpowers/plans/2026-10-01-flows.md)
+- [Email plan](docs/superpowers/plans/2026-10-01-email.md)
 
 ## Author
 
