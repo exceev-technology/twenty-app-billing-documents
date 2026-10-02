@@ -28,13 +28,13 @@ export type FileRef = { fileId: string; label: string };
 export type Upload = { bytes: Uint8Array; name: string; mime: string; object: string; field: string };
 
 /** The timeline activity types the app leaves rows of, by what the collapsed row says. */
-export type TimelineKind = 'ISSUED' | 'CORRECTION' | 'INVOICED' | 'CREDITED' | 'CANCELLED';
+export type TimelineKind = 'ISSUED' | 'CORRECTION' | 'INVOICED' | 'CREDITED' | 'CANCELLED' | 'SENT';
 
 /**
  * A message left on a record's timeline, in the document's language. `kind` picks the
  * timeline activity type, whose label is what the collapsed row says ("issued",
- * "put back a change to", "invoiced", "credited", "cancelled"); the text shows when
- * the row is expanded.
+ * "put back a change to", "invoiced", "credited", "cancelled", "sent"); the text
+ * shows when the row is expanded.
  */
 export type TimelineEntry = { object: string; recordId: string; kind: TimelineKind; text: string };
 

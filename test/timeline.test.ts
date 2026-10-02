@@ -6,17 +6,18 @@ import correction from '../src/timeline-activity-types/billing-correction.ts';
 import invoiced from '../src/timeline-activity-types/billing-invoiced.ts';
 import credited from '../src/timeline-activity-types/billing-credited.ts';
 import cancelled from '../src/timeline-activity-types/billing-cancelled.ts';
+import sent from '../src/timeline-activity-types/billing-sent.ts';
 import { TIMELINE_TYPE_KEYS, messageOf } from '../src/front-components/timeline-message.ts';
 import { IDS } from '../src/ids.ts';
 import { bundleFrontComponent } from './helpers/front-component-build.ts';
 
 const COMPONENT = fileURLToPath(new URL('../src/front-components/billing-timeline-message.tsx', import.meta.url));
 
-test('the five timeline types validate, emit nothing by themselves, and name the message component', () => {
+test('the six timeline types validate, emit nothing by themselves, and name the message component', () => {
   const types = [
     [issued, 'billingIssued', 'issued', 'ISSUED'], [correction, 'billingCorrection', 'put back a change to', 'CORRECTION'],
     [invoiced, 'billingInvoiced', 'invoiced', 'INVOICED'], [credited, 'billingCredited', 'credited', 'CREDITED'],
-    [cancelled, 'billingCancelled', 'cancelled', 'CANCELLED'],
+    [cancelled, 'billingCancelled', 'cancelled', 'CANCELLED'], [sent, 'billingSent', 'sent', 'SENT'],
   ] as const;
   for (const [type, name, label, kind] of types) {
     assert.equal(type.success, true, type.errors.join('\n'));

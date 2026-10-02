@@ -10,6 +10,7 @@ export const TIMELINE_TYPE_KEYS = {
   INVOICED: 'timelineActivityType.billingInvoiced',
   CREDITED: 'timelineActivityType.billingCredited',
   CANCELLED: 'timelineActivityType.billingCancelled',
+  SENT: 'timelineActivityType.billingSent',
 } as const;
 
 /** The message of a timeline activity, from `GET /rest/timelineActivities/<id>`; null when it holds none. */

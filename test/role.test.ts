@@ -43,8 +43,8 @@ test('it only reads companies, people and opportunities', () => {
   }
 });
 
-test('it may upload PDFs', () => {
-  assert.ok(role.config.permissionFlagUniversalIdentifiers?.includes(SystemPermissionFlag.UPLOAD_FILE));
+test('it may upload PDFs, and send email for the person who clicks Send by email', () => {
+  assert.deepEqual(role.config.permissionFlagUniversalIdentifiers, [SystemPermissionFlag.UPLOAD_FILE, SystemPermissionFlag.SEND_EMAIL_TOOL]);
 });
 
 test('it belongs to the app alone', () => {

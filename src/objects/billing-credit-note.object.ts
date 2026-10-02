@@ -20,5 +20,6 @@ export default defineObject({
     manyToOne(O, 'invoice', { label: 'Invoice', description: 'The invoice this credit note corrects. Required to issue.', icon: 'IconFileInvoice' }, { object: 'billingInvoice', inverse: 'creditNotes', onDelete: OnDeleteAction.SET_NULL }),
     text(O, 'reason', { label: 'Reason', icon: 'IconMessage' }),
     dateTime(O, 'issuedAt', { label: 'Issued at', icon: 'IconCalendarCheck' }),
+    dateTime(O, 'sentAt', { label: 'Sent at', icon: 'IconSend' }),
   ]),
 });

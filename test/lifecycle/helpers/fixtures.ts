@@ -94,7 +94,8 @@ export function workspace() {
     opportunityId: null, quoteId: null, issuedAt: null, sentAt: null, paidAt: null, ...over,
   });
   const addCreditNote = (over: Record<string, unknown> = {}): Row => db.seed('billingCreditNotes', {
-    ...DOCUMENT, subject: 'Atelier annulé', issuerId: issuer.id, companyId: company.id, invoiceId: null, reason: 'Atelier annulé', issuedAt: null, ...over,
+    ...DOCUMENT, subject: 'Atelier annulé', issuerId: issuer.id, companyId: company.id, invoiceId: null, reason: 'Atelier annulé', issuedAt: null,
+    sentAt: null, ...over,
   });
   const addQuote = (over: Record<string, unknown> = {}): Row => db.seed('billingQuotes', {
     ...DOCUMENT, subject: 'Identité visuelle, proposition', issuerId: issuer.id, companyId: company.id, validUntil: null,

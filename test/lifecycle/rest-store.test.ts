@@ -33,7 +33,7 @@ function deps(rest: RestLike, over: Partial<RestStoreDeps> = {}): RestStoreDeps 
     fetchFile: async () => ({ ok: true, status: 200, arrayBuffer: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer }),
     timelineTypes: async () => [{ id: 'type-issued', universalIdentifier: 'uid-issued', isActive: true }, { id: 'type-fix', universalIdentifier: 'uid-fix', isActive: true }],
     fieldId: (object, field) => `field:${object}.${field}`,
-    timelineTypeIds: { ISSUED: 'uid-issued', CORRECTION: 'uid-fix', INVOICED: 'uid-invoiced', CREDITED: 'uid-credited', CANCELLED: 'uid-cancelled' },
+    timelineTypeIds: { ISSUED: 'uid-issued', CORRECTION: 'uid-fix', INVOICED: 'uid-invoiced', CREDITED: 'uid-credited', CANCELLED: 'uid-cancelled', SENT: 'uid-sent' },
     log: (entry) => logs.push(entry),
     logs,
     ...over,
