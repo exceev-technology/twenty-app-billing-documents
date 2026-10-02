@@ -13,12 +13,15 @@ export type LifecycleProblemCode =
   | 'MISSING_INVOICE' | 'INVOICE_NOT_ISSUED' | 'INVOICE_MISMATCH'
   | 'DATE_IN_FUTURE' | 'DATE_BEFORE_LAST' | 'DUE_BEFORE_ISSUE' | 'CLOCK_SKEW' | 'LEDGER_BEHIND' | 'HELD_NUMBER_ELSEWHERE'
   | 'QUOTE_NOT_OPEN' | 'ALREADY_INVOICED' | 'NOT_ISSUED' | 'INVOICE_CANCELLED' | 'NOTHING_TO_CREDIT' | 'REMAINDER_UNKNOWN' | 'OVER_CREDIT'
-  | 'NUMBERED_CREDIT_NOTE_PENDING';
+  | 'NUMBERED_CREDIT_NOTE_PENDING'
+  | 'NOT_SENDABLE' | 'NO_PDF' | 'NO_MAILBOX' | 'MISSING_RECIPIENT' | 'INVALID_RECIPIENT' | 'TOO_MANY_RECIPIENTS'
+  | 'MISSING_SUBJECT' | 'MISSING_MESSAGE' | 'EMAIL_NOT_ALLOWED' | 'SEND_FAILED';
 
 /**
  * A problem is data: `field` names what to fix, `value` what was found. The
- * packs word it. `documentType` is carried only by LEDGER_BEHIND, raw, so
- * each pack can word it with its own kind names instead of printing the enum.
+ * packs word it. `documentType` is carried raw by LEDGER_BEHIND and by the
+ * email codes NOT_SENDABLE and NO_PDF, so each pack can word it with its own
+ * kind names instead of printing the enum.
  */
 export type LifecycleProblem = { code: LifecycleProblemCode; field?: string; value?: string; documentType?: DocumentKind };
 
@@ -64,6 +67,27 @@ export type StatusRule = 'ISSUE' | 'DRAFT' | 'CANCEL' | 'INVOICED' | 'NOT_ISSUED
 
 type Details = { field?: string; value?: string; documentType?: DocumentKind };
 
+/** The four messages a document can be sent with (email spec §7). */
+export type EmailTemplate = 'INVOICE' | 'REMINDER' | 'CREDIT_NOTE' | 'QUOTE';
+
+/** What a template is filled with, formatted already; null when the document has none. */
+export type EmailFacts = {
+  number: string;
+  /** A quote's version, named from version 2 on. */
+  version: number | null;
+  /** The issuer's trading name, else its legal name. */
+  seller: string;
+  total: string | null;
+  dueDate: string | null;
+  validUntil: string | null;
+  /** The number of the invoice a credit note corrects. */
+  corrects: string | null;
+  /** The billed person's first name; none for a company alone, and the greeting names no one. */
+  buyer: string | null;
+};
+
+export type EmailWords = { subject: (facts: EmailFacts) => string; message: (facts: EmailFacts) => string };
+
 export type LifecyclePack = {
   code: Language;
   problems: Record<LifecycleProblemCode, (details: Details) => string>;
@@ -72,6 +96,7 @@ export type LifecyclePack = {
   fields: Record<FieldKey, string>;
   statuses: Record<StatusKey, string>;
   kinds: Record<DocumentKind, string>;
+  emails: Record<EmailTemplate, EmailWords>;
   messages: {
     previewReady: string;
     issued: (kind: DocumentKind, number: string) => string;
@@ -100,6 +125,12 @@ export type LifecyclePack = {
     cancelledTimeline: (creditNoteNumber: string) => string;
     quoteReopened: string;
     quoteReinvoiced: string;
+    /** The snackbar after a send. */
+    sentTo: (to: readonly string[]) => string;
+    /** The answer when the email went but the document could not be marked. */
+    sentNotMarked: (to: readonly string[], kind: DocumentKind, ref: string) => string;
+    /** The "sent" timeline row's text. */
+    sentTimeline: (to: readonly string[], cc: readonly string[], from: string) => string;
   };
 };
 

@@ -1,4 +1,4 @@
-import type { LifecyclePack, StatusKey } from './pack.ts';
+import type { EmailFacts, EmailTemplate, EmailWords, LifecyclePack, StatusKey } from './pack.ts';
 
 const statuses: Record<StatusKey, string> = {
   DRAFT: 'Brouillon', ISSUED: 'Émise', SENT: 'Envoyée', PAID: 'Payée', CANCELLED: 'Annulée',
@@ -15,6 +15,48 @@ const thisOne = { QUOTE: 'Ce devis', INVOICE: 'Cette facture', CREDIT_NOTE: 'Cet
 const issued = { QUOTE: 'émis', INVOICE: 'émise', CREDIT_NOTE: 'émis' } as const;
 const correct = (kind: keyof typeof kinds): string =>
   kind === 'CREDIT_NOTE' ? 'Un avoir émis ne peut plus changer.' : 'Corrigez-la par un avoir.';
+
+/** "de Verdal Studio", "d’Atelier Nord". */
+const ofSeller = (seller: string): string => (/^[aeiouyàâäéèêëîïôöùûü]/i.test(seller) ? `d’${seller}` : `de ${seller}`);
+const greeting = (buyer: string | null): string => (buyer ? `Bonjour ${buyer},` : 'Bonjour,');
+const signed = (seller: string): string => (seller ? `Cordialement,\n${seller}` : 'Cordialement,');
+const bySeller = (seller: string): string => (seller ? ` ${ofSeller(seller)}` : '');
+const amount = (total: string | null): string => (total ? ` d’un montant de ${total}` : '');
+const quoteName = ({ number, version }: EmailFacts): string => (version !== null && version > 1 ? `${number} (version ${version})` : number);
+/** A greeting, the paragraphs, and the seller's signature, a blank line apart. */
+const letter = (facts: EmailFacts, body: string): string => [greeting(facts.buyer), body, signed(facts.seller)].join('\n\n');
+/** Sent but not marked: "la facture n’a pas pu être marquée comme envoyée". */
+const notMarked = {
+  QUOTE: 'le devis n’a pas pu être marqué comme envoyé',
+  INVOICE: 'la facture n’a pas pu être marquée comme envoyée',
+  CREDIT_NOTE: 'l’avoir n’a pas pu être marqué comme envoyé',
+} as const;
+
+const emails: Record<EmailTemplate, EmailWords> = {
+  INVOICE: {
+    subject: (facts) => `Facture ${facts.number}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(facts, `Veuillez trouver ci-joint la facture ${facts.number}${amount(facts.total)}${facts.dueDate ? `, à régler au plus tard le ${facts.dueDate}` : ''}.`),
+  },
+  REMINDER: {
+    subject: (facts) => `Relance\u00a0: facture ${facts.number}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(
+        facts,
+        `Sauf erreur de notre part, la facture ${facts.number}${amount(facts.total)}${facts.dueDate ? `, échue le ${facts.dueDate},` : ''} n’est pas encore réglée. Vous la trouverez de nouveau ci-jointe.\n\nSi vous l’avez déjà réglée, merci de ne pas tenir compte de ce message.`,
+      ),
+  },
+  CREDIT_NOTE: {
+    subject: (facts) => `Avoir ${facts.number}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(facts, `Veuillez trouver ci-joint l’avoir ${facts.number}${amount(facts.total)}${facts.corrects ? `, qui corrige la facture ${facts.corrects}` : ''}.`),
+  },
+  QUOTE: {
+    subject: (facts) => `Devis ${quoteName(facts)}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(facts, `Veuillez trouver ci-joint notre devis ${quoteName(facts)}${amount(facts.total)}${facts.validUntil ? `, valable jusqu’au ${facts.validUntil}` : ''}.`),
+  },
+};
 
 export const fr: LifecyclePack = {
   code: 'FR',
@@ -59,6 +101,27 @@ export const fr: LifecyclePack = {
     OVER_CREDIT: ({ value }) =>
       value ? `Cet avoir crédite plus qu\u2019il ne reste sur sa facture (ligne ${value}).` : 'Cet avoir crédite plus qu\u2019il ne reste sur sa facture.',
     NUMBERED_CREDIT_NOTE_PENDING: ({ value }) => `L’avoir ${value} porte déjà un numéro\u00a0: terminez-le (ou corrigez-le) avant d’en créer un autre.`,
+    NOT_SENDABLE: ({ value, documentType }) => {
+      if (value === 'DELETED') return 'Ce document est supprimé\u00a0: restaurez-le pour l’envoyer.';
+      if (value === 'CANCELLED') return 'Cette facture est annulée\u00a0: elle ne peut pas être envoyée.';
+      return documentType === 'CREDIT_NOTE'
+        ? 'Seul un avoir émis peut être envoyé\u00a0: émettez celui-ci d’abord.'
+        : 'Seule une facture émise peut être envoyée\u00a0: émettez celle-ci d’abord.';
+    },
+    NO_PDF: ({ documentType }) =>
+      documentType === 'QUOTE' ? 'Ce devis n’a pas encore de PDF\u00a0: générez-le d’abord.' : 'Ce document n’a pas de PDF à joindre.',
+    NO_MAILBOX: ({ field }) =>
+      field === 'from'
+        ? 'La boîte mail choisie n’est plus connectée à Twenty\u00a0: fermez ce formulaire et rouvrez-le.'
+        : 'Aucune boîte mail n’est connectée à Twenty à votre nom\u00a0: connectez la vôtre dans Paramètres → Comptes, puis rouvrez ce formulaire.',
+    MISSING_RECIPIENT: () => 'Indiquez l’adresse du destinataire.',
+    INVALID_RECIPIENT: ({ value }) => `${value} n’est pas une adresse e-mail.`,
+    TOO_MANY_RECIPIENTS: ({ value }) => `Un e-mail part vers ${value} adresses au plus.`,
+    MISSING_SUBJECT: () => 'Indiquez un objet.',
+    MISSING_MESSAGE: () => 'Écrivez un message.',
+    EMAIL_NOT_ALLOWED: () =>
+      'Votre rôle ne permet pas d’envoyer des e-mails\u00a0: un administrateur peut l’autoriser dans Paramètres → Rôles, sous votre rôle, «\u00a0Send email\u00a0».',
+    SEND_FAILED: ({ value }) => (value ? `L’e-mail n’a pas pu être envoyé\u00a0: ${value}` : 'L’e-mail n’a pas pu être envoyé.'),
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Certains caractères ne peuvent pas être imprimés avec la police du PDF (${field})\u00a0: ${value}`,
@@ -86,6 +149,7 @@ export const fr: LifecyclePack = {
   },
   statuses,
   kinds,
+  emails,
   messages: {
     previewReady: 'Aperçu prêt\u00a0: il est dans le champ PDF.',
     issued: (kind, number) => `${kind === 'INVOICE' ? 'Émise' : 'Émis'} sous le numéro ${number}.`,
@@ -128,5 +192,8 @@ export const fr: LifecyclePack = {
     cancelledTimeline: (creditNoteNumber) => `Annulée par l’avoir ${creditNoteNumber}.`,
     quoteReopened: 'La facture brouillon issue de ce devis a été supprimée\u00a0: le devis est de nouveau Accepté.',
     quoteReinvoiced: 'La facture issue de ce devis a été restaurée\u00a0: le devis est de nouveau Facturé.',
+    sentTo: (to) => `E-mail envoyé à ${list(to)}.`,
+    sentNotMarked: (to, kind, ref) => `E-mail envoyé à ${list(to)}, mais ${notMarked[kind]} (réf. ${ref}).`,
+    sentTimeline: (to, cc, from) => `E-mail envoyé depuis ${from} à ${list(to)}${cc.length > 0 ? `, en copie à ${list(cc)}` : ''}.`,
   },
 };
