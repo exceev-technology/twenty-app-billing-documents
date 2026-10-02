@@ -1,18 +1,28 @@
 import { computeDocument, EngineError } from '../engine/index.ts';
 import { renderDocument } from '../render/document.ts';
 import { RenderError, type RenderInput, type RenderResult } from '../render/types.ts';
-import { checkGate, resetOf } from './gate.ts';
+import { checkGate, overCreditProblem, resetOf, type GateAction } from './gate.ts';
+import { creditLines, creditNoteFromInvoice, fullyCredited, holdsExactly, invoiceFromQuote, invoiceRemainder, lineCopy, OPEN_QUOTE, overCredit, type RemainingLine } from './flows.ts';
+import { packForDocument } from './pack-for.ts';
 import { describeAll, LifecycleError, packFor, PACKS, type AnyProblem, type LifecyclePack, type WordedProblem } from './lang/pack.ts';
-import { isIssued, kindOf, LINE_FIELDS, loadDocument, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
-import { effectiveCurrency, fileInputs, idOf, languageOf, moneyOf, textOf, toDocumentInput, toRenderInput } from './map.ts';
+import { isIssued, issuedCreditNotes, KINDS, kindOf, loadDocument, loadFigures, loadLogo, type DocumentObject, type Kind, type Loaded } from './load.ts';
+import { decimalAmount, effectiveCurrency, fileInputs, idOf, isCalendarDate, languageOf, moneyOf, RECORD_ID, textOf, toDocumentInput, toRenderInput } from './map.ts';
 import { claimNumber, heldNumberOf, latestIssueDate, nextNumber, raiseLedger, scopeOf, type Scope } from './numbering.ts';
 import { leaveMessage, NotAllowedError, reasonOf, type CallerStore, type Row, type Store } from './store.ts';
 import { sameMoney } from './totals.ts';
 
-export type ActionName = 'preview' | 'issue' | 'quotePdf';
+export type ActionName = 'preview' | 'issue' | 'quotePdf' | 'invoiceQuote' | 'creditNote' | 'cancelInvoice';
 export type ActionRequest = { action: ActionName; object: DocumentObject; recordId: string; localDate: string; locale: string };
-export type ActionResponse = { ok: true; number?: string; version?: number; message: string } | { ok: false; problems: WordedProblem[] };
+/** The document an action made, for the button to open. */
+export type Created = { object: DocumentObject; recordId: string };
+export type ActionResponse =
+  | { ok: true; number?: string; version?: number; message: string; created?: Created }
+  | { ok: false; problems: WordedProblem[]; created?: Created };
 export type ActionOutcome = { status: 200 | 403 | 422 | 500; body: ActionResponse };
+
+/** The actions that run on one document through the gate (issue path spec §6). */
+type DocumentRequest = ActionRequest & { action: GateAction };
+type Step = (name: string) => void;
 
 export type ActionDeps = {
   /** Reads and every write after the first, as the app. */
@@ -33,17 +43,10 @@ const OBJECTS: Record<ActionName, readonly DocumentObject[]> = {
   preview: ['billingInvoice', 'billingCreditNote'],
   issue: ['billingInvoice', 'billingCreditNote'],
   quotePdf: ['billingQuote'],
+  invoiceQuote: ['billingQuote'],
+  creditNote: ['billingInvoice'],
+  cancelInvoice: ['billingInvoice'],
 };
-
-const RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isCalendarDate(value: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return false;
-  const [year, month, day] = match.slice(1).map(Number) as [number, number, number];
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
-}
 
 /** The request a button posts (spec §6), or null when it is not one: an action on its own kind of document. */
 export function parseRequest(raw: unknown): ActionRequest | null {
@@ -99,7 +102,7 @@ export function recordOf(kind: Kind, loaded: Loaded): { document: Record<string,
   const pick = (row: Row, fields: readonly string[]) => Object.fromEntries(fields.map((field) => [field, row[field] ?? null]));
   return {
     document: { id: loaded.document.id, ...pick(loaded.document, kind.lockedFields) },
-    lines: Object.fromEntries(loaded.lines.map((line) => [line.id, { ...pick(line, LINE_FIELDS), [kind.parentKey]: loaded.document.id }])),
+    lines: Object.fromEntries(loaded.lines.map((line) => [line.id, { ...pick(line, kind.lineFields), [kind.parentKey]: loaded.document.id }])),
   };
 }
 
@@ -115,11 +118,14 @@ type Run = {
   step: (name: string) => void;
 };
 
-const ok = (message: string, extra: { number?: string; version?: number } = {}): ActionOutcome => ({ status: 200, body: { ok: true, ...extra, message } });
+const ok = (message: string, extra: { number?: string; version?: number; created?: Created } = {}): ActionOutcome => ({ status: 200, body: { ok: true, ...extra, message } });
 
 function refuse(status: 403 | 422, pack: LifecyclePack, problems: readonly AnyProblem[], lineNumbers?: ReadonlyMap<string, number>): ActionOutcome {
   return { status, body: { ok: false, problems: describeAll(problems, pack.code, lineNumbers) } };
 }
+
+/** A refusal that names a document for the button to open: a draft to fix, or a credit note to finish. */
+const opening = (outcome: ActionOutcome, created: Created): ActionOutcome => ({ ...outcome, body: { ...outcome.body, created } });
 
 const alreadyIssued = (pack: LifecyclePack, document: Row): ActionOutcome =>
   refuse(422, pack, [{ source: 'lifecycle', code: 'ALREADY_ISSUED', value: textOf(document.number) }]);
@@ -137,6 +143,24 @@ async function issuedMeanwhile(run: Run): Promise<ActionOutcome | null> {
   const current = await run.deps.app.get(run.kind.plural, run.loaded.document.id);
   if (!current) throw new Error('The document no longer exists');
   return isIssued(run.kind, current) ? alreadyIssued(run.pack, current) : null;
+}
+
+/**
+ * A credit note is weighed against its invoice again before its document is written: the gate counted
+ * the credit notes issued when it ran, and another (a second Cancel, a person's) may have been issued
+ * since. Like `issuedMeanwhile` it narrows the window and cannot close it. The refused credit note
+ * stays a numbered draft, as after any failed step.
+ */
+async function overCreditedMeanwhile(run: Run, totalMicros: number, components: number): Promise<ActionOutcome | null> {
+  const { kind, deps, loaded } = run;
+  const invoiceId = loaded.invoice?.id;
+  if (kind.kind !== 'CREDIT_NOTE' || !invoiceId) return null;
+  const invoice = await deps.app.get('billingInvoices', invoiceId);
+  if (!invoice) throw new Error('The document no longer exists');
+  if (invoice.status === 'CANCELLED') return refuse(422, run.pack, [{ source: 'lifecycle', code: 'INVOICE_CANCELLED', field: 'invoiceId' }]);
+  const credits = await issuedCreditNotes(deps.app, invoiceId, loaded.document.id);
+  const position = overCredit(invoice, credits, { lines: loaded.lines, totalMicros, components, currencyCode: textOf(loaded.document.currencyCode).trim() });
+  return position === null ? null : refuse(422, run.pack, [overCreditProblem(position)]);
 }
 
 /** The figures, the logo, and the Renderer's input for a number and a version. */
@@ -167,6 +191,36 @@ async function logoReference(run: Run, logo: { bytes: Uint8Array } | null): Prom
   const first = Array.isArray(run.loaded.issuer?.logo) ? (run.loaded.issuer.logo[0] as { fileId?: unknown } | undefined) : undefined;
   if (!logo || typeof first?.fileId !== 'string') return null;
   return { fileId: first.fileId, sha256: await run.deps.sha256(logo.bytes) };
+}
+
+/** Marks an invoice Cancelled, as the app, with a timeline row naming the credit note that completed it. One already Cancelled has had its row. */
+async function markCancelled(store: Store, invoice: Row, creditNoteNumber: string): Promise<void> {
+  if (invoice.status === 'CANCELLED') return;
+  await store.update('billingInvoices', invoice.id, { status: 'CANCELLED' });
+  const pack = await packForDocument(store, invoice);
+  await leaveMessage(store, { object: 'billingInvoice', recordId: invoice.id, kind: 'CANCELLED', text: pack.messages.cancelledTimeline(creditNoteNumber) });
+}
+
+/**
+ * After a credit note is issued (flows spec §6): its invoice is Cancelled when
+ * fully credited, otherwise told it was credited. True when it was cancelled. A
+ * failure is logged and leaves the credit note issued; the next Cancel finishes it.
+ */
+async function settleInvoice(deps: ActionDeps, invoiceId: string, creditNoteNumber: string, total: string): Promise<boolean> {
+  try {
+    const invoice = await deps.app.get('billingInvoices', invoiceId);
+    if (!invoice) return false;
+    if (fullyCredited(invoice, await issuedCreditNotes(deps.app, invoiceId))) {
+      await markCancelled(deps.app, invoice, creditNoteNumber);
+      return true;
+    }
+    const pack = await packForDocument(deps.app, invoice);
+    await leaveMessage(deps.app, { object: 'billingInvoice', recordId: invoiceId, kind: 'CREDITED', text: pack.messages.creditedTimeline(creditNoteNumber, total) });
+    return false;
+  } catch (error) {
+    deps.log({ step: 'settle', invoiceId, error: error instanceof Error ? error.message : String(error), ...reasonOf(error) });
+    return false;
+  }
 }
 
 async function issue(run: Run): Promise<ActionOutcome> {
@@ -205,6 +259,8 @@ async function issue(run: Run): Promise<ActionOutcome> {
   run.step('document');
   const issuedBeforeWrite = await issuedMeanwhile(run);
   if (issuedBeforeWrite) return issuedBeforeWrite;
+  const overCredited = await overCreditedMeanwhile(run, totals.totalMicros, totals.recap.length);
+  if (overCredited) return overCredited;
   const printed = inputFor(claim.number);
   const snapshot: Record<string, unknown> = {
     printed: { ...printed, brand: { ...printed.brand, logo: await logoReference(run, logo) } },
@@ -227,7 +283,14 @@ async function issue(run: Run): Promise<ActionOutcome> {
   if (claim.n !== null) await raiseLedger(deps.app, scope, claim.n);
   const documentPack = PACKS[languageOf(document, profile)] ?? PACKS.EN;
   await leaveMessage(deps.app, { object: kind.object, recordId: document.id, kind: 'ISSUED', text: documentPack.messages.issued(kind.kind, claim.number) });
-  return ok(run.pack.messages.issued(kind.kind, claim.number), { number: claim.number });
+  let message = run.pack.messages.issued(kind.kind, claim.number);
+  const invoiceId = kind.kind === 'CREDIT_NOTE' ? loaded.invoice?.id : undefined;
+  if (invoiceId) {
+    run.step('settle');
+    const total = `${decimalAmount(totals.totalMicros, currency)} ${currency}`;
+    if (await settleInvoice(deps, invoiceId, claim.number, total)) message = `${message} ${run.pack.messages.invoiceNowCancelled(textOf(loaded.invoice!.number))}`;
+  }
+  return ok(message, { number: claim.number });
 }
 
 async function quotePdf(run: Run): Promise<ActionOutcome> {
@@ -256,12 +319,220 @@ async function quotePdf(run: Run): Promise<ActionOutcome> {
   return ok(run.pack.messages.quotePdf(claim.number, version), { number: claim.number, version });
 }
 
+/** A refusal raised part-way (a sequence too far behind, the Renderer, the Engine), worded; null for anything else. */
+function expectedRefusal(error: unknown, pack: LifecyclePack): ActionOutcome | null {
+  if (error instanceof LifecycleError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'lifecycle', ...problem })));
+  if (error instanceof RenderError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'render', problem })));
+  if (error instanceof EngineError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'engine', problem })));
+  return null;
+}
+
+/** Preview, Issue and Quote PDF (issue path spec §6): the caller's write, the gate, then the action. */
+async function documentAction(request: DocumentRequest, deps: ActionDeps, pack: LifecyclePack, step: Step): Promise<ActionOutcome> {
+  const kind = kindOf(request.object)!;
+
+  step('read');
+  const document = await deps.app.get(kind.plural, request.recordId);
+  if (!document) throw new Error('The document no longer exists');
+  if (isIssued(kind, document)) return alreadyIssued(pack, document);
+
+  step('defaults');
+  const defaults = await defaultsFor(deps.app, kind, document, request.localDate);
+  try {
+    await deps.caller.update(kind.plural, document.id, defaults);
+  } catch (error) {
+    if (error instanceof NotAllowedError) return refuse(403, pack, [{ source: 'lifecycle', code: 'NOT_ALLOWED' }]);
+    throw error;
+  }
+
+  step('load');
+  const loaded = await loadDocument(deps.app, kind, document.id);
+  if (!loaded) throw new Error('The document no longer exists');
+  // Another request may have issued it meanwhile: a double click is answered as the first read would have been.
+  if (isIssued(kind, loaded.document)) return alreadyIssued(pack, loaded.document);
+  const lineNumbers = new Map(loaded.lines.map((line, index) => [line.id, index + 1]));
+
+  step('gate');
+  const issueDate = textOf(loaded.document.issueDate);
+  const scope = loaded.issuer && loaded.profile ? scopeOf(kind, loaded.issuer.id, resetOf(loaded.profile), issueDate) : null;
+  const latest = request.action === 'issue' && scope ? await latestIssueDate(deps.app, scope, document.id) : null;
+  const problems = checkGate(loaded, { action: request.action, localDate: request.localDate, latestIssueDate: latest });
+  if (problems.length > 0) return refuse(422, pack, problems, lineNumbers);
+
+  const run: Run = { request, kind, loaded, scope: scope!, issueDate, pack, deps, render: deps.render ?? renderDocument, step };
+  if (request.action === 'preview') return await preview(run);
+  if (request.action === 'issue') return await issue(run);
+  return await quotePdf(run);
+}
+
+/** A quote becomes a draft invoice (flows spec §5). */
+async function invoiceQuote(request: ActionRequest, deps: ActionDeps, pack: LifecyclePack, step: Step): Promise<ActionOutcome> {
+  step('read');
+  const quote = await deps.app.get('billingQuotes', request.recordId);
+  if (!quote) throw new Error('The document no longer exists');
+  const [existing] = await deps.app.list('billingInvoices', { quoteId: quote.id }, { limit: 1 });
+  if (existing) {
+    // Named by its number or subject when it has one; opened either way, for the person to finish or delete it.
+    const name = textOf(existing.number) || textOf(existing.subject);
+    const problem: AnyProblem = { source: 'lifecycle', code: 'ALREADY_INVOICED', ...(name ? { value: name } : {}) };
+    return opening(refuse(422, pack, [problem]), { object: 'billingInvoice', recordId: existing.id });
+  }
+  if (!OPEN_QUOTE.includes(textOf(quote.status))) return refuse(422, pack, [{ source: 'lifecycle', code: 'QUOTE_NOT_OPEN', value: textOf(quote.status) }]);
+
+  step('create');
+  let invoice: Row;
+  try {
+    invoice = await deps.caller.create('billingInvoices', invoiceFromQuote(quote));
+  } catch (error) {
+    if (error instanceof NotAllowedError) return refuse(403, pack, [{ source: 'lifecycle', code: 'NOT_ALLOWED' }]);
+    throw error;
+  }
+
+  step('lines');
+  const figures = await loadFigures(deps.app, KINDS.billingQuote, quote.id);
+  for (const line of figures?.lines ?? []) await deps.app.create('billingInvoiceLines', lineCopy(line, 'invoiceId', invoice.id));
+
+  step('quote');
+  await deps.app.update('billingQuotes', quote.id, { status: 'INVOICED', ...(textOf(quote.acceptedAt) === '' ? { acceptedAt: request.localDate } : {}) });
+  const quotePack = await packForDocument(deps.app, quote);
+  await leaveMessage(deps.app, { object: 'billingQuote', recordId: quote.id, kind: 'INVOICED', text: quotePack.messages.invoicedTimeline(textOf(quote.subject)) });
+  return ok(pack.messages.invoiceCreated, { created: { object: 'billingInvoice', recordId: invoice.id } });
+}
+
+/** Why an invoice cannot be credited: not issued, or cancelled. */
+function creditRefusal(invoice: Row): AnyProblem | null {
+  if (!isIssued(KINDS.billingInvoice, invoice)) return { source: 'lifecycle', code: 'NOT_ISSUED' };
+  if (invoice.status === 'CANCELLED') return { source: 'lifecycle', code: 'INVOICE_CANCELLED' };
+  return null;
+}
+
+/** A draft credit note against the invoice: made with the caller's token, its lines added as the app. */
+async function draftCreditNote(deps: ActionDeps, invoice: Row, lines: Record<string, unknown>[], reason: string, step: Step): Promise<Row> {
+  step('create');
+  const note = await deps.caller.create('billingCreditNotes', creditNoteFromInvoice(invoice, reason));
+  step('lines');
+  for (const line of lines) await deps.app.create('billingCreditNoteLines', { ...line, creditNoteId: note.id });
+  return note;
+}
+
+const notAllowed = (pack: LifecyclePack): ActionOutcome => refuse(403, pack, [{ source: 'lifecycle', code: 'NOT_ALLOWED' }]);
+
+/**
+ * The newest credit note against the invoice that holds a number but was never issued, as an Issue that
+ * failed after its claim, or that the recheck refused, leaves it. Another credit note issued meanwhile
+ * could cancel the invoice and strand it with its number: it is finished (or corrected) first.
+ */
+async function numberedPending(store: Store, invoiceId: string): Promise<Row | null> {
+  const notes = await store.list('billingCreditNotes', { invoiceId }, { orderBy: { field: 'createdAt', direction: 'desc' } });
+  return notes.find((note) => Boolean(note.numberKey) && !isIssued(KINDS.billingCreditNote, note)) ?? null;
+}
+
+const pendingRefusal = (pack: LifecyclePack, note: Row): ActionOutcome =>
+  opening(refuse(422, pack, [{ source: 'lifecycle', code: 'NUMBERED_CREDIT_NOTE_PENDING', value: textOf(note.number) }]), { object: 'billingCreditNote', recordId: note.id });
+
+/** The Credit note button (flows spec §6): a draft holding what remains, for the person to edit down. */
+async function creditNote(request: ActionRequest, deps: ActionDeps, pack: LifecyclePack, step: Step): Promise<ActionOutcome> {
+  step('read');
+  const invoice = await deps.app.get('billingInvoices', request.recordId);
+  if (!invoice) throw new Error('The document no longer exists');
+  const refusal = creditRefusal(invoice);
+  if (refusal) return refuse(422, pack, [refusal]);
+  step('credits');
+  const remainder = invoiceRemainder(invoice, await issuedCreditNotes(deps.app, invoice.id));
+  if (remainder.known && remainder.lines.length === 0) return refuse(422, pack, [{ source: 'lifecycle', code: 'NOTHING_TO_CREDIT' }]);
+  const pending = await numberedPending(deps.app, invoice.id);
+  if (pending) return pendingRefusal(pack, pending);
+  let note: Row;
+  try {
+    note = await draftCreditNote(deps, invoice, creditLines(invoice, remainder), '', step);
+  } catch (error) {
+    if (error instanceof NotAllowedError) return notAllowed(pack);
+    throw error;
+  }
+  return ok(pack.messages.creditNoteCreated(textOf(invoice.number)), { created: { object: 'billingCreditNote', recordId: note.id } });
+}
+
+/** The newest issued credit note's number, for the timeline row of an invoice they complete. */
+const newestNumber = (credits: readonly Row[]): string =>
+  textOf([...credits].sort((a, b) => textOf(b.issuedAt).localeCompare(textOf(a.issuedAt)))[0]?.number);
+
+/**
+ * Whether Cancel made this credit note and left it: its reason is Cancel's, and it holds exactly the
+ * remainder, as a Cancel that stopped at the gate left it. A person's own credit note that happens to
+ * hold the remainder is theirs, not Cancel's.
+ */
+async function leftByCancel(store: Store, note: Row, reason: string, remaining: readonly RemainingLine[]): Promise<boolean> {
+  return textOf(note.reason) === reason && holdsExactly(await store.list('billingCreditNoteLines', { creditNoteId: note.id }), remaining);
+}
+
+/** The newest draft credit note against the invoice that Cancel made and left. */
+async function stoppedCancel(store: Store, invoiceId: string, reason: string, remaining: readonly RemainingLine[]): Promise<Row | null> {
+  const drafts = await store.list('billingCreditNotes', { invoiceId, status: 'DRAFT' }, { orderBy: { field: 'createdAt', direction: 'desc' } });
+  for (const draft of drafts) if (await leftByCancel(store, draft, reason, remaining)) return draft;
+  return null;
+}
+
+/** The Cancel invoice button (flows spec §6): a credit note for what remains, issued at once, and the invoice Cancelled. */
+async function cancelInvoice(request: ActionRequest, deps: ActionDeps, pack: LifecyclePack, step: Step): Promise<ActionOutcome> {
+  step('read');
+  const invoice = await deps.app.get('billingInvoices', request.recordId);
+  if (!invoice) throw new Error('The document no longer exists');
+  const refusal = creditRefusal(invoice);
+  if (refusal) return refuse(422, pack, [refusal]);
+  const invoiceNumber = textOf(invoice.number);
+
+  step('credits');
+  const credits = await issuedCreditNotes(deps.app, invoice.id);
+  // Credit notes that cover it already (the app would have marked it after the last issue, had that step not failed): marked now, nothing issued.
+  if (fullyCredited(invoice, credits)) {
+    await markCancelled(deps.app, invoice, newestNumber(credits));
+    return ok(pack.messages.alreadyCredited(invoiceNumber));
+  }
+  const remainder = invoiceRemainder(invoice, credits);
+  if (!remainder.known) return refuse(422, pack, [{ source: 'lifecycle', code: 'REMAINDER_UNKNOWN' }]);
+  // Nothing to credit and no credit note covering it: there is no credit note to cancel it by.
+  if (remainder.lines.length === 0) return refuse(422, pack, [{ source: 'lifecycle', code: 'NOTHING_TO_CREDIT' }]);
+
+  step('draft');
+  const reason = (await packForDocument(deps.app, invoice)).messages.cancellationReason(invoiceNumber);
+  // A numbered credit note never issued is resumed only when it is Cancel's own: any other is finished first.
+  const pending = await numberedPending(deps.app, invoice.id);
+  if (pending && !(await leftByCancel(deps.app, pending, reason, remainder.lines))) return pendingRefusal(pack, pending);
+  let note = pending ?? (await stoppedCancel(deps.app, invoice.id, reason, remainder.lines));
+  if (!note) {
+    try {
+      note = await draftCreditNote(deps, invoice, creditLines(invoice, remainder), reason, step);
+    } catch (error) {
+      if (error instanceof NotAllowedError) return notAllowed(pack);
+      throw error;
+    }
+  }
+
+  const created: Created = { object: 'billingCreditNote', recordId: note.id };
+  let outcome: ActionOutcome;
+  try {
+    outcome = await documentAction({ action: 'issue', object: 'billingCreditNote', recordId: note.id, localDate: request.localDate, locale: request.locale }, deps, pack, step);
+  } catch (error) {
+    const stopped = expectedRefusal(error, pack);
+    if (!stopped) throw error;
+    outcome = stopped;
+  }
+  // Refused: the button opens the draft, for the person to fix what the gate found.
+  if (!outcome.body.ok) return opening(outcome, created);
+  const after = await deps.app.get('billingInvoices', invoice.id);
+  if (after?.status !== 'CANCELLED') return outcome;
+  return ok(pack.messages.cancelledBy(invoiceNumber, outcome.body.number ?? ''), { number: outcome.body.number });
+}
+
 /** What a button asked for, answered: never a thrown error, always an outcome the route can send. */
 export async function runAction(raw: unknown, deps: ActionDeps): Promise<ActionOutcome> {
   const locale = (raw as { locale?: unknown } | null)?.locale;
   const pack = packFor(typeof locale === 'string' ? locale : null);
   let request: ActionRequest | null = null;
   let step = 'request';
+  const setStep: Step = (name) => {
+    step = name;
+  };
   try {
     request = parseRequest(raw);
     if (!request) throw new Error('The request is not one of the actions this route runs');
@@ -269,50 +540,13 @@ export async function runAction(raw: unknown, deps: ActionDeps): Promise<ActionO
     if (Math.abs(dayNumber(request.localDate) - dayNumber(serverDate)) > 1) {
       return refuse(422, pack, [{ source: 'lifecycle', code: 'CLOCK_SKEW', field: 'localDate', value: request.localDate }]);
     }
-    const kind = kindOf(request.object)!;
-
-    step = 'read';
-    const document = await deps.app.get(kind.plural, request.recordId);
-    if (!document) throw new Error('The document no longer exists');
-    if (isIssued(kind, document)) return alreadyIssued(pack, document);
-
-    step = 'defaults';
-    const defaults = await defaultsFor(deps.app, kind, document, request.localDate);
-    try {
-      await deps.caller.update(kind.plural, document.id, defaults);
-    } catch (error) {
-      if (error instanceof NotAllowedError) return refuse(403, pack, [{ source: 'lifecycle', code: 'NOT_ALLOWED' }]);
-      throw error;
-    }
-
-    step = 'load';
-    const loaded = await loadDocument(deps.app, kind, document.id);
-    if (!loaded) throw new Error('The document no longer exists');
-    // Another request may have issued it meanwhile: a double click is answered as the first read would have been.
-    if (isIssued(kind, loaded.document)) return alreadyIssued(pack, loaded.document);
-    const lineNumbers = new Map(loaded.lines.map((line, index) => [line.id, index + 1]));
-
-    step = 'gate';
-    const issueDate = textOf(loaded.document.issueDate);
-    const scope = loaded.issuer && loaded.profile ? scopeOf(kind, loaded.issuer.id, resetOf(loaded.profile), issueDate) : null;
-    const latest = request.action === 'issue' && scope ? await latestIssueDate(deps.app, scope, document.id) : null;
-    const problems = checkGate(loaded, { action: request.action, localDate: request.localDate, latestIssueDate: latest });
-    if (problems.length > 0) return refuse(422, pack, problems, lineNumbers);
-
-    const run: Run = {
-      request, kind, loaded, scope: scope!, issueDate, pack, deps,
-      render: deps.render ?? renderDocument,
-      step: (name) => {
-        step = name;
-      },
-    };
-    if (request.action === 'preview') return await preview(run);
-    if (request.action === 'issue') return await issue(run);
-    return await quotePdf(run);
+    if (request.action === 'invoiceQuote') return await invoiceQuote(request, deps, pack, setStep);
+    if (request.action === 'creditNote') return await creditNote(request, deps, pack, setStep);
+    if (request.action === 'cancelInvoice') return await cancelInvoice(request, deps, pack, setStep);
+    return await documentAction(request as DocumentRequest, deps, pack, setStep);
   } catch (error) {
-    if (error instanceof LifecycleError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'lifecycle', ...problem })));
-    if (error instanceof RenderError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'render', problem })));
-    if (error instanceof EngineError) return refuse(422, pack, error.problems.map((problem): AnyProblem => ({ source: 'engine', problem })));
+    const refusal = expectedRefusal(error, pack);
+    if (refusal) return refusal;
     const reference = deps.reference();
     deps.log({
       reference, object: request?.object ?? null, recordId: request?.recordId ?? null, action: request?.action ?? null, step,

@@ -7,6 +7,7 @@ node_modules/
 # Local tooling
 .omc/
 .claude/settings.local.json
+.claude/worktrees/
 
 # OS
 .DS_Store

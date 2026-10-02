@@ -5,6 +5,7 @@ import { RenderError, type RenderInput, type RenderResult } from '../../render/t
 import { addDays, parseRequest, runAction, type ActionDeps, type ActionOutcome } from '../../lifecycle/actions.ts';
 import { KINDS } from '../../lifecycle/load.ts';
 import { numberKeyOf } from '../../lifecycle/numbering.ts';
+import type { Store } from '../../lifecycle/store.ts';
 import { lockstep } from './helpers/memory-store.ts';
 import { TODAY, money, now, workspace, type Workspace } from './helpers/fixtures.ts';
 
@@ -428,7 +429,8 @@ test('a credit note is numbered in its own sequence and names the invoice it cor
   const outcome = await runAction(request(w, { object: 'billingCreditNote', recordId: note.id }), deps);
   assert.equal(outcome.body.ok && outcome.body.number, 'AV2026-0001');
   assert.deepEqual(inputs.at(-1)?.corrects, { number: 'F2026-0001', issueDate: TODAY });
-  assert.equal(w.db.timeline.at(-1)?.text, 'Émis sous le numéro AV2026-0001.');
+  assert.equal(w.db.timeline.find((entry) => entry.recordId === note.id)?.text, 'Émis sous le numéro AV2026-0001.');
+  assert.equal(w.db.timeline.at(-1)?.recordId, w.invoice.id, 'then the invoice is told (flows spec §6)');
 });
 
 test('an unexpected failure is answered with a reference, and logged with the document, the action and the step', async () => {
@@ -577,4 +579,498 @@ test('with the real Renderer, the issued PDF is a PDF and its hash is the hash o
   assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
   assert.equal(Buffer.from(uploads[0]!.slice(0, 5)).toString('latin1'), '%PDF-');
   assert.equal(invoiceRow(w).documentHash, await sha(uploads[0]!));
+});
+
+test('an issued credit note’s snapshot keeps the invoice line each of its lines credits', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  assert.equal((await runAction(request(w), deps)).status, 200);
+  const note = w.addCreditNote({ invoiceId: w.invoice.id });
+  w.addLine(KINDS.billingCreditNote, note.id, { invoiceLineId: w.lines[2]!.id, description: 'Atelier', quantity: 1, unitPrice: money(1_200_000_000) });
+  const outcome = await runAction(request(w, { object: 'billingCreditNote', recordId: note.id }), deps);
+  assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
+  const lines = (w.db.row('billingCreditNotes', note.id)!.snapshot as { record: { lines: Record<string, Record<string, unknown>> } }).record.lines;
+  assert.deepEqual(Object.values(lines).map((line) => line.invoiceLineId), [w.lines[2]!.id]);
+});
+
+const quoteRequest = (w: Workspace, quoteId: string, over: Record<string, unknown> = {}) =>
+  request(w, { action: 'invoiceQuote', object: 'billingQuote', recordId: quoteId, ...over });
+
+/** An accepted quote with two lines, the second printed first. */
+function acceptedQuote(w: Workspace, over: Record<string, unknown> = {}) {
+  const quote = w.addQuote({ status: 'ACCEPTED', number: 'D2026-0001', personId: w.person.id, language: 'FR', ...over });
+  const second = w.addLine(KINDS.billingQuote, quote.id, { sortOrder: 2, description: 'Système de design', quantity: 6, unitPrice: money(640_000_000) });
+  const first = w.addLine(KINDS.billingQuote, quote.id, { sortOrder: 1, description: 'Direction artistique', quantity: 4, unitPrice: money(780_000_000) });
+  return { quote, lines: [first, second] };
+}
+
+test('the three flows are actions on their own kind of document only', () => {
+  const id = '00000000-0000-4000-8000-000000000001';
+  assert.equal(parseRequest({ action: 'invoiceQuote', object: 'billingQuote', recordId: id, localDate: TODAY })?.action, 'invoiceQuote');
+  assert.equal(parseRequest({ action: 'invoiceQuote', object: 'billingInvoice', recordId: id, localDate: TODAY }), null);
+});
+
+test('a quote becomes a draft invoice made with the caller’s token, its lines copied in order, and is marked Invoiced', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w);
+  const { deps } = setup(w);
+  const outcome = await runAction(quoteRequest(w, quote.id), deps);
+  assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
+  assert.ok(outcome.body.ok);
+  assert.equal(outcome.body.message, 'Draft invoice created from this quote.');
+  const created = outcome.body.created!;
+  assert.equal(created.object, 'billingInvoice');
+  assert.deepEqual([w.db.writes[0]?.op, w.db.writes[0]?.plural, w.db.writes[0]?.id, w.db.writes[0]?.source], ['create', 'billingInvoices', created.recordId, 'MANUAL']);
+  const invoice = w.db.row('billingInvoices', created.recordId)!;
+  assert.deepEqual(
+    [invoice.status, invoice.quoteId, invoice.subject, invoice.issuerId, invoice.companyId, invoice.personId, invoice.language, invoice.number ?? null],
+    ['DRAFT', quote.id, 'Identité visuelle, proposition', w.issuer.id, w.company.id, w.person.id, 'FR', null],
+  );
+  const lines = w.db.rows('billingInvoiceLines').filter((line) => line.invoiceId === created.recordId);
+  assert.deepEqual(lines.map((line) => [line.description, line.quantity]), [['Direction artistique', 4], ['Système de design', 6]]);
+  assert.ok(lines.every((line) => w.db.writes.some((write) => write.id === line.id && write.source === 'APPLICATION')));
+  const after = w.db.row('billingQuotes', quote.id)!;
+  assert.deepEqual([after.status, after.acceptedAt], ['INVOICED', TODAY]);
+  assert.deepEqual(w.db.timeline.map((entry) => [entry.kind, entry.recordId, entry.text]), [
+    ['INVOICED', quote.id, 'Facture brouillon «\u00a0Identité visuelle, proposition\u00a0» créée à partir de ce devis.'],
+  ]);
+});
+
+test('a quote already accepted keeps its date of acceptance', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w, { acceptedAt: '2026-09-10' });
+  await runAction(quoteRequest(w, quote.id), setup(w).deps);
+  assert.equal(w.db.row('billingQuotes', quote.id)!.acceptedAt, '2026-09-10');
+});
+
+test('a caller who cannot create invoices gets NOT_ALLOWED, and nothing is written', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w);
+  const { deps } = setup(w, { caller: w.db.store('MANUAL', { canUpdate: () => false }) });
+  const outcome = await runAction(quoteRequest(w, quote.id), deps);
+  assert.equal(outcome.status, 403);
+  assert.deepEqual(problemCodes(outcome), ['NOT_ALLOWED']);
+  assert.deepEqual(w.db.writes, []);
+});
+
+test('a declined, expired or invoiced quote does not become an invoice', async () => {
+  for (const status of ['DECLINED', 'EXPIRED', 'INVOICED']) {
+    const w = workspace();
+    const { quote } = acceptedQuote(w, { status });
+    const outcome = await runAction(quoteRequest(w, quote.id), setup(w).deps);
+    assert.deepEqual(problemCodes(outcome), ['QUOTE_NOT_OPEN'], status);
+    assert.deepEqual(w.db.writes, [], status);
+  }
+});
+
+test('a quote with a live invoice answers ALREADY_INVOICED; a deleted invoice frees it', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w);
+  const existing = w.addInvoice({ quoteId: quote.id, subject: 'Déjà là' });
+  const refused = await runAction(quoteRequest(w, quote.id), setup(w).deps);
+  assert.deepEqual(refused.body.ok ? [] : refused.body.problems.map((problem) => problem.message), [
+    'This quote already has an invoice, Déjà là: finish it, or delete it to start again.',
+  ]);
+  assert.deepEqual(refused.body.created, { object: 'billingInvoice', recordId: existing.id }, 'Create invoice opens it');
+  await w.app.softDelete('billingInvoices', existing.id);
+  assert.equal((await runAction(quoteRequest(w, quote.id), setup(w).deps)).status, 200);
+});
+
+test('an invoice of the quote with neither number nor subject is refused without a name, and opened', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w);
+  const existing = w.addInvoice({ quoteId: quote.id, subject: '' });
+  const refused = await runAction(quoteRequest(w, quote.id), setup(w).deps);
+  assert.equal(refused.status, 422);
+  assert.deepEqual(refused.body, {
+    ok: false,
+    problems: [{ code: 'ALREADY_INVOICED', message: 'This quote already has an invoice: finish it, or delete it to start again.' }],
+    created: { object: 'billingInvoice', recordId: existing.id },
+  });
+});
+
+test('a failure while copying the lines leaves the draft, and the next click names it', async () => {
+  const w = workspace();
+  const { quote } = acceptedQuote(w);
+  const { deps, logs } = setup(w);
+  w.db.failNext((op, plural) => op === 'create' && plural === 'billingInvoiceLines');
+  const failed = await runAction(quoteRequest(w, quote.id), deps);
+  assert.equal(failed.status, 500);
+  assert.equal(logs[0]?.step, 'lines');
+  assert.equal(w.db.row('billingQuotes', quote.id)!.status, 'ACCEPTED');
+  assert.deepEqual(problemCodes(await runAction(quoteRequest(w, quote.id), deps)), ['ALREADY_INVOICED']);
+});
+
+const creditRequest = (w: Workspace, action: 'creditNote' | 'cancelInvoice') => request(w, { action, object: 'billingInvoice', recordId: w.invoice.id });
+const notesOf = (w: Workspace) => w.db.rows('billingCreditNotes').filter((note) => note.invoiceId === w.invoice.id && !note.deletedAt);
+const linesOf = (w: Workspace, noteId: string) => w.db.rows('billingCreditNoteLines').filter((line) => line.creditNoteId === noteId && !line.deletedAt);
+const createdId = (outcome: ActionOutcome): string => outcome.body.created?.recordId ?? '';
+
+/** Issues the fixture's invoice: F2026-0001, 9 792,00 € with VAT. */
+async function issueInvoice(w: Workspace, deps: ActionDeps): Promise<void> {
+  const outcome = await runAction(request(w), deps);
+  assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
+}
+
+test('Credit note and Cancel need an issued invoice that is not cancelled', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  for (const action of ['creditNote', 'cancelInvoice'] as const) assert.deepEqual(problemCodes(await runAction(creditRequest(w, action), deps)), ['NOT_ISSUED'], action);
+  await issueInvoice(w, deps);
+  await w.app.update('billingInvoices', w.invoice.id, { status: 'CANCELLED' });
+  for (const action of ['creditNote', 'cancelInvoice'] as const) assert.deepEqual(problemCodes(await runAction(creditRequest(w, action), deps)), ['INVOICE_CANCELLED'], action);
+});
+
+test('Credit note makes a draft with the caller’s token, copying the invoice as issued and linking each line', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const before = w.db.writes.length;
+  const outcome = await runAction(creditRequest(w, 'creditNote'), deps);
+  assert.ok(outcome.body.ok, JSON.stringify(outcome.body));
+  assert.equal(outcome.body.message, 'Draft credit note created for F2026-0001.');
+  const note = w.db.row('billingCreditNotes', createdId(outcome))!;
+  assert.deepEqual([w.db.writes[before]?.op, w.db.writes[before]?.plural, w.db.writes[before]?.source], ['create', 'billingCreditNotes', 'MANUAL']);
+  assert.deepEqual([note.status, note.invoiceId, note.issuerId, note.companyId, note.reason ?? null], ['DRAFT', w.invoice.id, w.issuer.id, w.company.id, null]);
+  assert.deepEqual(linesOf(w, note.id).map((line) => [line.invoiceLineId, line.quantity]), w.lines.map((line) => [line.id, line.quantity]));
+});
+
+test('Credit note starts from what remains', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const draftId = createdId(await runAction(creditRequest(w, 'creditNote'), deps));
+  for (const line of linesOf(w, draftId)) {
+    if (line.invoiceLineId === w.lines[0]!.id) await w.app.update('billingCreditNoteLines', line.id, { quantity: 1 });
+    else await w.app.softDelete('billingCreditNoteLines', line.id);
+  }
+  assert.equal((await runAction(request(w, { object: 'billingCreditNote', recordId: draftId }), deps)).status, 200);
+  const secondId = createdId(await runAction(creditRequest(w, 'creditNote'), deps));
+  assert.deepEqual(linesOf(w, secondId).map((line) => [line.invoiceLineId, line.quantity]), [[w.lines[0]!.id, 3], [w.lines[1]!.id, 6], [w.lines[2]!.id, 1]]);
+});
+
+test('Cancel issues a credit note for what remains, and the invoice is Cancelled', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const outcome = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
+  assert.ok(outcome.body.ok);
+  assert.equal(outcome.body.message, 'F2026-0001 is cancelled by credit note AV2026-0001.');
+  const [note] = notesOf(w);
+  assert.deepEqual([note!.status, note!.number, note!.reason], ['ISSUED', 'AV2026-0001', 'Annulation de la facture F2026-0001']);
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'CANCELLED');
+  assert.deepEqual(w.db.timeline.filter((entry) => entry.recordId === w.invoice.id).map((entry) => [entry.kind, entry.text]), [
+    ['ISSUED', 'Émise sous le numéro F2026-0001.'],
+    ['CANCELLED', 'Annulée par l’avoir AV2026-0001.'],
+  ]);
+  assert.deepEqual(problemCodes(await runAction(creditRequest(w, 'cancelInvoice'), deps)), ['INVOICE_CANCELLED'], 'a second click');
+  assert.equal(notesOf(w).length, 1);
+});
+
+test('a Cancel stopped at the gate names its draft, and the next Cancel issues that same draft', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const [siren] = w.db.rows('billingIdentifiers').filter((identifier) => identifier.companyId === w.company.id);
+  await w.app.softDelete('billingIdentifiers', siren!.id);
+  const stopped = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.equal(stopped.status, 422);
+  assert.deepEqual(problemCodes(stopped), ['MISSING_IDENTIFIER']);
+  const draftId = createdId(stopped);
+  assert.equal(w.db.row('billingCreditNotes', draftId)!.status, 'DRAFT');
+  await w.app.restore('billingIdentifiers', siren!.id);
+  const done = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  assert.deepEqual(notesOf(w).map((note) => note.id), [draftId]);
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'CANCELLED');
+});
+
+test('Cancel refuses REMAINDER_UNKNOWN after a credit note that changed a price, and Credit note then copies every line', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const draftId = createdId(await runAction(creditRequest(w, 'creditNote'), deps));
+  const [first, ...rest] = linesOf(w, draftId);
+  await w.app.update('billingCreditNoteLines', first!.id, { quantity: 1, unitPrice: money(100_000_000) });
+  for (const line of rest) await w.app.softDelete('billingCreditNoteLines', line.id);
+  assert.equal((await runAction(request(w, { object: 'billingCreditNote', recordId: draftId }), deps)).status, 200);
+  assert.deepEqual(problemCodes(await runAction(creditRequest(w, 'cancelInvoice'), deps)), ['REMAINDER_UNKNOWN']);
+  const fallbackId = createdId(await runAction(creditRequest(w, 'creditNote'), deps));
+  assert.equal(linesOf(w, fallbackId).length, 3, 'every line in full when the remainder is unknown');
+});
+
+test('an issued credit note that leaves part of its invoice tells the invoice; one that completes it cancels it', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const partId = createdId(await runAction(creditRequest(w, 'creditNote'), deps));
+  for (const line of linesOf(w, partId)) if (line.invoiceLineId !== w.lines[2]!.id) await w.app.softDelete('billingCreditNoteLines', line.id);
+  assert.equal((await runAction(request(w, { object: 'billingCreditNote', recordId: partId }), deps)).status, 200);
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'ISSUED');
+  assert.deepEqual(w.db.timeline.filter((entry) => entry.kind === 'CREDITED').map((entry) => entry.text), ['Avoir AV2026-0001 émis sur cette facture, pour 1440.00 EUR.']);
+  const restId = createdId(await runAction(creditRequest(w, 'creditNote'), deps));
+  const issued = await runAction(request(w, { object: 'billingCreditNote', recordId: restId }), deps);
+  assert.ok(issued.body.ok);
+  assert.equal(issued.body.message, 'Issued as AV2026-0002. Invoice F2026-0001 is now cancelled.');
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'CANCELLED');
+});
+
+test('Cancel on an invoice its credit notes already cover marks it Cancelled and issues nothing', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const draftId = createdId(await runAction(creditRequest(w, 'creditNote'), deps));
+  assert.equal((await runAction(request(w, { object: 'billingCreditNote', recordId: draftId }), deps)).status, 200);
+  await w.app.update('billingInvoices', w.invoice.id, { status: 'PAID' }); // as if the settle had failed
+  const outcome = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.ok(outcome.body.ok);
+  assert.equal(outcome.body.message, 'F2026-0001 is cancelled: its credit notes already credit all of it.');
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'CANCELLED');
+  assert.equal(notesOf(w).length, 1);
+});
+
+/** Two Issues of credit notes, A and B, over one database, run by hand like `racing`; `next` names the call each is paused at. */
+function racingNotes(w: Workspace, ids: { A: string; B: string }) {
+  const lock = lockstep(w.db);
+  const answered = new Set<string>();
+  const next: Record<string, string> = {};
+  const start = (name: 'A' | 'B') => {
+    const flow = lock.flow(name);
+    const app: Store = {
+      ...flow,
+      get: (plural, id, options) => { next[name] = `get ${plural}`; return flow.get(plural, id, options); },
+      list: (plural, where, options) => { next[name] = `list ${plural}`; return flow.list(plural, where, options); },
+      update: (plural, id, data) => { next[name] = `update ${plural} ${String(data.status ?? '')}`.trim(); return flow.update(plural, id, data); },
+    };
+    const outcome = runAction(request(w, { object: 'billingCreditNote', recordId: ids[name] }), { ...setup(w).deps, app });
+    void outcome.then(() => answered.add(name));
+    return outcome;
+  };
+  const flows = { A: start('A'), B: start('B') };
+  const advance = async (name: 'A' | 'B', done: () => boolean = () => false): Promise<void> => {
+    for (let calls = 0; calls < 300 && !answered.has(name) && !done(); calls++) await lock.step(name);
+  };
+  const finish = async (): Promise<[ActionOutcome, ActionOutcome]> => {
+    await lock.finish(flows.A, flows.B);
+    return [await flows.A, await flows.B];
+  };
+  return { next, advance, finish };
+}
+
+/** A draft credit note of the fixture invoice, made by the Credit note button; `keep` leaves only the lines it names. */
+async function draftNote(w: Workspace, deps: ActionDeps, keep?: readonly string[]): Promise<string> {
+  const id = createdId(await runAction(creditRequest(w, 'creditNote'), deps));
+  for (const line of linesOf(w, id)) if (keep && !keep.includes(line.invoiceLineId as string)) await w.app.softDelete('billingCreditNoteLines', line.id);
+  return id;
+}
+
+test('a credit note whose invoice was cancelled by another credit note after its gate is refused before it is written', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const ids = { A: await draftNote(w, deps), B: await draftNote(w, deps) };
+  const before = uploads(w).length;
+  const race = racingNotes(w, ids);
+  await race.advance('A', () => uploads(w).length > before);
+  await race.advance('B');
+  const [a, b] = await race.finish();
+  assert.equal(b.status, 200, JSON.stringify(b.body));
+  assert.equal(a.status, 422);
+  assert.deepEqual(problemCodes(a), ['INVOICE_CANCELLED']);
+  assert.deepEqual(a.body.ok ? [] : a.body.problems.map((problem) => problem.field), ['invoiceId']);
+  assert.deepEqual(notesOf(w).filter((note) => note.status === 'ISSUED').map((note) => note.id), [ids.B], 'only one credit note ends Issued');
+  const refused = w.db.row('billingCreditNotes', ids.A)!;
+  assert.deepEqual([refused.status, refused.number], ['DRAFT', 'AV2026-0001'], 'a numbered draft, as after any failed step');
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'CANCELLED');
+});
+
+test('a credit note that asks for more than another took meanwhile is refused with OVER_CREDIT, at its line', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const ids = { A: await draftNote(w, deps), B: await draftNote(w, deps, [w.lines[2]!.id]) };
+  const before = uploads(w).length;
+  const race = racingNotes(w, ids);
+  await race.advance('A', () => uploads(w).length > before);
+  await race.advance('B');
+  const [a, b] = await race.finish();
+  assert.equal(b.status, 200, JSON.stringify(b.body));
+  assert.equal(a.status, 422);
+  assert.deepEqual(a.body.ok ? [] : a.body.problems.map((problem) => [problem.code, problem.field, problem.message]), [
+    ['OVER_CREDIT', 'lines', 'This credit note credits more than remains on its invoice (line 3).'],
+  ]);
+  assert.deepEqual(notesOf(w).filter((note) => note.status === 'ISSUED').map((note) => note.id), [ids.B]);
+  assert.equal(w.db.row('billingCreditNotes', ids.A)!.status, 'DRAFT');
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'ISSUED', 'what B left is still to credit');
+});
+
+test('a credit note the recheck lets through is written, and the invoice it settles is told once', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const ids = { A: await draftNote(w, deps), B: await draftNote(w, deps) };
+  const race = racingNotes(w, ids);
+  // B has passed the gate and the recheck, and is about to write its document; A then issues and cancels the invoice.
+  await race.advance('B', () => race.next.B === 'update billingCreditNotes ISSUED');
+  await race.advance('A');
+  await race.finish();
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'CANCELLED');
+  assert.deepEqual(w.db.timeline.filter((entry) => entry.kind === 'CANCELLED').map((entry) => entry.text), ['Annulée par l’avoir AV2026-0002.']);
+});
+
+test('Cancel never cancels what no credit note covers: an invoice with nothing on it answers NOTHING_TO_CREDIT', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  const empty = w.addInvoice({ issueDate: TODAY, dueDate: '2026-10-26', language: 'FR' });
+  w.addLine(KINDS.billingInvoice, empty.id, { quantity: 0 });
+  const issued = await runAction(request(w, { recordId: empty.id }), deps);
+  assert.equal(issued.status, 200, JSON.stringify(issued.body));
+  const outcome = await runAction(request(w, { action: 'cancelInvoice', object: 'billingInvoice', recordId: empty.id }), deps);
+  assert.equal(outcome.status, 422);
+  assert.deepEqual(problemCodes(outcome), ['NOTHING_TO_CREDIT']);
+  assert.equal(w.db.row('billingInvoices', empty.id)!.status, 'ISSUED');
+  assert.deepEqual(w.db.rows('billingCreditNotes'), []);
+});
+
+test('Cancel marks Cancelled an invoice that hand-made credit notes cover by their totals, when settling failed', async () => {
+  const w = workspace();
+  const { deps, logs } = setup(w);
+  await issueInvoice(w, deps);
+  const note = w.addCreditNote({ invoiceId: w.invoice.id, issueDate: TODAY, language: 'FR' });
+  // The same lines as the invoice, linked to none of its lines: the remainder cannot be worked out, the totals can.
+  for (const line of w.lines) w.addLine(KINDS.billingCreditNote, note.id, { sortOrder: line.sortOrder, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice });
+  w.db.failNext((op, plural, data) => op === 'update' && plural === 'billingInvoices' && data?.status === 'CANCELLED');
+  const issuedNote = await runAction(request(w, { object: 'billingCreditNote', recordId: note.id }), deps);
+  assert.equal(issuedNote.status, 200, JSON.stringify(issuedNote.body));
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'ISSUED');
+  assert.deepEqual(logs.map((entry) => entry.step), ['settle']);
+  const outcome = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.ok(outcome.body.ok, JSON.stringify(outcome.body));
+  assert.equal(outcome.body.message, 'F2026-0001 is cancelled: its credit notes already credit all of it.');
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'CANCELLED');
+  assert.equal(notesOf(w).length, 1, 'nothing more is issued');
+  assert.deepEqual(w.db.timeline.filter((entry) => entry.kind === 'CANCELLED').map((entry) => entry.text), ['Annulée par l’avoir AV2026-0001.']);
+});
+
+test('Credit note and Cancel by a caller whose role cannot edit get NOT_ALLOWED, and nothing is written', async () => {
+  const w = workspace();
+  await issueInvoice(w, setup(w).deps);
+  const { deps } = setup(w, { caller: w.db.store('MANUAL', { canUpdate: () => false }) });
+  const before = w.db.writes.length;
+  for (const action of ['creditNote', 'cancelInvoice'] as const) {
+    const outcome = await runAction(creditRequest(w, action), deps);
+    assert.equal(outcome.status, 403, action);
+    assert.deepEqual(problemCodes(outcome), ['NOT_ALLOWED'], action);
+  }
+  assert.equal(w.db.writes.length, before);
+  assert.deepEqual(w.db.rows('billingCreditNotes'), []);
+});
+
+test('a settle that fails leaves the credit note issued and the answer ok, and the next Cancel finishes it', async () => {
+  const w = workspace();
+  const { deps, logs } = setup(w);
+  await issueInvoice(w, deps);
+  w.db.failNext((op, plural, data) => op === 'update' && plural === 'billingInvoices' && data?.status === 'CANCELLED', new Error('Twenty is busy'));
+  const cancelled = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
+  assert.ok(cancelled.body.ok);
+  assert.equal(cancelled.body.message, 'Issued as AV2026-0001.');
+  assert.deepEqual(logs, [{ step: 'settle', invoiceId: w.invoice.id, error: 'Twenty is busy' }]);
+  assert.deepEqual(notesOf(w).map((note) => note.status), ['ISSUED']);
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'ISSUED');
+  const again = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.equal(again.status, 200, JSON.stringify(again.body));
+  assert.ok(again.body.ok);
+  assert.equal(again.body.message, 'F2026-0001 is cancelled: its credit notes already credit all of it.');
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'CANCELLED');
+  assert.deepEqual(w.db.timeline.filter((entry) => entry.kind === 'CANCELLED').map((entry) => entry.text), ['Annulée par l’avoir AV2026-0001.']);
+  assert.equal(notesOf(w).length, 1);
+});
+
+/** Fails the second line a credit note is given: the draft is left with one line of three. */
+const failSecondLine = (w: Workspace): void => {
+  let created = 0;
+  w.db.failNext((op, plural) => op === 'create' && plural === 'billingCreditNoteLines' && ++created === 2);
+};
+
+test('a failure while Credit note adds the lines is logged at that step, and the next click makes a whole draft', async () => {
+  const w = workspace();
+  const { deps, logs } = setup(w);
+  await issueInvoice(w, deps);
+  failSecondLine(w);
+  const failed = await runAction(creditRequest(w, 'creditNote'), deps);
+  assert.equal(failed.status, 500);
+  assert.equal(logs[0]?.step, 'lines');
+  const next = await runAction(creditRequest(w, 'creditNote'), deps);
+  assert.equal(next.status, 200, JSON.stringify(next.body));
+  assert.equal(linesOf(w, createdId(next)).length, 3);
+});
+
+test('a failure while Cancel adds the lines is logged at that step, and the next Cancel ends with one credit note issued', async () => {
+  const w = workspace();
+  const { deps, logs } = setup(w);
+  await issueInvoice(w, deps);
+  failSecondLine(w);
+  const failed = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.equal(failed.status, 500);
+  assert.equal(logs[0]?.step, 'lines');
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'ISSUED');
+  const next = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.equal(next.status, 200, JSON.stringify(next.body));
+  assert.equal(w.db.row('billingInvoices', w.invoice.id)!.status, 'CANCELLED');
+  assert.deepEqual(notesOf(w).filter((note) => note.status === 'ISSUED').length, 1);
+  assert.equal(linesOf(w, notesOf(w).find((note) => note.status === 'ISSUED')!.id).length, 3);
+});
+
+test('Cancel issues only its own draft: a person’s credit note that holds the remainder is left alone', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const theirs = await draftNote(w, deps);
+  const outcome = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.equal(outcome.status, 200, JSON.stringify(outcome.body));
+  const mine = notesOf(w).filter((note) => note.id !== theirs);
+  assert.deepEqual(mine.map((note) => [note.status, note.reason]), [['ISSUED', 'Annulation de la facture F2026-0001']]);
+  assert.equal(w.db.row('billingCreditNotes', theirs)!.status, 'DRAFT');
+  assert.equal(linesOf(w, theirs).length, 3, 'their lines are not touched');
+});
+
+const PENDING = 'Credit note AV2026-0001 already holds a number: finish it (or correct it) before making another.';
+
+test('Credit note and Cancel refuse while a credit note holds a number it was never issued with, and open that note', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  const pending = await draftNote(w, deps, [w.lines[2]!.id]);
+  w.db.failNext((op) => op === 'upload');
+  assert.equal((await runAction(request(w, { object: 'billingCreditNote', recordId: pending }), deps)).status, 500);
+  assert.deepEqual([w.db.row('billingCreditNotes', pending)!.status, w.db.row('billingCreditNotes', pending)!.number], ['DRAFT', 'AV2026-0001']);
+  const before = w.db.writes.length;
+  for (const action of ['creditNote', 'cancelInvoice'] as const) {
+    const outcome = await runAction(creditRequest(w, action), deps);
+    assert.equal(outcome.status, 422, action);
+    assert.deepEqual(outcome.body, {
+      ok: false, problems: [{ code: 'NUMBERED_CREDIT_NOTE_PENDING', message: PENDING }], created: { object: 'billingCreditNote', recordId: pending },
+    }, action);
+  }
+  assert.equal(w.db.writes.length, before, 'nothing is written');
+  assert.deepEqual(notesOf(w).map((note) => note.id), [pending]);
+  assert.equal(invoiceRow(w).status, 'ISSUED');
+  assert.equal((await runAction(request(w, { object: 'billingCreditNote', recordId: pending }), deps)).status, 200, 'finished, it is issued');
+  assert.equal((await runAction(creditRequest(w, 'creditNote'), deps)).status, 200, 'and the next credit note can be made');
+});
+
+test('a Cancel that failed once its credit note was numbered issues that same note next time, with its number', async () => {
+  const w = workspace();
+  const { deps } = setup(w);
+  await issueInvoice(w, deps);
+  w.db.failNext((op) => op === 'upload');
+  assert.equal((await runAction(creditRequest(w, 'cancelInvoice'), deps)).status, 500);
+  const [stopped] = notesOf(w);
+  assert.deepEqual([stopped!.status, stopped!.number], ['DRAFT', 'AV2026-0001']);
+  const done = await runAction(creditRequest(w, 'cancelInvoice'), deps);
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  assert.deepEqual(notesOf(w).map((note) => [note.id, note.status, note.number]), [[stopped!.id, 'ISSUED', 'AV2026-0001']]);
+  assert.equal(invoiceRow(w).status, 'CANCELLED');
 });

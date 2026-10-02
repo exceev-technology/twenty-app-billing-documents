@@ -1,0 +1,359 @@
+# Sub-project 4c: Sending documents by email, design
+
+Status: proposed 2026-10-01, amended 2026-10-02 after the final review (§13). Read [the issue path design](2026-09-26-issue-path-design.md)
+and [the flows design](2026-10-01-flows-design.md) first.
+
+4c sends a document's PDF to the client from Twenty. The person reviews a
+prefilled message in the side panel and sends it from their own mailbox; the
+document records that it was sent.
+
+## 1. Decisions
+
+| Topic | Decision |
+|---|---|
+| Sending | Through Twenty's own `sendEmail`, from a mailbox the clicking person has connected to Twenty. |
+| Form | A form in the side panel: from, to, cc, subject and message, prefilled in the document's language, with the PDF attached. The person reviews it and sends. |
+| Documents | An issued invoice (Issued, Sent or Paid), an issued credit note, and a quote that has a PDF. |
+| Effect | An Issued invoice becomes Sent and a Draft quote becomes Sent; `sentAt` is stamped on the first send; every send leaves a timeline message. |
+| Messages | One template per document type, plus a reminder for an overdue invoice, in each language pack. No template records to configure. |
+| Shape | A second route, `billing-email`, which does not bundle the PDF renderer. |
+
+## 2. What the platform allows
+
+Read in the server source at tag `twenty/v2.43.0`:
+
+- The metadata API's `sendEmail(input: { connectedAccountId, to, cc?, bcc?,
+  subject, body, files? })` sends through a connected mailbox. Its guard
+  requires the "send email" permission (`SEND_EMAIL_TOOL`) of the caller's role,
+  and the mailbox must be usable by the caller: their own. `myConnectedAccounts`
+  lists the caller's mailboxes.
+- `files` are `{ id, name }` file ids. The server reads them from a files field,
+  a workflow or its email-attachment folder, so the document's PDF is attached
+  by its own file id. After sending, the server deletes the attached files that
+  live in its email-attachment folder, and only those: the document's PDF stays
+  where it is.
+- `body` is a string read as HTML (or Twenty's email document JSON) and
+  sanitized. Plain text with line breaks would arrive as one paragraph, so the
+  route writes the paragraphs itself.
+- The sent message is stored in the person's mailbox, and Twenty imports it
+  into its email timeline when that mailbox syncs.
+- A front component renders form elements (`input`, `textarea`, `select`,
+  `button`), can call a route with the person's own token, and can close the
+  side panel.
+- An update is checked against the caller's role whatever the values it
+  writes: the ORM's `runMutation` calls `validateOperationIsPermittedOrThrow`
+  before it reads anything, which requires the object's update permission and,
+  for each field in the request, the field's. Nothing compares the new value
+  with the stored one, so a write that changes nothing is refused to a role
+  that cannot update, which is what §6's step 3 relies on. A record the role's
+  row-level rules hide answers "not found", which the caller's store reads as a
+  refusal.
+
+Two things are checked live before the code that depends on them (plan,
+Task 1): that a command menu item opening a front component that is not
+headless shows it in the side panel with the selected record, and that
+`sendEmail` called from a route with the token Twenty mints for the app and the
+person works once the app's role and the person's role both hold the
+permission, with the PDF attached and still in place after the send. The 4a
+spike found that such a token is checked against both roles.
+
+## 3. Data model and role
+
+| Change | Purpose |
+|---|---|
+| billingCreditNote `sentAt` (DATE_TIME) | The first send of a credit note. Quotes gain theirs in 4b; invoices have one. |
+| The app's role gains `SEND_EMAIL_TOOL` | Required by `sendEmail` for a call made with the app's token for the person. |
+| Timeline type `billingSent`, "Twenty sent <document>" | One row per send, expandable to its recipients. |
+
+`sentAt` stays free on an issued document (4a, §7).
+
+## 4. Components
+
+```
+ Send by email ─> side panel form ─ POST /s/billing/email { step: 'prepare' } ─> billing-email
+                                    POST /s/billing/email { step: 'send' }    ─> billing-email
+                                                                                 lifecycle/email: defaults, checks, body
+                                                                                 Mailer: accounts, send (as the person)
+                                                                                 Store: sent date, status, timeline (as the app)
+```
+
+- **`lifecycle/email.ts`** (pure): whether a document can be sent, the
+  attachment, the prefilled message, the recipients' checks, and plain text to
+  HTML.
+- **`Mailer`**, an interface beside `Store`: `accounts()` and `send(input)`.
+  `src/lib/mailer.ts` backs it with the metadata client, `runAs: 'user'`;
+  tests use a fake.
+- **`billing-email`**: an HTTP route, POST `/billing/email`, authentication
+  required, timeout 30 s. It imports neither pdfmake nor the Renderer's layouts;
+  a bundle test checks it.
+- **The form**: one front component that is not headless, shared by three
+  command menu items ("Send by email" on invoices, credit notes and quotes).
+  The component reads its record from the selection and posts the object
+  name it was opened for, as 4a's buttons do; three thin wrappers give it that
+  name.
+
+## 5. Prepare
+
+The form opens and posts `{ step: 'prepare', object, recordId, localDate,
+locale }`. Prepare writes nothing, so it reads the document with the caller's
+own token: a person who cannot read it gets `NOT_ALLOWED`, and never learns its
+client's address through the app. The route answers, in the document's
+language:
+
+| Field | Value |
+|---|---|
+| `from` | The caller's mailboxes, `{ id, handle }`, and the one to preselect: the mailbox whose address is the issuer's primary email, else the first. A mailbox whose authorisation failed, or that was archived, is left out: it cannot send. |
+| `to` | The primary email of the document's person, read with the caller's own token like the document: empty when the caller's role does not read People, and for a company alone, which carries no email in Twenty. The person's first name, in the greeting, comes from the same read. |
+| `cc` | Empty. |
+| `subject`, `message` | From the template (§7). |
+| `attachment` | The file name the client will receive. |
+
+The issuer, its profile and a credit note's invoice are read as the app, once the
+caller has read the document.
+
+Refusals, all reported together: `NOT_SENDABLE` (a draft invoice or credit
+note, a cancelled invoice, a deleted document), `NO_PDF` (a document that could
+otherwise be sent and whose PDF field is empty: a quote not generated yet, or
+any other), `NO_MAILBOX` (the caller has connected none).
+
+## 6. Send
+
+The person clicks Send. The form posts `{ step: 'send', object, recordId,
+localDate, locale, from, to, cc, subject, message }`:
+
+1. **Check the message**: at least one recipient in `to` (a Cc alone is
+   `MISSING_RECIPIENT`: `sendEmail` requires `to`); every address, in `to` and
+   `cc`, split on commas and semicolons, looks like an address, with no control
+   character; at most 20 in all; a subject and a message that are not blank.
+   An address written twice, whatever its case, goes once with its first
+   spelling, and one already in `to` is dropped from `cc`. `MISSING_RECIPIENT`,
+   `INVALID_RECIPIENT` (naming the address), `TOO_MANY_RECIPIENTS`,
+   `MISSING_SUBJECT`, `MISSING_MESSAGE`.
+2. **Read the document again**, as the caller first, as Prepare does: a
+   document their token cannot read is `NOT_ALLOWED` and reveals nothing (no
+   status, no `NO_PDF`). Then refuse as Prepare does, since it may have changed
+   while the form was open. A `from` that is not one of the caller's mailboxes
+   (disconnected while the form was open, or a forged request) is `NO_MAILBOX`
+   on the field `from`, worded "no longer connected", before anything is
+   written.
+3. **The caller's first write**: their own token rewrites `sentAt` as it is,
+   so that Twenty's role check decides, as for every action, whether they may
+   act on the document (`NOT_ALLOWED`). Twenty checks every update, whatever
+   its values (§2), so a write that changes nothing is still refused.
+4. **Send**, through the Mailer, as the person: the chosen mailbox, the
+   recipients, the subject, the message as HTML, and the PDF as one attachment.
+   The Mailer tells a failure apart by what it says about the email:
+   - `EMAIL_NOT_ALLOWED`: the permission is refused (`FORBIDDEN` with the
+     sub-code `PERMISSION_DENIED`).
+   - `SEND_FAILED`, with Twenty's reason: Twenty answered `{ success: false }`,
+     or an error whose code shows it turned the request down before it tried
+     to send (`BAD_USER_INPUT`, `NOT_FOUND`, `FORBIDDEN` with another
+     sub-code, `UNAUTHENTICATED`). Nothing went.
+   - `SEND_UNCONFIRMED`: any other failure (`INTERNAL_SERVER_ERROR`, an error
+     with no code, no answer, the network, a lost response). The email may have
+     gone, so the answer does not invite a retry (§10).
+5. **Record it**, as the app: an Issued invoice becomes Sent, a Draft quote
+   becomes Sent, and `sentAt` is set when it is empty, so it keeps the first
+   send. A `billingSent` message names the recipients and the mailbox, in the
+   document's language.
+
+When step 5 fails the email has gone: the answer is still a success, saying
+the document could not be marked and quoting a reference, and the route logs
+it. A second click is ignored while a send is in flight.
+
+**The attachment** is the document's current PDF: the first file of its `pdf`
+field, the issued one for an invoice or credit note, the newest version for a
+quote. Its name is the number (`F2026-0017.pdf`, `D2026-0004 v2.pdf`), with
+every character a file name cannot hold (`/ \ : * ? " < > |` and control
+characters) turned into a hyphen.
+
+**The message as HTML**: special characters escaped, a blank line starts a new
+paragraph, a single line break becomes `<br>`. Nothing else: no link or
+markup a person typed is interpreted.
+
+## 7. Templates
+
+Each language pack holds a subject and a message for: an invoice, an overdue
+invoice (a reminder: Issued or Sent, its due date before the caller's date),
+a credit note, and a quote. They are filled with:
+
+- the number, and for a quote its version, named from version 2 on ("Quote
+  D2026-0004 (version 2)"; a first version is "Quote D2026-0004");
+- the seller's name (the issuer's trading name);
+- the total, formatted in the document's currency and the profile's locale by
+  the Renderer's own formatting (a quote's message carries its current total,
+  which may differ from an older PDF's: the person reviews the message);
+- the due date (invoices), the validity date (quotes), the corrected invoice's
+  number (credit notes), formatted as the PDF prints them (`31/10/2026`, in
+  the profile's locale);
+- the buyer's name: the person's first name when a person is set and the
+  caller can read them, else none, and the greeting falls back to a neutral one.
+
+A fact that cannot be formatted is left out of the message, never a failure: a
+currency code Intl rejects leaves the total out, a date text that is not a day
+of the calendar leaves the date out. With no seller to sign, the closing
+stands alone ("Kind regards", no comma). French elides *de* before a vowel, œ
+or æ, never before an h, which may be aspirated.
+
+For example, in English:
+
+> Subject: Invoice F2026-0017 from Acme
+>
+> Hello Maria,
+>
+> Please find attached invoice F2026-0017 for 1,234.00 €, due on 31/10/2026.
+>
+> Kind regards,
+> Acme
+
+The person edits the text in the form before it goes. A business that wants its
+own wording every time can change the pack in its fork, or contribute a
+setting later: templates as records are out of scope for v1.
+
+## 8. The form
+
+- A small heading names the document ("Send invoice F2026-0017").
+- From: a select when the person has more than one mailbox, else their address
+  as text.
+- To, Cc: text inputs, comma-separated.
+- Subject: a text input. Message: a textarea, about twelve rows.
+- The attachment's name, as a line of text.
+- Send and Cancel buttons. Send is disabled while a request is in flight.
+- Problems are listed above the buttons, worded by the route; the transport
+  failures (no route, no network) use the buttons' own words, as in 4a.
+- After a send, a snackbar says "Sent to maria@client.com" and the side panel
+  closes.
+- When the email may have gone, the form says so, and Send stays disabled for
+  the rest of the form's life, as after a success; Cancel still closes the
+  panel, except while a send is in flight. On the route's `SEND_UNCONFIRMED`
+  answer, the form shows the route's own message ("The email may have gone:
+  check your Sent folder before trying again (ref ...)") and locks Send. Its
+  own words, "We could not confirm that the email was sent: check your Sent
+  folder, or the document's timeline, before sending it again." (and its
+  French), are for an answer with no route body (no answer at all, a status of
+  500 or more, or a 200 that is not a route body), and for a stale answer's
+  snackbar (§13). An answer that shows the request never reached the route (404
+  and other 4xx) is a failure to try again.
+
+Labels are in English and French, chosen from the person's Twenty locale, like
+the buttons' transport messages. The form follows Twenty's light or dark scheme
+(`useColorScheme`) with plain inline styles: it renders inside Twenty's side
+panel, but cannot import Twenty's own components.
+
+## 9. Setup a workspace needs
+
+The README says it, in its email section:
+
+1. Each person who sends connects their mailbox in Twenty (Settings →
+   Accounts). Sending uses that mailbox, so the email appears in their sent
+   folder.
+2. Their role allows sending email (Settings → Roles → the role → "Send
+   email"). The app's own role asks for it on install.
+
+Without a mailbox, the form says how to connect one. Without the permission,
+the Send answers `EMAIL_NOT_ALLOWED` and names the setting.
+
+## 10. Messages and errors
+
+New codes: `NOT_SENDABLE`, `NO_PDF`, `NO_MAILBOX`, `MISSING_RECIPIENT`,
+`INVALID_RECIPIENT`, `TOO_MANY_RECIPIENTS`, `MISSING_SUBJECT`,
+`MISSING_MESSAGE`, `EMAIL_NOT_ALLOWED`, `SEND_FAILED`, and, answered by the
+route without a pack entry like `UNEXPECTED`, `SEND_UNCONFIRMED`. Messages: the
+sent snackbar, the sent-but-not-marked answer, the "may have gone" answer
+(check your Sent folder before trying again), the timeline message, and the
+four templates, in English and French.
+
+| Failure | What the person sees |
+|---|---|
+| A check refuses | The problems, worded, under the form; HTTP 422. Nothing is sent or written. |
+| The caller cannot read or edit the document | `NOT_ALLOWED`; HTTP 403, revealing nothing of the document. Nothing is sent. |
+| The permission is missing | `EMAIL_NOT_ALLOWED`; HTTP 403. Nothing is sent. |
+| Twenty turns the send down before trying (a bad input, a missing mailbox, another refusal, no session, `{ success: false }`) | `SEND_FAILED` with Twenty's reason; HTTP 502. Nothing went. |
+| The send fails in a way that does not say whether the email went (a server error, an error with no code, no answer, the network, a lost response) | "The email may have gone: check your Sent folder before trying again (ref 7f3a…)"; HTTP 500 `SEND_UNCONFIRMED`, logged. It does not invite a resend, and the form locks Send. |
+| Anything unexpected, before the send | "Something went wrong (ref 7f3a…)"; HTTP 500 `UNEXPECTED`, logged. Nothing was sent. |
+
+The logs carry ids, the step and a scrubbed error: its name, an HTTP status,
+the `code` and `subCode` of Twenty's answer, and its message cut to 200
+characters with every address replaced. Never an address, a subject, a
+message, or a whole response body.
+
+## 11. Testing and acceptance
+
+`node --test`:
+
+- **email.ts**: what can be sent, for every type and status; the attachment
+  and its name; each template in both languages, with and without a person,
+  overdue or not; recipients split, checked and counted; the HTML escaping and
+  paragraphs.
+- **The route**, against the memory `Store` and a fake `Mailer`: Prepare's
+  answer and its refusals; Send's checks, the caller's write (`NOT_ALLOWED`
+  sends nothing), the Mailer's input, the status and `sentAt` for each type,
+  `sentAt` kept on a second send, the timeline message, `EMAIL_NOT_ALLOWED`,
+  `SEND_FAILED`, and a failure after the send answered as sent.
+  The caller's read on Send (a hidden document is `NOT_ALLOWED` and reveals
+  nothing), the person read as the caller, the Mailer's classification of every
+  failure, the logs holding no address, subject or message, and a send's own
+  writes drained through 4a's and 4b's guards, which leave them alone.
+- **Bundles**: `billing-email` holds no pdfmake, no Renderer layouts and none of
+  the guards, the numbering or the totals; the form imports no `node:` module.
+- **Packs**: every new code, message and template in both languages, the French
+  messages pinned exactly.
+
+On the test workspace, as a signed-in user with a connected mailbox, sending
+only to an address the maintainer names:
+
+1. An issued invoice: Send by email opens the form, prefilled. Send: the email
+   arrives with the PDF; the invoice is Sent, `sentAt` set, a timeline row;
+   the PDF is still in the invoice.
+2. Send it again: `sentAt` unchanged, a second timeline row.
+3. A quote with a PDF, and an issued credit note: both sent; the quote is Sent.
+4. As a member whose role cannot send email: `EMAIL_NOT_ALLOWED`, nothing sent.
+
+## 12. Files
+
+```
+lifecycle/email.ts                     sendable, attachment, templates' filling, recipients, HTML
+lifecycle/mailer.ts                    the Mailer interface
+lifecycle/pack-for.ts                  the pack a stored record's messages are in
+lifecycle/lang/pack.ts, en.ts, fr.ts   codes, messages, templates
+src/lib/mailer.ts                      the Mailer over the metadata client
+src/lib/route.ts                       what both routes share, down to the answer to a call
+src/logic-functions/billing-email.ts   the route
+src/front-components/send-email-form.tsx, email-form.ts, send-invoice.tsx, send-credit-note.tsx, send-quote.tsx
+src/command-menu-items/send-invoice, send-credit-note, send-quote
+src/timeline-activity-types/billing-sent.ts
+src/objects/billing-credit-note.object.ts (sentAt), src/roles/billing.role.ts (SEND_EMAIL_TOOL)
+test/lifecycle/email.test.ts, test/email-route.test.ts, test/email-guards.test.ts, test/mailer.test.ts
+```
+
+## 13. Amendments after the final review (2026-10-02)
+
+The sections above state the design as built. The final review of 4c settled
+what the first draft left open, and it is part of the design: a Cc alone is
+`MISSING_RECIPIENT`; a `from` that is not one of the caller's mailboxes is
+`NO_MAILBOX` on `from`; `NO_PDF` applies to any document whose PDF field is
+empty; dates in the templates print as the PDF prints them (`31/10/2026`), so
+the first draft's "31 October 2026" was illustrative; a quote is named by its
+version from version 2. Send reads the document as the caller first, as
+Prepare does, so a hidden document reveals nothing; Prepare reads the person
+billed as the caller, so a role that cannot see People gets no address; the
+Mailer says "not sent" only when it knows, and any failure that does not say
+whether the email went answers "may have gone" with its own code,
+`SEND_UNCONFIRMED`, on which the form shows the route's own message and keeps
+Send disabled (§8, §10). The address, subject and message never reach a log.
+
+The fix wave settled how the form behaves around a send. A change of selection
+resets the form, so nothing of one record's form rides on another's id. Cancel
+is disabled while a send is in flight. If the snackbar fails, the sent message
+shows inline in the form. An answer that arrives after the selection moved, or
+the panel closed (a stale answer), is told by snackbar only: that it went, that
+it went but was not marked, or that it could not be confirmed. A refusal says
+nothing then. A per-record guard keeps a second Send from running in parallel
+with one in flight, even from a fresh form of the same document. A 200 that is
+not a route body counts as unconfirmed.
+
+## Out of scope for 4c
+
+Templates as records, sending several documents at once, scheduled reminders,
+tracking opens, sending from a shared workspace address, and attaching anything
+but the document's PDF.

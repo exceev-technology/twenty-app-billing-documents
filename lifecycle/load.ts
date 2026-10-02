@@ -17,7 +17,18 @@ export type Kind = {
   titleField: 'invoiceTitle' | 'creditNoteTitle' | null;
   /** What an issued document depends on (spec §7): a guard puts back any change. Quotes lock nothing. */
   lockedFields: readonly FieldKey[];
+  /** The line fields an issued document's snapshot keeps, and a guard puts back. */
+  lineFields: readonly string[];
 };
+
+/** A line's fields a person edits: the snapshot keeps them, and a guard puts them back. */
+export const LINE_FIELDS = [
+  'description', 'sortOrder', 'catalogItemId', 'quantity', 'unit', 'unitPrice', 'discountPercent', 'taxCodeId',
+  'periodStart', 'periodEnd',
+] as const;
+
+/** A credit note's lines also keep the invoice line each one credits (flows spec §3). */
+export const CREDIT_LINE_FIELDS = [...LINE_FIELDS, 'invoiceLineId'] as const;
 
 const SHARED_LOCKS = ['subject', 'issuerId', 'companyId', 'personId', 'issueDate', 'currencyCode', 'pricesIncludeTax', 'language', 'notes'] as const;
 
@@ -25,29 +36,23 @@ export const KINDS: Record<DocumentObject, Kind> = {
   billingQuote: {
     kind: 'QUOTE', object: 'billingQuote', plural: 'billingQuotes', lineObject: 'billingQuoteLine',
     linePlural: 'billingQuoteLines', parentKey: 'quoteId', patternField: 'quoteNumberPattern',
-    mentionsField: 'quoteMentions', titleField: null, lockedFields: [],
+    mentionsField: 'quoteMentions', titleField: null, lockedFields: [], lineFields: LINE_FIELDS,
   },
   billingInvoice: {
     kind: 'INVOICE', object: 'billingInvoice', plural: 'billingInvoices', lineObject: 'billingInvoiceLine',
     linePlural: 'billingInvoiceLines', parentKey: 'invoiceId', patternField: 'invoiceNumberPattern',
-    mentionsField: 'invoiceMentions', titleField: 'invoiceTitle', lockedFields: [...SHARED_LOCKS, 'dueDate', 'buyerReference'],
+    mentionsField: 'invoiceMentions', titleField: 'invoiceTitle', lockedFields: [...SHARED_LOCKS, 'dueDate', 'buyerReference'], lineFields: LINE_FIELDS,
   },
   billingCreditNote: {
     kind: 'CREDIT_NOTE', object: 'billingCreditNote', plural: 'billingCreditNotes', lineObject: 'billingCreditNoteLine',
     linePlural: 'billingCreditNoteLines', parentKey: 'creditNoteId', patternField: 'creditNoteNumberPattern',
-    mentionsField: 'creditNoteMentions', titleField: 'creditNoteTitle', lockedFields: [...SHARED_LOCKS, 'invoiceId', 'reason'],
+    mentionsField: 'creditNoteMentions', titleField: 'creditNoteTitle', lockedFields: [...SHARED_LOCKS, 'invoiceId', 'reason'], lineFields: CREDIT_LINE_FIELDS,
   },
 };
 
 export const kindOf = (object: string): Kind | undefined => KINDS[object as DocumentObject];
 export const kindOfLine = (lineObject: string): Kind | undefined =>
   Object.values(KINDS).find((kind) => kind.lineObject === lineObject);
-
-/** A line's fields a person edits: the snapshot keeps them, and a guard puts them back. */
-export const LINE_FIELDS = [
-  'description', 'sortOrder', 'catalogItemId', 'quantity', 'unit', 'unitPrice', 'discountPercent', 'taxCodeId',
-  'periodStart', 'periodEnd',
-] as const;
 
 /** An invoice or credit note is issued once it holds a snapshot (spec §7). */
 export const isIssued = (kind: Kind, document: Row): boolean => kind.kind !== 'QUOTE' && Boolean(document.snapshot);
@@ -69,6 +74,8 @@ export type Loaded = Figures & {
   person: Row | null;
   /** A credit note's invoice. */
   invoice: Row | null;
+  /** A credit note's invoice's issued credit notes, this one left out (flows spec §6). */
+  credits: Row[];
   sellerIdentifiers: Row[];
   /** The printed buyer's: the company's when one is billed, else the person's. */
   buyerIdentifiers: Row[];
@@ -109,6 +116,12 @@ export async function loadFigures(store: Store, kind: Kind, id: string, options:
   return { kind, document, lines, taxCodes, issuer, profile };
 }
 
+/** The issued credit notes of an invoice, one left out when named (flows spec §6). */
+export async function issuedCreditNotes(store: Store, invoiceId: string, exceptId?: string): Promise<Row[]> {
+  const notes = await store.list('billingCreditNotes', { invoiceId });
+  return notes.filter((note) => note.id !== exceptId && isIssued(KINDS.billingCreditNote, note));
+}
+
 /** Everything an action needs: the figures, the parties, their identifiers and the identifier types. */
 export async function loadDocument(store: Store, kind: Kind, id: string): Promise<Loaded | null> {
   const figures = await loadFigures(store, kind, id);
@@ -117,6 +130,7 @@ export async function loadDocument(store: Store, kind: Kind, id: string): Promis
   const company = await getLive(store, 'companies', document.companyId);
   const person = await getLive(store, 'people', document.personId);
   const invoice = kind.kind === 'CREDIT_NOTE' ? await getLive(store, 'billingInvoices', document.invoiceId) : null;
+  const credits = invoice ? await issuedCreditNotes(store, invoice.id, document.id) : [];
   const sellerIdentifiers = issuer ? await store.list('billingIdentifiers', { issuerId: issuer.id }) : [];
   const buyerIdentifiers = company
     ? await store.list('billingIdentifiers', { companyId: company.id })
@@ -129,7 +143,7 @@ export async function loadDocument(store: Store, kind: Kind, id: string): Promis
     const type = await store.get('billingIdentifierTypes', typeId);
     if (type) identifierTypes.set(typeId, type);
   }
-  return { ...figures, company, person, invoice, sellerIdentifiers, buyerIdentifiers, identifierTypes, profileTypes };
+  return { ...figures, company, person, invoice, credits, sellerIdentifiers, buyerIdentifiers, identifierTypes, profileTypes };
 }
 
 /** The issuer's logo: its first file's bytes, with the type the Renderer knows ('image/jpg' read as 'image/jpeg'). */

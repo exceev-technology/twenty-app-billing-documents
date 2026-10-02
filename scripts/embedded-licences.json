@@ -1,0 +1,205 @@
+{
+  "_": "Packages that a prebuilt bundle (pdfmake’s browser build, twenty-sdk’s distribution) embeds and of which no copy is installed here, so that scripts/third-party-notices.mjs finds no licence file for them. For each: its SPDX licence (as `npm view <name> license` gives it, and as the registry gives it for every version a bundle can hold), and `holder`, the copyright line or lines of the package’s own LICENSE file (its repository, at the version the bundle holds where its source names one: core-js 3.49.0, zod 4.1.11; at the latest published version otherwise), plus the copyright lines of the embedded source where it names another holder. Read the licence before adding a package; a copyleft or unknown licence stops the script. twenty-shared is Twenty’s own package, bundled in twenty-sdk’s MIT distribution (it is `\"private\": true` in the twentyhq/twenty repository and is MIT by its own LICENSE and by the carve-out in the repository’s root LICENSE): the `twenty-shared` on the npm registry, which is AGPL-3.0, is somebody else’s package under the same name and is not what is bundled.",
+  "packages": {
+    "@parcel/node-resolver-core": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2017-present Devon Govett"
+    },
+    "assert": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright Joyent, Inc. and other Node contributors. All rights reserved.\nCopyright (c) 2009 Thomas Robinson <280north.com>"
+    },
+    "available-typed-arrays": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2020 Inspect JS"
+    },
+    "buffer": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) Feross Aboukhadijeh, and other contributors."
+    },
+    "call-bind": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2020 Jordan Harband"
+    },
+    "call-bound": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2024 Jordan Harband"
+    },
+    "class-validator": {
+      "license": "MIT",
+      "via": "twenty-sdk",
+      "holder": "Copyright (c) 2015-2020 TypeStack"
+    },
+    "core-js": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2013–2025 Denis Pushkarev (zloirock.ru)\nCopyright (c) 2025–2026 CoreJS Company (core-js.io)"
+    },
+    "define-data-property": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2023 Jordan Harband"
+    },
+    "define-properties": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (C) 2015 Jordan Harband"
+    },
+    "events": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright Joyent, Inc. and other Node contributors."
+    },
+    "expose-loader": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright JS Foundation and other contributors"
+    },
+    "file-saver": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright © 2016 Eli Grey."
+    },
+    "for-each": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2012 Raynos."
+    },
+    "generator-function": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2015 Tiancheng “Timothy” Gu"
+    },
+    "has-property-descriptors": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2022 Inspect JS"
+    },
+    "ieee754": {
+      "license": "BSD-3-Clause",
+      "via": "pdfmake",
+      "holder": "Copyright 2008 Fair Oaks Labs, Inc."
+    },
+    "inherits": {
+      "license": "ISC",
+      "via": "pdfmake",
+      "holder": "Copyright (c) Isaac Z. Schlueter"
+    },
+    "is-arguments": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2014 Jordan Harband"
+    },
+    "is-callable": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2015 Jordan Harband"
+    },
+    "is-generator-function": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2014 Jordan Harband"
+    },
+    "is-nan": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2014 Jordan Harband"
+    },
+    "is-regex": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2014 Jordan Harband"
+    },
+    "is-typed-array": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2015 Jordan Harband"
+    },
+    "object-is": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2014 Jordan Harband"
+    },
+    "object-keys": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (C) 2013 Jordan Harband"
+    },
+    "object.assign": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2014 Jordan Harband"
+    },
+    "possible-typed-array-names": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2024 Jordan Harband"
+    },
+    "process": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2013 Roman Shtylman <shtylman@gmail.com>"
+    },
+    "readable-stream": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright Node.js contributors. All rights reserved.\nCopyright Joyent, Inc. and other Node contributors. All rights reserved."
+    },
+    "safe-buffer": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) Feross Aboukhadijeh"
+    },
+    "safe-regex-test": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2022 Jordan Harband"
+    },
+    "set-function-length": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) Jordan Harband and contributors"
+    },
+    "stream-browserify": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) James Halliday\nCopyright Joyent, Inc. and other Node contributors."
+    },
+    "string_decoder": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright Node.js contributors. All rights reserved.\nCopyright Joyent, Inc. and other Node contributors. All rights reserved."
+    },
+    "twenty-shared": {
+      "license": "MIT",
+      "via": "twenty-sdk",
+      "holder": "Copyright (c) 2023-present Twenty.com, PBC"
+    },
+    "util": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright Joyent, Inc. and other Node contributors. All rights reserved."
+    },
+    "util-deprecate": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>"
+    },
+    "which-typed-array": {
+      "license": "MIT",
+      "via": "pdfmake",
+      "holder": "Copyright (c) 2015 Jordan Harband"
+    },
+    "zod": {
+      "license": "MIT",
+      "via": "twenty-sdk",
+      "holder": "Copyright (c) 2025 Colin McDonnell"
+    }
+  }
+}

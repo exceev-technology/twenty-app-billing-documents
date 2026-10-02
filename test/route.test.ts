@@ -58,6 +58,15 @@ test('a call no signed-in person made is refused as NOT_ALLOWED, in the caller�
   assert.deepEqual(w.db.writes, []);
 });
 
+test('a call with a workspace member but no user workspace, or an empty one, is refused too', async () => {
+  const w = workspace();
+  for (const userWorkspaceId of [null, '']) {
+    const answer = await respond({ body: issueBody(w), userWorkspaceId }, MEMBER, noDeps);
+    assert.equal(answer.status, 403, String(userWorkspaceId));
+  }
+  assert.deepEqual(w.db.writes, []);
+});
+
 test('a signed-in person’s Issue runs end to end, and the answer carries the outcome’s status', async () => {
   const w = workspace();
   const issued = await respond({ body: JSON.stringify(issueBody(w)), ...SIGNED_IN }, MEMBER, () => depsFor(w));

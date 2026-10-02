@@ -76,6 +76,15 @@ test('a role that cannot edit refuses the write, and a person cannot write an ap
   assert.equal(memory.row('billingInvoices', invoice.id)?.number, 'F1');
 });
 
+test('a role that cannot read a table is refused its reads, as Twenty refuses them', async () => {
+  const memory = db();
+  const row = memory.seed('billingInvoices', { subject: 'x' });
+  const reader = memory.store('MANUAL', { canRead: (plural) => plural !== 'billingInvoices' });
+  await assert.rejects(reader.get('billingInvoices', row.id), NotAllowedError);
+  await assert.rejects(reader.list('billingInvoices', {}), NotAllowedError);
+  assert.deepEqual(await reader.list('billingQuotes', {}), []);
+});
+
 test('every write is an event with the record before and after, the fields that changed, and who made it', async () => {
   const memory = db();
   const created = await memory.store().create('billingInvoices', { subject: 'a' });

@@ -1,0 +1,26 @@
+name: Preset correction
+description: A country preset has a wrong rate, identifier, mention or numbering rule.
+labels: [preset]
+body:
+  - type: input
+    id: country
+    attributes:
+      label: Country
+      placeholder: France
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What is wrong
+      description: The preset's value, and what it should be.
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: The official source
+      description: A link to the law, the tax authority or the official guidance that says so. Without one, the correction cannot be made.
+      placeholder: https://
+    validations:
+      required: true

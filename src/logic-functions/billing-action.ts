@@ -1,26 +1,14 @@
 import { defineLogicFunction } from 'twenty-sdk/define';
 import { Response as TwentyResponse, type LogicFunctionExecutionContext, type RoutePayload } from 'twenty-sdk/logic-function';
 import { runAction, type ActionDeps } from '../../lifecycle/actions.ts';
-import { describeAll, packFor } from '../../lifecycle/lang/pack.ts';
 import { id } from '../lib/id.ts';
+import { bodyOf, logLineFor, newReference, respondTo, type RouteContext, type RouteEvent } from '../lib/route.ts';
 import { appStore, callerStore } from '../lib/twenty-stores.ts';
 
-export type RouteEvent = { body: unknown; isBase64Encoded?: boolean; userWorkspaceId: string | null };
-export type RouteContext = { workspaceMemberId: string | null };
+export { bodyOf };
 
-/** One line of JSON: the platform keeps each output line as one log entry. */
-const logLine = (entry: Record<string, unknown>): void => console.error(JSON.stringify({ route: 'billing-action', ...entry }));
-const newReference = (): string => crypto.randomUUID().slice(0, 8);
-
-/** The request's body: parsed already when it was JSON, else parsed here; null when it is not JSON. */
-export function bodyOf(event: { body: unknown; isBase64Encoded?: boolean }): unknown {
-  if (typeof event.body !== 'string') return event.body ?? null;
-  try {
-    return JSON.parse(event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body);
-  } catch {
-    return null;
-  }
-}
+const ROUTE = 'billing-action';
+const logLine = logLineFor(ROUTE);
 
 /** Hex SHA-256, from Web Crypto. */
 export async function sha256(bytes: Uint8Array): Promise<string> {
@@ -33,29 +21,9 @@ export function liveDeps(): ActionDeps {
   return { app: appStore(logLine), caller: callerStore(), now: () => new Date(), sha256, reference: newReference, log: logLine };
 }
 
-/**
- * Answers a button. A call without a signed-in person (an API key) is refused:
- * the caller's own token is what lets Twenty's role check decide who may act.
- * The answer is never 401, which the front client would take for an expired
- * token and post again.
- */
-export async function respond(event: RouteEvent, context: RouteContext, makeDeps: () => ActionDeps): Promise<TwentyResponse> {
-  const body = bodyOf(event);
-  const locale = (body as { locale?: unknown } | null)?.locale;
-  const pack = packFor(typeof locale === 'string' ? locale : null);
-  if (!event.userWorkspaceId || !context.workspaceMemberId) {
-    return new TwentyResponse({ ok: false, problems: describeAll([{ source: 'lifecycle', code: 'NOT_ALLOWED' }], pack.code) }, { status: 403 });
-  }
-  try {
-    const outcome = await runAction(body, makeDeps());
-    return new TwentyResponse(outcome.body, { status: outcome.status });
-  } catch (error) {
-    // runAction answers every failure itself: this is a failure to build its dependencies.
-    const reference = newReference();
-    logLine({ reference, step: 'setup', error: error instanceof Error ? error.message : String(error) });
-    return new TwentyResponse({ ok: false, problems: [{ code: 'UNEXPECTED', message: pack.messages.unexpected(reference) }] }, { status: 500 });
-  }
-}
+/** Answers a button (src/lib/route.ts: refused without a signed-in person, runAction's outcome as the answer). */
+export const respond = (event: RouteEvent, context: RouteContext, makeDeps: () => ActionDeps): Promise<TwentyResponse> =>
+  respondTo(event, context, { name: ROUTE, run: runAction, makeDeps });
 
 export default defineLogicFunction({
   universalIdentifier: id('logicFunction.billingAction'),

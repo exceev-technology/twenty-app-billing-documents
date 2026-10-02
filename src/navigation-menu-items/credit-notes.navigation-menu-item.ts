@@ -7,5 +7,5 @@ export default defineNavigationMenuItem({
   type: NavigationMenuItemType.OBJECT,
   targetObjectUniversalIdentifier: objectId('billingCreditNote'),
   folderUniversalIdentifier: id('navigationMenuItem.billing'),
-  position: 2,
+  position: 3,
 });

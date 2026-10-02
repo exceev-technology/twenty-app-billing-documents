@@ -12,7 +12,7 @@ import { APP_OBJECTS, STANDARD_TARGETS } from '../schema/names.ts';
 export default defineApplicationRole({
   universalIdentifier: id('role.billing'),
   label: 'Billing Documents',
-  description: 'Reads and writes the app’s own records, reads companies, people and opportunities, writes timeline messages, and uploads PDFs. Never destroys a record.',
+  description: 'Reads and writes the app’s own records, reads companies, people and opportunities, writes timeline messages, uploads PDFs, and sends email for the person who clicks Send by email. Never destroys a record.',
   canUpdateAllSettings: false,
   canAccessAllTools: false,
   canReadAllObjectRecords: false,
@@ -46,5 +46,6 @@ export default defineApplicationRole({
       canDestroyObjectRecords: false,
     },
   ],
-  permissionFlagUniversalIdentifiers: [SystemPermissionFlag.UPLOAD_FILE],
+  // SEND_EMAIL_TOOL: sendEmail checks it on the app's role as well as on the person's (email spec §3).
+  permissionFlagUniversalIdentifiers: [SystemPermissionFlag.UPLOAD_FILE, SystemPermissionFlag.SEND_EMAIL_TOOL],
 });

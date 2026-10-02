@@ -33,7 +33,7 @@ function deps(rest: RestLike, over: Partial<RestStoreDeps> = {}): RestStoreDeps 
     fetchFile: async () => ({ ok: true, status: 200, arrayBuffer: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer }),
     timelineTypes: async () => [{ id: 'type-issued', universalIdentifier: 'uid-issued', isActive: true }, { id: 'type-fix', universalIdentifier: 'uid-fix', isActive: true }],
     fieldId: (object, field) => `field:${object}.${field}`,
-    timelineTypeIds: { ISSUED: 'uid-issued', CORRECTION: 'uid-fix' },
+    timelineTypeIds: { ISSUED: 'uid-issued', CORRECTION: 'uid-fix', INVOICED: 'uid-invoiced', CREDITED: 'uid-credited', CANCELLED: 'uid-cancelled', SENT: 'uid-sent' },
     log: (entry) => logs.push(entry),
     logs,
     ...over,
@@ -183,4 +183,23 @@ test('a muted or missing timeline type, or a failed write, is logged and never t
     timeline: 'failed', kind: 'ISSUED', object: 'billingInvoice', recordId: 'r1',
     error: 'Request failed with status 400', messages: ['Active timeline activity type was not found'],
   }]);
+});
+
+test('the caller creates a record with their own token, and a refusal is NOT_ALLOWED', async () => {
+  const { rest, calls } = fakeRest(() => ({ data: { createBillingInvoice: { id: 'inv-9', status: 'DRAFT' } } }));
+  assert.deepEqual(await restCallerStore(rest).create('billingInvoices', { status: 'DRAFT' }), { id: 'inv-9', status: 'DRAFT' });
+  assert.deepEqual(calls, [{ method: 'POST', path: '/rest/billingInvoices', body: { status: 'DRAFT' }, query: undefined }]);
+  const refused = fakeRest(() => restError(400, { statusCode: 400, error: 'Error', messages: ['Entity performing the request does not have permission'], code: 'PERMISSION_DENIED' }));
+  await assert.rejects(restCallerStore(refused.rest).create('billingInvoices', {}), NotAllowedError);
+});
+
+test('the caller reads with their own token: a record hidden from them is null, a refusal NOT_ALLOWED', async () => {
+  const { rest, calls } = fakeRest((call) =>
+    call.path === '/rest/billingInvoices/r1' ? { data: { billingInvoice: { id: 'r1', number: 'F2026-0001' } } } : restError(404, { messages: ['Record not found'] }),
+  );
+  assert.deepEqual(await restCallerStore(rest).get('billingInvoices', 'r1'), { id: 'r1', number: 'F2026-0001' });
+  assert.deepEqual(calls[0], { method: 'GET', path: '/rest/billingInvoices/r1', query: { depth: 0 } });
+  assert.equal(await restCallerStore(rest).get('billingInvoices', 'r2'), null);
+  const denied = fakeRest(() => restError(400, { statusCode: 400, error: 'Error', messages: ['Entity performing the request does not have permission'], code: 'PERMISSION_DENIED' }));
+  await assert.rejects(restCallerStore(denied.rest).get('billingInvoices', 'r1'), NotAllowedError);
 });
