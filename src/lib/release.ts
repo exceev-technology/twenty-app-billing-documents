@@ -249,3 +249,37 @@ export function parseReleaseArgs(argv: readonly string[]): ReleaseArgs {
   }
   return { packageOnly, tag };
 }
+
+/**
+ * Whether npm kept a `--tag` that was meant for the script. `npm run release:check --tag v0.1.0`,
+ * without the `--` before it, reads --tag as its own dist-tag option: the script is started with no
+ * argument, and with the tag in `npm_config_tag`. A check run that way would skip the tag, the
+ * changelog date, the gallery and the lock, so it is refused. (A `tag` set in an .npmrc or the
+ * environment is seen the same way; the message says what to do for both.)
+ */
+export function npmTookTag(env: Readonly<Record<string, string | undefined>>, tag: string | undefined): string | null {
+  if (tag !== undefined || !env.npm_config_tag) return null;
+  return 'npm took --tag for itself: run `npm run release:check -- --tag vX.Y.Z`, with the -- before --tag (if the tag comes from an .npmrc or the environment, unset it for this run).';
+}
+
+/**
+ * The last line of a passing check. Only the check of everything, with a tag, says it is ready to
+ * release: every other run lists what it did not look at, so that "ready" is never read as more
+ * than was checked.
+ */
+export function releaseConclusion(mode: { packageOnly: boolean; tag: string | undefined }, pkg: { name: string; version: string }): string {
+  if (mode.tag !== undefined && !mode.packageOnly) return `Ready to release ${pkg.name}@${pkg.version} as ${mode.tag}.`;
+  if (mode.tag !== undefined) {
+    return (
+      `The package and the tag ${mode.tag} are ready. Not checked: the tests, the typecheck and that no locked identifier changed: ` +
+      `run \`npm run release:check -- --tag ${mode.tag}\`, without --package-only, before tagging.`
+    );
+  }
+  if (mode.packageOnly) {
+    return (
+      'Only the package was checked, and it is ready. Not checked: the tests, the typecheck, the identifier lock, the tag, the changelog date and the gallery: ' +
+      'run `npm run release:check -- --tag vX.Y.Z` before tagging.'
+    );
+  }
+  return 'The package is ready. Not checked: the tag, the changelog date, the gallery and the identifier lock: run `npm run release:check -- --tag vX.Y.Z` before tagging.';
+}

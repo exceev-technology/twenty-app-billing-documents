@@ -7,7 +7,10 @@
 //   npm run release:check -- --package-only    only the build and the package (CI has run the tests)
 //
 // `--tag=v0.1.0` works as `--tag v0.1.0`. Any other argument is refused with the usage, before
-// anything runs: an argument that was ignored would skip checks and still say "ready".
+// anything runs: an argument that was ignored would skip checks and still say "ready". Keep the
+// `--` of `npm run release:check -- --tag v0.1.0`: without it npm takes --tag for itself, and the
+// script refuses. Only the run with --tag (and without --package-only) says "Ready to release":
+// the others end by naming what they did not check.
 //
 // The build is `twenty dev:build`, which needs no remote; the package is what
 // `npm pack --dry-run` lists in .twenty/output, the folder `twenty app:publish` publishes.
@@ -23,8 +26,8 @@ import app from '../src/application-config.ts';
 import { IDS } from '../src/ids.ts';
 import { lockViolations } from '../src/lib/id-lock.ts';
 import {
-  RELEASE_CHECK_USAGE, changelogProblem, galleryProblem, localPathProblems, packageProblems, parseReleaseArgs, tagProblem,
-  unlockedIdentifiers,
+  RELEASE_CHECK_USAGE, changelogProblem, galleryProblem, localPathProblems, npmTookTag, packageProblems, parseReleaseArgs, releaseConclusion,
+  tagProblem, unlockedIdentifiers,
 } from '../src/lib/release.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url)).replace(/\/$/, '');
@@ -47,6 +50,9 @@ const read = (name) => readFileSync(join(root, name), 'utf8');
 const parsed = parseReleaseArgs(process.argv.slice(2));
 if ('problem' in parsed) fail(`${parsed.problem}\n${RELEASE_CHECK_USAGE}`);
 const { packageOnly, tag } = parsed;
+// Before anything runs: a --tag that npm kept for itself would let the check skip what it was run for.
+const swallowed = npmTookTag(process.env, tag);
+if (swallowed) fail(swallowed);
 
 // Before the long steps: without the installed CLI the build cannot run.
 if (!existsSync(join(root, TWENTY))) fail(`${TWENTY} is not there: run \`npm ci\` in the checkout first.`);
@@ -113,4 +119,4 @@ if (problems.length > 0) {
   console.error(`\nNot ready to release (${problems.length}):\n${problems.map((problem) => `  - ${problem}`).join('\n')}`);
   process.exit(1);
 }
-console.log(`\nReady to release ${pkg.name}@${pkg.version}${tag ? ` as ${tag}` : ''}.`);
+console.log(`\n${releaseConclusion(parsed, pkg)}`);

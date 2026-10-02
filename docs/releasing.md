@@ -150,6 +150,12 @@ pictures, and leave out any record the image came with.
    match `package.json`, a version with no changelog section and an incomplete gallery. The
    workflow runs the same command before it publishes.
 
+   Keep the `--` before `--tag`: without it npm takes `--tag` for itself (it is npm's own
+   dist-tag option), and `release:check` refuses with `npm took --tag for itself`. Only this
+   run ends with `Ready to release twenty-app-billing-documents@X.Y.Z as vX.Y.Z.`: a run
+   without `--tag`, or with `--package-only`, ends by naming what it did not check, and is
+   not a release check.
+
    Push the tag, as above; never create the release in GitHub's interface. Creating it there
    pushes the tag too, and the workflow's last step, which creates the release itself, then
    fails because the release already exists, after the package has gone out.

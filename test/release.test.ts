@@ -4,8 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  RELEASE_CHECK_USAGE, RELEASE_GALLERY_MIN, changelogProblem, changelogSection, galleryProblem, localPathProblems, packageProblems,
-  parseReleaseArgs, tagProblem, unlockedIdentifiers,
+  RELEASE_CHECK_USAGE, RELEASE_GALLERY_MIN, changelogProblem, changelogSection, galleryProblem, localPathProblems, npmTookTag, packageProblems,
+  parseReleaseArgs, releaseConclusion, tagProblem, unlockedIdentifiers,
 } from '../src/lib/release.ts';
 
 const EXPECTED = { logo: 'public/logo.png', gallery: ['public/gallery/layouts.png'] };
@@ -286,4 +286,48 @@ test('the script stops on such an argument at once: exit 1, the usage, and no st
     assert.match(result.stderr, /^\nRelease check stopped: /, JSON.stringify(argv));
     assert.ok(result.stderr.includes(RELEASE_CHECK_USAGE), JSON.stringify(argv));
   }
+});
+
+test('npm takes --tag for itself when it is given without `--`, and the script says so instead of running without it', () => {
+  // `npm run release:check --tag v0.1.0`: npm reads --tag as its own dist-tag option, exports it as npm_config_tag,
+  // and hands the script no argument at all.
+  assert.match(npmTookTag({ npm_config_tag: 'v0.1.0' }, undefined)!, /^npm took --tag for itself: run `npm run release:check -- --tag vX\.Y\.Z`/);
+  // With the `--`, the script has its own --tag and npm_config_tag is not set.
+  assert.equal(npmTookTag({ npm_config_tag: 'v0.1.0' }, 'v0.1.0'), null);
+  assert.equal(npmTookTag({}, undefined), null);
+  assert.equal(npmTookTag({ npm_config_tag: '' }, undefined), null);
+});
+
+test('the script refuses at once when npm took --tag, before any step: exit 1 and the message, whatever the other arguments', () => {
+  const script = fileURLToPath(new URL('../scripts/release-check.mjs', import.meta.url));
+  for (const argv of [[], ['--package-only']]) {
+    const result = spawnSync(process.execPath, [script, ...argv], { encoding: 'utf8', timeout: 15_000, env: { ...process.env, npm_config_tag: 'v0.1.0' } });
+    assert.equal(result.status, 1, `${JSON.stringify(argv)}: ${result.stderr}`);
+    assert.equal(result.stdout, '', `${JSON.stringify(argv)} ran a step`);
+    assert.match(result.stderr, /^\nRelease check stopped: npm took --tag for itself: run `npm run release:check -- --tag vX\.Y\.Z`/, JSON.stringify(argv));
+  }
+});
+
+test('only a check of everything with a tag says "Ready to release", and the others say what they did not check', () => {
+  const pkg = { name: 'twenty-app-billing-documents', version: '0.1.0' };
+  assert.equal(releaseConclusion({ packageOnly: false, tag: 'v0.1.0' }, pkg), 'Ready to release twenty-app-billing-documents@0.1.0 as v0.1.0.');
+  assert.equal(
+    releaseConclusion({ packageOnly: false, tag: undefined }, pkg),
+    'The package is ready. Not checked: the tag, the changelog date, the gallery and the identifier lock: run `npm run release:check -- --tag vX.Y.Z` before tagging.',
+  );
+  const onlyPackage = releaseConclusion({ packageOnly: true, tag: undefined }, pkg);
+  assert.match(onlyPackage, /^Only the package was checked/);
+  assert.match(onlyPackage, /Not checked: the tests, the typecheck, the identifier lock, the tag, the changelog date and the gallery: run `npm run release:check -- --tag vX\.Y\.Z` before tagging\.$/);
+  const packageAndTag = releaseConclusion({ packageOnly: true, tag: 'v0.1.0' }, pkg);
+  assert.match(packageAndTag, /^The package and the tag v0\.1\.0 are ready\. Not checked: the tests, the typecheck and that no locked identifier changed/);
+  for (const mode of [{ packageOnly: true, tag: undefined }, { packageOnly: false, tag: undefined }, { packageOnly: true, tag: 'v0.1.0' }]) {
+    assert.doesNotMatch(releaseConclusion(mode, pkg), /Ready to release/, JSON.stringify(mode));
+  }
+});
+
+test('the script prints that conclusion and nothing else as its last line', () => {
+  const script = repository('scripts/release-check.mjs');
+  assert.match(script, /console\.log\(`\\n\$\{releaseConclusion\(parsed, pkg\)\}`\);\s*$/);
+  // The script's code (not its header, which explains the wording) never writes the sentence itself.
+  assert.doesNotMatch(script.split('\n').filter((line) => !line.startsWith('//')).join('\n'), /Ready to release/);
 });
