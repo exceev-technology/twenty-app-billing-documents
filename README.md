@@ -47,7 +47,7 @@ The presets are seeded in the background just after the install: wait until **Bi
 
 ## What it installs
 
-Fourteen objects, all prefixed `billing` so they never clash with objects you built yourself: profiles, identifier types, legal identifiers, issuers, tax codes and their components, catalog items, quotes, invoices, credit notes, their lines, and the numbering ledger. Companies, people and opportunities gain relations to them. A **Billing** folder in the sidebar holds quotes, invoices, credit notes, the overdue view, the catalog, tax codes and profiles.
+Fourteen objects, all prefixed `billing` so they never clash with objects you built yourself: profiles, identifier types, legal identifiers, issuers, tax codes and their components, catalog items, quotes, invoices, credit notes, their lines, and the numbering ledger. Companies, people and opportunities gain relations to them. A **Billing** folder in the sidebar holds quotes, invoices, credit notes, the overdue view, the catalog, tax codes, profiles and issuers.
 
 On install and on every upgrade, the app creates the country presets that are missing. It never changes a record that exists: your edits always win, and a preset you delete stays deleted.
 
