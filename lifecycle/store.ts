@@ -27,12 +27,16 @@ export type FileRef = { fileId: string; label: string };
 /** A PDF to store: its bytes, and the object and field it is uploaded for. */
 export type Upload = { bytes: Uint8Array; name: string; mime: string; object: string; field: string };
 
+/** The timeline activity types the app leaves rows of, by what the collapsed row says. */
+export type TimelineKind = 'ISSUED' | 'CORRECTION' | 'INVOICED' | 'CREDITED' | 'CANCELLED' | 'SENT';
+
 /**
  * A message left on a record's timeline, in the document's language. `kind` picks the
- * timeline activity type, whose label is what the collapsed row says: "issued" or
- * "put back a change to"; the text shows when the row is expanded.
+ * timeline activity type, whose label is what the collapsed row says ("issued",
+ * "put back a change to", "invoiced", "credited", "cancelled", "sent"); the text
+ * shows when the row is expanded.
  */
-export type TimelineEntry = { object: string; recordId: string; kind: 'ISSUED' | 'CORRECTION'; text: string };
+export type TimelineEntry = { object: string; recordId: string; kind: TimelineKind; text: string };
 
 /** A database event, as a trigger hands it to Lifecycle. */
 export type RecordEvent = {
@@ -58,8 +62,8 @@ export type Store = {
   timeline(entry: TimelineEntry): Promise<void>;
 };
 
-/** The caller's side of the route: one write, with the caller's own token. */
-export type CallerStore = Pick<Store, 'update'>;
+/** The caller's side of a route, with their own token: a read, and the first write (an update or a creation). */
+export type CallerStore = Pick<Store, 'get' | 'update' | 'create'>;
 
 /** A unique key refused a value another record holds. */
 export class DuplicateError extends Error {

@@ -1,4 +1,4 @@
-import type { LifecyclePack, StatusKey } from './pack.ts';
+import type { EmailFacts, EmailTemplate, EmailWords, LifecyclePack, StatusKey } from './pack.ts';
 
 const statuses: Record<StatusKey, string> = {
   DRAFT: 'Draft', ISSUED: 'Issued', SENT: 'Sent', PAID: 'Paid', CANCELLED: 'Cancelled',
@@ -12,6 +12,41 @@ const list = (names: readonly string[]): string =>
   names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 const correct = (kind: keyof typeof kinds): string =>
   kind === 'CREDIT_NOTE' ? 'An issued credit note cannot change.' : 'Correct it with a credit note.';
+
+const greeting = (buyer: string | null): string => (buyer ? `Hello ${buyer},` : 'Hello,');
+/** With no seller to sign, the closing stands alone: a comma would lead nowhere. */
+const signed = (seller: string): string => (seller ? `Kind regards,\n${seller}` : 'Kind regards');
+const bySeller = (seller: string): string => (seller ? ` from ${seller}` : '');
+const amount = (total: string | null): string => (total ? ` for ${total}` : '');
+const quoteName = ({ number, version }: EmailFacts): string => (version !== null && version > 1 ? `${number} (version ${version})` : number);
+/** A greeting, the paragraphs, and the seller's signature, a blank line apart. */
+const letter = (facts: EmailFacts, body: string): string => [greeting(facts.buyer), body, signed(facts.seller)].join('\n\n');
+
+const emails: Record<EmailTemplate, EmailWords> = {
+  INVOICE: {
+    subject: (facts) => `Invoice ${facts.number}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(facts, `Please find attached invoice ${facts.number}${amount(facts.total)}${facts.dueDate ? `, due on ${facts.dueDate}` : ''}.`),
+  },
+  REMINDER: {
+    subject: (facts) => `Reminder: invoice ${facts.number}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(
+        facts,
+        `Invoice ${facts.number}${amount(facts.total)} ${facts.dueDate ? `was due on ${facts.dueDate}` : 'is overdue'}, and we have not received its payment yet. Please find it attached again.\n\nIf you have already paid it, please disregard this message.`,
+      ),
+  },
+  CREDIT_NOTE: {
+    subject: (facts) => `Credit note ${facts.number}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(facts, `Please find attached credit note ${facts.number}${amount(facts.total)}${facts.corrects ? `, which corrects invoice ${facts.corrects}` : ''}.`),
+  },
+  QUOTE: {
+    subject: (facts) => `Quote ${quoteName(facts)}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(facts, `Please find attached our quote ${quoteName(facts)}${amount(facts.total)}${facts.validUntil ? `, valid until ${facts.validUntil}` : ''}.`),
+  },
+};
 
 export const en: LifecyclePack = {
   code: 'EN',
@@ -40,6 +75,41 @@ export const en: LifecyclePack = {
       `The ${documentType ? kinds[documentType] : 'document'} numbering sequence of ${value} is far behind the numbers already given: raise its last number.`,
     HELD_NUMBER_ELSEWHERE: ({ value }) =>
       `This document already holds the number ${value}, given under another issuer or period: put its issuer and issue date back to use it.`,
+    QUOTE_NOT_OPEN: ({ value }) => `This quote is ${statusName(value)}: only a draft, sent or accepted quote becomes an invoice.`,
+    ALREADY_INVOICED: ({ value }) =>
+      value
+        ? `This quote already has an invoice, ${value}: finish it, or delete it to start again.`
+        : 'This quote already has an invoice: finish it, or delete it to start again.',
+    NOT_ISSUED: () => 'This invoice is not issued: a draft is corrected by editing it.',
+    INVOICE_CANCELLED: ({ field }) =>
+      field === 'invoiceId'
+        ? 'The invoice this credit note corrects is cancelled: it has nothing left to credit.'
+        : 'This invoice is cancelled: it has nothing left to credit.',
+    NOTHING_TO_CREDIT: () => 'Everything on this invoice is credited already.',
+    REMAINDER_UNKNOWN: () =>
+      'A credit note against this invoice changed a price or added a line, so what remains cannot be worked out: use Credit note and adjust it.',
+    OVER_CREDIT: ({ value }) =>
+      value ? `This credit note credits more than remains on its invoice (line ${value}).` : 'This credit note credits more than remains on its invoice.',
+    NUMBERED_CREDIT_NOTE_PENDING: ({ value }) => `Credit note ${value} already holds a number: finish it (or correct it) before making another.`,
+    NOT_SENDABLE: ({ value, documentType }) => {
+      if (value === 'DELETED') return 'This document is deleted: restore it to send it.';
+      if (value === 'CANCELLED') return 'This invoice is cancelled: it cannot be sent.';
+      return documentType === 'CREDIT_NOTE'
+        ? 'Only an issued credit note can be sent: issue this one first.'
+        : 'Only an issued invoice can be sent: issue this one first.';
+    },
+    NO_PDF: ({ documentType }) => (documentType === 'QUOTE' ? 'This quote has no PDF yet: generate it first.' : 'This document has no PDF to attach.'),
+    NO_MAILBOX: ({ field }) =>
+      field === 'from'
+        ? 'The mailbox chosen is no longer connected to Twenty: close this form and open it again.'
+        : 'You have no mailbox connected to Twenty: connect yours in Settings → Accounts, then open this form again.',
+    MISSING_RECIPIENT: () => 'Add the address to send to.',
+    INVALID_RECIPIENT: ({ value }) => (value ? `${value} is not an email address.` : 'One of the addresses is not an email address.'),
+    TOO_MANY_RECIPIENTS: ({ value }) => (value ? `One email goes to at most ${value} addresses.` : 'This email has too many addresses.'),
+    MISSING_SUBJECT: () => 'Write a subject.',
+    MISSING_MESSAGE: () => 'Write a message.',
+    EMAIL_NOT_ALLOWED: () => 'Your role cannot send email: an administrator can allow it in Settings → Roles, under your role, “Send email”.',
+    SEND_FAILED: ({ value }) => (value ? `The email could not be sent: ${value}` : 'The email could not be sent.'),
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Some characters cannot be printed with the PDF’s font (${field}): ${value}`,
@@ -67,6 +137,7 @@ export const en: LifecyclePack = {
   },
   statuses,
   kinds: { QUOTE: 'quote', INVOICE: 'invoice', CREDIT_NOTE: 'credit note' },
+  emails,
   messages: {
     previewReady: 'Preview ready: it is in the PDF field.',
     issued: (_kind, number) => `Issued as ${number}.`,
@@ -85,6 +156,9 @@ export const en: LifecyclePack = {
         DRAFT: `An issued ${kinds[kind]} cannot return to Draft.`,
         CANCEL: `A numbered ${kinds[kind]} is cancelled through a credit note.`,
         INVOICED: 'A quote becomes Invoiced when it is turned into an invoice.',
+        NOT_ISSUED: 'Only an issued invoice can be Sent or Paid.',
+        UNINVOICE: 'This quote has an invoice, so it stays Invoiced: delete the invoice to reopen the quote.',
+        UNCANCEL: 'This invoice is cancelled by its credit notes, so it stays Cancelled.',
       }[rule];
       return `${why} The status was put back to ${back}.`;
     },
@@ -93,5 +167,20 @@ export const en: LifecyclePack = {
     ledgerChangePutBack: (fields) =>
       `This sequence has given out numbers: its issuer, document type and period are fixed, and its last number can only rise. The change to ${list(fields)} was put back.`,
     ledgerRestored: 'This sequence has given out numbers, so it cannot be deleted: it was restored.',
+    invoiceCreated: 'Draft invoice created from this quote.',
+    creditNoteCreated: (invoiceNumber) => `Draft credit note created for ${invoiceNumber}.`,
+    cancelledBy: (invoiceNumber, creditNoteNumber) => `${invoiceNumber} is cancelled by credit note ${creditNoteNumber}.`,
+    alreadyCredited: (invoiceNumber) => `${invoiceNumber} is cancelled: its credit notes already credit all of it.`,
+    invoiceNowCancelled: (invoiceNumber) => `Invoice ${invoiceNumber} is now cancelled.`,
+    cancellationReason: (invoiceNumber) => `Cancellation of invoice ${invoiceNumber}`,
+    invoicedTimeline: (subject) => (subject ? `Draft invoice “${subject}” created from this quote.` : 'Draft invoice created from this quote.'),
+    creditedTimeline: (creditNoteNumber, total) => `Credit note ${creditNoteNumber} issued against this invoice, for ${total}.`,
+    cancelledTimeline: (creditNoteNumber) => `Cancelled by credit note ${creditNoteNumber}.`,
+    quoteReopened: 'The draft invoice made from this quote was deleted: the quote is Accepted again.',
+    quoteReinvoiced: 'The invoice made from this quote was restored: the quote is Invoiced again.',
+    sentTo: (to) => `Sent to ${list(to)}.`,
+    sentNotMarked: (to, kind, ref) => `Sent to ${list(to)}, but the ${kinds[kind]} could not be marked as sent (ref ${ref}).`,
+    sendUnknown: (ref) => `The email may have gone: check your Sent folder before trying again (ref ${ref}).`,
+    sentTimeline: (to, cc, from) => `Email sent from ${from} to ${list(to)}${cc.length > 0 ? `, copied to ${list(cc)}` : ''}.`,
   },
 };

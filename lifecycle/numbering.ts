@@ -1,6 +1,7 @@
 import { EngineError, formatNumber, periodBounds, periodKey, sequenceOf, validatePattern, type NumberingReset } from '../engine/index.ts';
-import { LifecycleError, PACKS, type DocumentKind, type Language, type LifecyclePack } from './lang/pack.ts';
+import { LifecycleError, type DocumentKind, type LifecyclePack } from './lang/pack.ts';
 import { KINDS, type Kind } from './load.ts';
+import { packForIssuer } from './pack-for.ts';
 import { DuplicateError, leaveMessage, sourceOf, type RecordEvent, type Row, type Store, type Where } from './store.ts';
 
 /**
@@ -235,14 +236,6 @@ export function scopeOfRow(row: Row): Scope | null {
   if (!TYPES.includes(documentType as DocumentKind)) return null;
   if (typeof period !== 'string' || !PERIOD.test(period)) return null;
   return { issuerId, documentType: documentType as DocumentKind, periodKey: period };
-}
-
-/** The pack of an issuer's profile language: a ledger row has no language of its own. */
-export async function packForIssuer(store: Store, issuerId: unknown): Promise<LifecyclePack> {
-  const issuer = typeof issuerId === 'string' && issuerId !== '' ? await store.get('billingIssuers', issuerId) : null;
-  const profileId = issuer?.profileId;
-  const profile = typeof profileId === 'string' && profileId !== '' ? await store.get('billingProfiles', profileId) : null;
-  return PACKS[profile?.language as Language] ?? PACKS.EN;
 }
 
 async function tellLedger(store: Store, row: Row, text: (pack: LifecyclePack) => string): Promise<void> {

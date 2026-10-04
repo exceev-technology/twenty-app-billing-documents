@@ -140,3 +140,14 @@ test('a line whose tax code was deleted loads without it, so the Engine reports 
   const loaded = await loadDocument(w.app, INVOICE, invoice.id);
   assert.equal(loaded?.taxCodes.has(code.id), false);
 });
+
+test('a credit note loads its invoice’s issued credit notes, itself and the drafts left out', async () => {
+  const w = workspace();
+  const issuedNote = w.addCreditNote({ invoiceId: w.invoice.id, status: 'ISSUED', snapshot: { record: {} } });
+  w.addCreditNote({ invoiceId: w.invoice.id, status: 'DRAFT' });
+  const mine = w.addCreditNote({ invoiceId: w.invoice.id });
+  const loaded = await loadDocument(w.app, KINDS.billingCreditNote, mine.id);
+  assert.deepEqual(loaded?.credits.map((note) => note.id), [issuedNote.id]);
+  const invoiceLoaded = await loadDocument(w.app, KINDS.billingInvoice, w.invoice.id);
+  assert.deepEqual(invoiceLoaded?.credits, []);
+});

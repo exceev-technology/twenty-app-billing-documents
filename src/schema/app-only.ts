@@ -15,7 +15,7 @@ export const APP_ONLY_FIELDS = {
   billingCreditNote: [...DOCUMENT, 'issuedAt'],
   billingQuoteLine: ['lineTotal'],
   billingInvoiceLine: ['lineTotal'],
-  billingCreditNoteLine: ['lineTotal'],
+  billingCreditNoteLine: ['lineTotal', 'invoiceLine'],
   billingSequence: ['scopeKey'],
 } as const satisfies Record<string, readonly string[]>;
 

@@ -1,6 +1,6 @@
 import { MetadataApiClient } from 'twenty-client-sdk/metadata';
 import { RestApiClient } from 'twenty-client-sdk/rest';
-import type { CallerStore, Store } from '../../lifecycle/store.ts';
+import type { CallerStore, Store, TimelineKind } from '../../lifecycle/store.ts';
 import { TIMELINE_TYPE_KEYS } from '../front-components/timeline-message.ts';
 import { fieldId } from '../schema/fields.ts';
 import { id } from './id.ts';
@@ -23,10 +23,11 @@ export type UploadClient = { uploadFile: PositionalUpload | OptionsUpload };
  * A function's `twenty-client-sdk/metadata` is external to its bundle, so at
  * runtime the class is the server's, not the version this app is built with, and
  * Twenty 2.42 changed `uploadFile` from positional arguments to one options
- * object. The app supports both (Twenty >= 2.40), so the shape is read from the
- * declared parameters: the options form declares one, the positional form two
- * (a parameter with a default, here the content type, and those after it are not
- * counted).
+ * object. The app reads the shape from the declared parameters, so it needs no
+ * version check: the options form declares one, the positional form two (a
+ * parameter with a default, here the content type, and those after it are not
+ * counted). The package requires Twenty 2.43.0 or later, whose client takes the
+ * options object; the positional branch stays, tested, for a client that does not.
  */
 const takesOptions = (uploadFile: UploadClient['uploadFile']): uploadFile is OptionsUpload => uploadFile.length <= 1;
 
@@ -37,6 +38,9 @@ export function uploadWith(client: UploadClient, bytes: Uint8Array, name: string
     ? client.uploadFile({ fileBuffer, filename: name, fieldMetadataUniversalIdentifier: fieldUniversalIdentifier })
     : client.uploadFile(fileBuffer, name, mime, fieldUniversalIdentifier);
 }
+
+/** Typed by kind, so tsc refuses a timeline kind that has no registry key (its rows would be skipped at runtime). */
+const TIMELINE_KEYS: Record<TimelineKind, string> = TIMELINE_TYPE_KEYS;
 
 /** The app's store: reads, and every write after the caller's first. */
 export function appStore(log: (entry: Record<string, unknown>) => void): Store {
@@ -51,7 +55,7 @@ export function appStore(log: (entry: Record<string, unknown>) => void): Store {
       return result.timelineActivityTypes as TimelineType[];
     },
     fieldId,
-    timelineTypeIds: { ISSUED: id(TIMELINE_TYPE_KEYS.ISSUED), CORRECTION: id(TIMELINE_TYPE_KEYS.CORRECTION) },
+    timelineTypeIds: Object.fromEntries(Object.entries(TIMELINE_KEYS).map(([kind, key]) => [kind, id(key)])) as Record<TimelineKind, string>,
     log,
   });
 }

@@ -1,0 +1,51 @@
+name: Release
+
+# A pushed tag vX.Y.Z publishes the package to npm and creates the GitHub release.
+# What the maintainer sets up first (the npm account, a token or a trusted publisher)
+# is in docs/releasing.md.
+on:
+  push:
+    tags: ['v*']
+
+# contents: the GitHub release. id-token: npm provenance, and npm trusted publishing.
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # A hung step would otherwise hold id-token: write for GitHub's six-hour default.
+    timeout-minutes: 30
+    steps:
+      # No credentials left in .git/config: npm ci's install scripts run later in this job.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The tagged commit is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      # No npm cache here: this job holds id-token: write, and a restored cache is not ours.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: npm 11.5.1 or later, which trusted publishing needs
+        run: |
+          npm --version
+          test "$(printf '%s\n' 11.5.1 "$(npm --version)" | sort -V | head -n1)" = 11.5.1
+      - run: npm ci
+      - name: Release check
+        run: npm run release:check -- --tag "$GITHUB_REF_NAME"
+      # Inside GitHub Actions with id-token: write, app:publish adds --provenance itself.
+      # NPM_TOKEN may be absent once npm's trusted publishing is set up for this workflow.
+      - name: Publish to npm
+        run: ./node_modules/.bin/twenty app:publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: GitHub release
+        run: |
+          node scripts/release-notes.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+        env:
+          GH_TOKEN: ${{ github.token }}

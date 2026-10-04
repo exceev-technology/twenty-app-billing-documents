@@ -1,12 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PACKS, describe, describeAll, packFor, type LifecyclePack } from '../../lifecycle/lang/pack.ts';
+import { PACKS, describe, describeAll, packFor, type EmailFacts, type LifecyclePack } from '../../lifecycle/lang/pack.ts';
 
 const LIFECYCLE_CODES = [
   'NOT_ALLOWED', 'WRONG_STATUS', 'ALREADY_ISSUED', 'MISSING_ISSUER', 'MISSING_PROFILE', 'MISSING_BUYER',
   'MISSING_CURRENCY', 'MISSING_IDENTIFIER', 'INVALID_IDENTIFIER', 'IDENTIFIER_OWNER', 'MISSING_INVOICE',
   'INVOICE_NOT_ISSUED', 'INVOICE_MISMATCH', 'DATE_IN_FUTURE', 'DATE_BEFORE_LAST', 'DUE_BEFORE_ISSUE',
   'CLOCK_SKEW', 'LEDGER_BEHIND', 'HELD_NUMBER_ELSEWHERE',
+  'QUOTE_NOT_OPEN', 'ALREADY_INVOICED', 'NOT_ISSUED', 'INVOICE_CANCELLED', 'NOTHING_TO_CREDIT', 'REMAINDER_UNKNOWN', 'OVER_CREDIT',
+  'NUMBERED_CREDIT_NOTE_PENDING',
+  'NOT_SENDABLE', 'NO_PDF', 'NO_MAILBOX', 'MISSING_RECIPIENT', 'INVALID_RECIPIENT', 'TOO_MANY_RECIPIENTS', 'MISSING_SUBJECT',
+  'MISSING_MESSAGE', 'EMAIL_NOT_ALLOWED', 'SEND_FAILED',
 ];
 const RENDER_CODES = [
   'UNSUPPORTED_SCRIPT', 'UNSUPPORTED_IMAGE', 'UNKNOWN_TEMPLATE', 'UNKNOWN_LANGUAGE', 'QR_PAYLOAD_TOO_LONG',
@@ -28,8 +32,29 @@ function everyMessage(pack: LifecyclePack): string[] {
       m.statusPutBack('ISSUE', kind, 'Draft'), m.statusPutBack('DRAFT', kind, 'Issued'), m.statusPutBack('CANCEL', kind, 'Paid'),
     ]),
     m.documentRestored('QUOTE', 'D2026-0001'), m.createdAsDraft('QUOTE', 'Sent'), m.statusPutBack('INVOICED', 'QUOTE', 'Accepted'),
+    m.statusPutBack('NOT_ISSUED', 'INVOICE', 'Draft'), m.statusPutBack('UNINVOICE', 'QUOTE', 'Invoiced'), m.statusPutBack('UNCANCEL', 'INVOICE', 'Cancelled'),
+    m.invoiceCreated, m.creditNoteCreated('F2026-0001'), m.cancelledBy('F2026-0001', 'AV2026-0002'),
+    m.alreadyCredited('F2026-0001'), m.invoiceNowCancelled('F2026-0001'), m.cancellationReason('F2026-0001'),
+    m.invoicedTimeline('Identité visuelle'), m.invoicedTimeline(''), m.creditedTimeline('AV2026-0001', '120.00 EUR'),
+    m.cancelledTimeline('AV2026-0002'), m.quoteReopened, m.quoteReinvoiced,
+    m.sentTo(['camille@calibre.example']), m.sentTo(['a@x.example', 'b@x.example']),
+    ...(['QUOTE', 'INVOICE', 'CREDIT_NOTE'] as const).map((kind) => m.sentNotMarked(['camille@calibre.example'], kind, '7f3a09')),
+    m.sendUnknown('7f3a09'),
+    m.sentTimeline(['camille@calibre.example'], [], 'bonjour@verdal.example'),
+    m.sentTimeline(['a@x.example'], ['b@x.example', 'c@x.example'], 'bonjour@verdal.example'),
     m.ledgerDuplicateRemoved, m.ledgerChangePutBack(['Last number']), m.ledgerRestored,
   ];
+}
+
+const TEMPLATES = ['INVOICE', 'REMINDER', 'CREDIT_NOTE', 'QUOTE'] as const;
+/** Every fact a template can use, then none but the number. */
+const ALL_FACTS: EmailFacts = {
+  number: 'F2026-0017', version: 2, seller: 'Acme', total: '1\u00a0234,00\u00a0€', dueDate: '31/10/2026', validUntil: '31/10/2026', corrects: 'F2026-0001', buyer: 'Maria',
+};
+const NO_FACTS: EmailFacts = { number: 'F2026-0017', version: null, seller: '', total: null, dueDate: null, validUntil: null, corrects: null, buyer: null };
+
+function everyEmail(pack: LifecyclePack): string[] {
+  return TEMPLATES.flatMap((template) => [ALL_FACTS, NO_FACTS].flatMap((facts) => [pack.emails[template].subject(facts), pack.emails[template].message(facts)]));
 }
 
 test('both packs word every Lifecycle problem, and every Rendering problem', () => {
@@ -91,6 +116,31 @@ test('a number held under another issuer or period is worded in both languages',
   );
 });
 
+test('OVER_CREDIT names the line when it can, and INVOICE_CANCELLED speaks of the corrected invoice from a credit note', () => {
+  assert.equal(PACKS.EN.problems.OVER_CREDIT({ value: '2' }), 'This credit note credits more than remains on its invoice (line 2).');
+  assert.equal(PACKS.EN.problems.OVER_CREDIT({}), 'This credit note credits more than remains on its invoice.');
+  assert.match(PACKS.EN.problems.INVOICE_CANCELLED({ field: 'invoiceId' }), /^The invoice this credit note corrects is cancelled/);
+  assert.match(PACKS.FR.problems.INVOICE_CANCELLED({}), /^Cette facture est annulée/);
+  assert.equal(PACKS.FR.messages.cancellationReason('F2026-0001'), 'Annulation de la facture F2026-0001');
+});
+
+test('a numbered credit note left unissued is named, to be finished before another is made', () => {
+  assert.equal(
+    PACKS.EN.problems.NUMBERED_CREDIT_NOTE_PENDING({ value: 'AV2026-0001' }),
+    'Credit note AV2026-0001 already holds a number: finish it (or correct it) before making another.',
+  );
+  assert.equal(
+    PACKS.FR.problems.NUMBERED_CREDIT_NOTE_PENDING({ value: 'AV2026-0001' }),
+    'L’avoir AV2026-0001 porte déjà un numéro\u00a0: terminez-le (ou corrigez-le) avant d’en créer un autre.',
+  );
+});
+
+test('ALREADY_INVOICED names the invoice when it has a number or a subject, and words it without one otherwise', () => {
+  assert.equal(PACKS.EN.problems.ALREADY_INVOICED({ value: 'F2026-0001' }), 'This quote already has an invoice, F2026-0001: finish it, or delete it to start again.');
+  assert.equal(PACKS.EN.problems.ALREADY_INVOICED({}), 'This quote already has an invoice: finish it, or delete it to start again.');
+  assert.equal(PACKS.FR.problems.ALREADY_INVOICED({}), 'Ce devis a déjà une facture\u00a0: terminez-la, ou supprimez-la pour recommencer.');
+});
+
 test('a problem of each origin is worded, with the field it names', () => {
   assert.deepEqual(describe({ source: 'lifecycle', code: 'MISSING_IDENTIFIER', field: 'seller', value: 'SIREN' }, 'EN'), {
     code: 'MISSING_IDENTIFIER', message: 'The seller has no SIREN.', field: 'seller',
@@ -129,6 +179,130 @@ test('French messages don’t take a plain space before : ; ? ! or inside « »'
     ...LIFECYCLE_CODES.map((code) => fr.problems[code as 'NOT_ALLOWED'](DETAILS)),
     ...RENDER_CODES.map((code) => fr.renderProblems[code as 'UNSUPPORTED_SCRIPT'](DETAILS)),
     ...everyMessage(fr),
+    ...everyEmail(fr),
   ];
   for (const text of texts) assert.doesNotMatch(text, / [:;?!]|« | »/, text);
+});
+
+test('both packs word every email template, with every fact or none, and never print a missing one', () => {
+  for (const pack of [PACKS.EN, PACKS.FR]) {
+    assert.deepEqual(Object.keys(pack.emails).sort(), [...TEMPLATES].sort(), pack.code);
+    for (const text of everyEmail(pack)) {
+      filled(text, `${pack.code} email`);
+      assert.doesNotMatch(text, /null|undefined|NaN/, text);
+    }
+  }
+});
+
+test('the English invoice’s email is pinned exactly, its date as the PDF prints it, and it greets no one by name when no person is billed', () => {
+  const facts = { ...NO_FACTS, seller: 'Acme', total: '1,234.00 €', dueDate: '31/10/2026', buyer: 'Maria' };
+  assert.equal(PACKS.EN.emails.INVOICE.subject(facts), 'Invoice F2026-0017 from Acme');
+  assert.equal(
+    PACKS.EN.emails.INVOICE.message(facts),
+    'Hello Maria,\n\nPlease find attached invoice F2026-0017 for 1,234.00 €, due on 31/10/2026.\n\nKind regards,\nAcme',
+  );
+  assert.match(PACKS.EN.emails.INVOICE.message({ ...facts, buyer: null }), /^Hello,\n\n/);
+  assert.match(PACKS.FR.emails.INVOICE.message({ ...facts, buyer: null }), /^Bonjour,\n\n/);
+});
+
+test('the French messages are pinned exactly: the invoice, a credit note and a quote', () => {
+  assert.equal(PACKS.FR.emails.INVOICE.subject(ALL_FACTS), 'Facture F2026-0017 d’Acme');
+  assert.equal(
+    PACKS.FR.emails.INVOICE.message(ALL_FACTS),
+    'Bonjour Maria,\n\nVeuillez trouver ci-joint la facture F2026-0017 d’un montant de 1\u00a0234,00\u00a0€, à régler au plus tard le 31/10/2026.\n\nCordialement,\nAcme',
+  );
+  assert.equal(PACKS.FR.emails.CREDIT_NOTE.subject(ALL_FACTS), 'Avoir F2026-0017 d’Acme');
+  assert.equal(
+    PACKS.FR.emails.CREDIT_NOTE.message(ALL_FACTS),
+    'Bonjour Maria,\n\nVeuillez trouver ci-joint l’avoir F2026-0017 d’un montant de 1\u00a0234,00\u00a0€, qui corrige la facture F2026-0001.\n\nCordialement,\nAcme',
+  );
+  assert.equal(PACKS.FR.emails.QUOTE.subject(ALL_FACTS), 'Devis F2026-0017 (version 2) d’Acme');
+  assert.equal(
+    PACKS.FR.emails.QUOTE.message(ALL_FACTS),
+    'Bonjour Maria,\n\nVeuillez trouver ci-joint notre devis F2026-0017 (version 2) d’un montant de 1\u00a0234,00\u00a0€, valable jusqu’au 31/10/2026.\n\nCordialement,\nAcme',
+  );
+  assert.equal(
+    PACKS.FR.emails.REMINDER.message(ALL_FACTS),
+    'Bonjour Maria,\n\nSauf erreur de notre part, la facture F2026-0017 d’un montant de 1\u00a0234,00\u00a0€, échue le 31/10/2026, n’est pas encore réglée. Vous la trouverez de nouveau ci-jointe.\n\nSi vous l’avez déjà réglée, merci de ne pas tenir compte de ce message.\n\nCordialement,\nAcme',
+  );
+});
+
+test('the English credit note’s and quote’s messages are pinned exactly', () => {
+  assert.equal(
+    PACKS.EN.emails.CREDIT_NOTE.message(ALL_FACTS),
+    'Hello Maria,\n\nPlease find attached credit note F2026-0017 for 1\u00a0234,00\u00a0€, which corrects invoice F2026-0001.\n\nKind regards,\nAcme',
+  );
+  assert.equal(
+    PACKS.EN.emails.QUOTE.message(ALL_FACTS),
+    'Hello Maria,\n\nPlease find attached our quote F2026-0017 (version 2) for 1\u00a0234,00\u00a0€, valid until 31/10/2026.\n\nKind regards,\nAcme',
+  );
+});
+
+test('a signature with no seller ends with the closing alone, never a bare comma, in either language', () => {
+  for (const [pack, closing] of [[PACKS.EN, 'Kind regards'], [PACKS.FR, 'Cordialement']] as const) {
+    for (const template of TEMPLATES) {
+      const message = pack.emails[template].message({ ...ALL_FACTS, seller: '' });
+      assert.ok(message.endsWith(`.\n\n${closing}`), `${pack.code} ${template}: ${message}`);
+      assert.doesNotMatch(message, /,\s*$/, `${pack.code} ${template}`);
+    }
+  }
+});
+
+test('the two recipient problems never print “undefined” when they have no value to name', () => {
+  for (const pack of [PACKS.EN, PACKS.FR]) {
+    for (const code of ['INVALID_RECIPIENT', 'TOO_MANY_RECIPIENTS'] as const) {
+      for (const details of [{}, { field: 'to' }, { value: '' }]) {
+        const text = pack.problems[code](details);
+        filled(text, `${pack.code} ${code}`);
+        assert.doesNotMatch(text, /undefined|null|NaN/, `${pack.code} ${code}`);
+      }
+    }
+  }
+  assert.equal(PACKS.EN.problems.INVALID_RECIPIENT({}), 'One of the addresses is not an email address.');
+  assert.equal(PACKS.FR.problems.INVALID_RECIPIENT({}), 'Une des adresses n’est pas une adresse e-mail.');
+  assert.equal(PACKS.EN.problems.TOO_MANY_RECIPIENTS({}), 'This email has too many addresses.');
+  assert.equal(PACKS.FR.problems.TOO_MANY_RECIPIENTS({}), 'Cet e-mail a trop d’adresses.');
+});
+
+test('too many recipients is worded naturally in French, with the limit', () => {
+  assert.equal(PACKS.FR.problems.TOO_MANY_RECIPIENTS({ value: '20' }), 'Un e-mail ne peut pas être envoyé à plus de 20 adresses.');
+  assert.equal(PACKS.EN.problems.TOO_MANY_RECIPIENTS({ value: '20' }), 'One email goes to at most 20 addresses.');
+});
+
+test('French elides de before a vowel, œ or æ, but never before an h, which may be aspirated, and a quote is named by its version from the second on', () => {
+  assert.equal(PACKS.FR.emails.INVOICE.subject({ ...NO_FACTS, seller: 'Atelier Nord' }), 'Facture F2026-0017 d’Atelier Nord');
+  assert.equal(PACKS.FR.emails.INVOICE.subject({ ...NO_FACTS, seller: 'Verdal Studio' }), 'Facture F2026-0017 de Verdal Studio');
+  for (const [seller, expected] of [
+    ['Œuvre Vive', 'd’Œuvre Vive'], ['œuvres Nord', 'd’œuvres Nord'], ['Æon Conseil', 'd’Æon Conseil'], ['ægir', 'd’ægir'], ['Éditions Nord', 'd’Éditions Nord'],
+    // An aspirated h does not elide: "de Hollande", "de Hugo". A mute h would, but the spelling does not tell them apart.
+    ['Hollande Conseil', 'de Hollande Conseil'], ['Hugo & Fils', 'de Hugo & Fils'], ['Hélène Studio', 'de Hélène Studio'],
+  ] as const) {
+    assert.equal(PACKS.FR.emails.INVOICE.subject({ ...NO_FACTS, seller }), `Facture F2026-0017 ${expected}`, seller);
+  }
+  assert.equal(PACKS.EN.emails.QUOTE.subject({ ...NO_FACTS, number: 'D2026-0004', version: 1, seller: 'Acme' }), 'Quote D2026-0004 from Acme');
+  assert.equal(PACKS.EN.emails.QUOTE.subject({ ...NO_FACTS, number: 'D2026-0004', version: 2, seller: 'Acme' }), 'Quote D2026-0004 (version 2) from Acme');
+});
+
+test('the email problems say what to do, and the messages name who received the email', () => {
+  const en = PACKS.EN;
+  assert.equal(en.problems.INVALID_RECIPIENT({ field: 'to', value: 'camille@calibre' }), 'camille@calibre is not an email address.');
+  assert.equal(en.problems.NOT_SENDABLE({ value: 'DRAFT', documentType: 'CREDIT_NOTE' }), 'Only an issued credit note can be sent: issue this one first.');
+  assert.equal(en.problems.NOT_SENDABLE({ value: 'DRAFT', documentType: 'INVOICE' }), 'Only an issued invoice can be sent: issue this one first.');
+  assert.equal(en.problems.NOT_SENDABLE({ value: 'CANCELLED', documentType: 'INVOICE' }), 'This invoice is cancelled: it cannot be sent.');
+  assert.equal(en.problems.NOT_SENDABLE({ value: 'DELETED', documentType: 'QUOTE' }), 'This document is deleted: restore it to send it.');
+  assert.equal(en.problems.NO_PDF({ documentType: 'QUOTE' }), 'This quote has no PDF yet: generate it first.');
+  assert.match(en.problems.NO_MAILBOX({}), /Settings → Accounts/);
+  assert.match(en.problems.NO_MAILBOX({ field: 'from' }), /no longer connected/);
+  assert.match(en.problems.EMAIL_NOT_ALLOWED({}), /Settings → Roles.*“Send email”/);
+  assert.equal(en.problems.SEND_FAILED({ value: 'Invalid recipient' }), 'The email could not be sent: Invalid recipient');
+  assert.equal(en.problems.SEND_FAILED({}), 'The email could not be sent.');
+  assert.equal(en.messages.sentTo(['camille@calibre.example']), 'Sent to camille@calibre.example.');
+  assert.equal(
+    en.messages.sentNotMarked(['camille@calibre.example'], 'INVOICE', 'ref-7f3a'),
+    'Sent to camille@calibre.example, but the invoice could not be marked as sent (ref ref-7f3a).',
+  );
+  assert.equal(
+    PACKS.FR.messages.sentTimeline(['camille@calibre.example'], ['compta@calibre.example'], 'bonjour@verdal.example'),
+    'E-mail envoyé depuis bonjour@verdal.example à camille@calibre.example, en copie à compta@calibre.example.',
+  );
 });

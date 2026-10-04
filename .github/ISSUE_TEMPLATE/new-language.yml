@@ -1,0 +1,27 @@
+name: New language
+description: Ask for, or offer, a language for PDFs and messages.
+labels: [language]
+body:
+  - type: input
+    id: language
+    attributes:
+      label: Language
+      placeholder: Spanish (es)
+    validations:
+      required: true
+  - type: dropdown
+    id: script
+    attributes:
+      label: Its script
+      description: The embedded font draws Latin, Greek and Cyrillic only.
+      options: [Latin, Greek, Cyrillic, Another script]
+    validations:
+      required: true
+  - type: dropdown
+    id: offer
+    attributes:
+      label: Will you write the language pack?
+      description: A language is two files, see CONTRIBUTING.md.
+      options: ["Yes, I will open a pull request", "No, I am asking for it"]
+    validations:
+      required: true

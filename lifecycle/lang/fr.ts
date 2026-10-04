@@ -1,4 +1,4 @@
-import type { LifecyclePack, StatusKey } from './pack.ts';
+import type { EmailFacts, EmailTemplate, EmailWords, LifecyclePack, StatusKey } from './pack.ts';
 
 const statuses: Record<StatusKey, string> = {
   DRAFT: 'Brouillon', ISSUED: 'Émise', SENT: 'Envoyée', PAID: 'Payée', CANCELLED: 'Annulée',
@@ -15,6 +15,53 @@ const thisOne = { QUOTE: 'Ce devis', INVOICE: 'Cette facture', CREDIT_NOTE: 'Cet
 const issued = { QUOTE: 'émis', INVOICE: 'émise', CREDIT_NOTE: 'émis' } as const;
 const correct = (kind: keyof typeof kinds): string =>
   kind === 'CREDIT_NOTE' ? 'Un avoir émis ne peut plus changer.' : 'Corrigez-la par un avoir.';
+
+/**
+ * "de Verdal Studio", "d’Atelier Nord", "d’Œuvre Vive". Before a vowel, œ or æ; never before an h: a mute h elides
+ * (d’Hélène) and an aspirated one does not (de Hollande, de Hugo), the spelling does not say which, and a name that
+ * stands unelided reads better than one wrongly elided.
+ */
+const ofSeller = (seller: string): string => (/^[aeiouyàâäéèêëîïôöùûüœæ]/i.test(seller) ? `d’${seller}` : `de ${seller}`);
+const greeting = (buyer: string | null): string => (buyer ? `Bonjour ${buyer},` : 'Bonjour,');
+/** With no seller to sign, the closing stands alone: a comma would lead nowhere. */
+const signed = (seller: string): string => (seller ? `Cordialement,\n${seller}` : 'Cordialement');
+const bySeller = (seller: string): string => (seller ? ` ${ofSeller(seller)}` : '');
+const amount = (total: string | null): string => (total ? ` d’un montant de ${total}` : '');
+const quoteName = ({ number, version }: EmailFacts): string => (version !== null && version > 1 ? `${number} (version ${version})` : number);
+/** A greeting, the paragraphs, and the seller's signature, a blank line apart. */
+const letter = (facts: EmailFacts, body: string): string => [greeting(facts.buyer), body, signed(facts.seller)].join('\n\n');
+/** Sent but not marked: "la facture n’a pas pu être marquée comme envoyée". */
+const notMarked = {
+  QUOTE: 'le devis n’a pas pu être marqué comme envoyé',
+  INVOICE: 'la facture n’a pas pu être marquée comme envoyée',
+  CREDIT_NOTE: 'l’avoir n’a pas pu être marqué comme envoyé',
+} as const;
+
+const emails: Record<EmailTemplate, EmailWords> = {
+  INVOICE: {
+    subject: (facts) => `Facture ${facts.number}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(facts, `Veuillez trouver ci-joint la facture ${facts.number}${amount(facts.total)}${facts.dueDate ? `, à régler au plus tard le ${facts.dueDate}` : ''}.`),
+  },
+  REMINDER: {
+    subject: (facts) => `Relance\u00a0: facture ${facts.number}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(
+        facts,
+        `Sauf erreur de notre part, la facture ${facts.number}${amount(facts.total)}${facts.dueDate ? `, échue le ${facts.dueDate},` : ''} n’est pas encore réglée. Vous la trouverez de nouveau ci-jointe.\n\nSi vous l’avez déjà réglée, merci de ne pas tenir compte de ce message.`,
+      ),
+  },
+  CREDIT_NOTE: {
+    subject: (facts) => `Avoir ${facts.number}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(facts, `Veuillez trouver ci-joint l’avoir ${facts.number}${amount(facts.total)}${facts.corrects ? `, qui corrige la facture ${facts.corrects}` : ''}.`),
+  },
+  QUOTE: {
+    subject: (facts) => `Devis ${quoteName(facts)}${bySeller(facts.seller)}`,
+    message: (facts) =>
+      letter(facts, `Veuillez trouver ci-joint notre devis ${quoteName(facts)}${amount(facts.total)}${facts.validUntil ? `, valable jusqu’au ${facts.validUntil}` : ''}.`),
+  },
+};
 
 export const fr: LifecyclePack = {
   code: 'FR',
@@ -43,6 +90,43 @@ export const fr: LifecyclePack = {
       `La séquence de numérotation de type ${documentType ? kinds[documentType] : 'document'}, pour ${value}, est très en retard sur les numéros déjà attribués\u00a0: augmentez son dernier numéro.`,
     HELD_NUMBER_ELSEWHERE: ({ value }) =>
       `Ce document porte déjà le numéro ${value}, attribué pour un autre émetteur ou une autre période\u00a0: rétablissez son émetteur et sa date d’émission pour l’utiliser.`,
+    QUOTE_NOT_OPEN: ({ value }) => `Ce devis est au statut ${statusName(value)}\u00a0: seul un devis brouillon, envoyé ou accepté devient une facture.`,
+    ALREADY_INVOICED: ({ value }) =>
+      value
+        ? `Ce devis a déjà une facture, ${value}\u00a0: terminez-la, ou supprimez-la pour recommencer.`
+        : 'Ce devis a déjà une facture\u00a0: terminez-la, ou supprimez-la pour recommencer.',
+    NOT_ISSUED: () => 'Cette facture n\u2019est pas émise\u00a0: un brouillon se corrige en le modifiant.',
+    INVOICE_CANCELLED: ({ field }) =>
+      field === 'invoiceId'
+        ? 'La facture que cet avoir corrige est annulée\u00a0: il n\u2019y reste rien à créditer.'
+        : 'Cette facture est annulée\u00a0: il n\u2019y reste rien à créditer.',
+    NOTHING_TO_CREDIT: () => 'Tout ce que porte cette facture est déjà crédité.',
+    REMAINDER_UNKNOWN: () =>
+      'Un avoir sur cette facture a changé un prix ou ajouté une ligne\u00a0: ce qui reste ne peut pas être calculé. Utilisez Credit note et ajustez l\u2019avoir.',
+    OVER_CREDIT: ({ value }) =>
+      value ? `Cet avoir crédite plus qu\u2019il ne reste sur sa facture (ligne ${value}).` : 'Cet avoir crédite plus qu\u2019il ne reste sur sa facture.',
+    NUMBERED_CREDIT_NOTE_PENDING: ({ value }) => `L’avoir ${value} porte déjà un numéro\u00a0: terminez-le (ou corrigez-le) avant d’en créer un autre.`,
+    NOT_SENDABLE: ({ value, documentType }) => {
+      if (value === 'DELETED') return 'Ce document est supprimé\u00a0: restaurez-le pour l’envoyer.';
+      if (value === 'CANCELLED') return 'Cette facture est annulée\u00a0: elle ne peut pas être envoyée.';
+      return documentType === 'CREDIT_NOTE'
+        ? 'Seul un avoir émis peut être envoyé\u00a0: émettez celui-ci d’abord.'
+        : 'Seule une facture émise peut être envoyée\u00a0: émettez celle-ci d’abord.';
+    },
+    NO_PDF: ({ documentType }) =>
+      documentType === 'QUOTE' ? 'Ce devis n’a pas encore de PDF\u00a0: générez-le d’abord.' : 'Ce document n’a pas de PDF à joindre.',
+    NO_MAILBOX: ({ field }) =>
+      field === 'from'
+        ? 'La boîte mail choisie n’est plus connectée à Twenty\u00a0: fermez ce formulaire et rouvrez-le.'
+        : 'Aucune boîte mail n’est connectée à Twenty à votre nom\u00a0: connectez la vôtre dans Paramètres → Comptes, puis rouvrez ce formulaire.',
+    MISSING_RECIPIENT: () => 'Indiquez l’adresse du destinataire.',
+    INVALID_RECIPIENT: ({ value }) => (value ? `${value} n’est pas une adresse e-mail.` : 'Une des adresses n’est pas une adresse e-mail.'),
+    TOO_MANY_RECIPIENTS: ({ value }) => (value ? `Un e-mail ne peut pas être envoyé à plus de ${value} adresses.` : 'Cet e-mail a trop d’adresses.'),
+    MISSING_SUBJECT: () => 'Indiquez un objet.',
+    MISSING_MESSAGE: () => 'Écrivez un message.',
+    EMAIL_NOT_ALLOWED: () =>
+      'Votre rôle ne permet pas d’envoyer des e-mails\u00a0: un administrateur peut l’autoriser dans Paramètres → Rôles, sous votre rôle, «\u00a0Send email\u00a0».',
+    SEND_FAILED: ({ value }) => (value ? `L’e-mail n’a pas pu être envoyé\u00a0: ${value}` : 'L’e-mail n’a pas pu être envoyé.'),
   },
   renderProblems: {
     UNSUPPORTED_SCRIPT: ({ field, value }) => `Certains caractères ne peuvent pas être imprimés avec la police du PDF (${field})\u00a0: ${value}`,
@@ -70,6 +154,7 @@ export const fr: LifecyclePack = {
   },
   statuses,
   kinds,
+  emails,
   messages: {
     previewReady: 'Aperçu prêt\u00a0: il est dans le champ PDF.',
     issued: (kind, number) => `${kind === 'INVOICE' ? 'Émise' : 'Émis'} sous le numéro ${number}.`,
@@ -89,6 +174,9 @@ export const fr: LifecyclePack = {
         DRAFT: `${kind === 'INVOICE' ? 'Une facture émise' : 'Un avoir émis'} ne peut pas revenir au statut Brouillon.`,
         CANCEL: 'Une facture numérotée s’annule par un avoir.',
         INVOICED: 'Un devis passe au statut Facturé quand il devient une facture.',
+        NOT_ISSUED: 'Seule une facture émise peut être Envoyée ou Payée.',
+        UNINVOICE: 'Ce devis a une facture et reste Facturé\u00a0: supprimez la facture pour rouvrir le devis.',
+        UNCANCEL: 'Cette facture est annulée par ses avoirs\u00a0: elle reste Annulée.',
       }[rule];
       return `${why} Le statut a été remis à ${back}.`;
     },
@@ -97,5 +185,21 @@ export const fr: LifecyclePack = {
     ledgerChangePutBack: (fields) =>
       `Cette séquence a déjà attribué des numéros\u00a0: son émetteur, son type et sa période sont fixés, et son dernier numéro ne peut que monter. La modification de ${list(fields)} a été annulée.`,
     ledgerRestored: 'Cette séquence a déjà attribué des numéros et ne peut pas être supprimée\u00a0: elle a été restaurée.',
+    invoiceCreated: 'Facture brouillon créée à partir de ce devis.',
+    creditNoteCreated: (invoiceNumber) => `Avoir brouillon créé pour ${invoiceNumber}.`,
+    cancelledBy: (invoiceNumber, creditNoteNumber) => `${invoiceNumber} est annulée par l’avoir ${creditNoteNumber}.`,
+    alreadyCredited: (invoiceNumber) => `${invoiceNumber} est annulée\u00a0: ses avoirs la créditent déjà entièrement.`,
+    invoiceNowCancelled: (invoiceNumber) => `La facture ${invoiceNumber} est maintenant annulée.`,
+    cancellationReason: (invoiceNumber) => `Annulation de la facture ${invoiceNumber}`,
+    invoicedTimeline: (subject) =>
+      subject ? `Facture brouillon «\u00a0${subject}\u00a0» créée à partir de ce devis.` : 'Facture brouillon créée à partir de ce devis.',
+    creditedTimeline: (creditNoteNumber, total) => `Avoir ${creditNoteNumber} émis sur cette facture, pour ${total}.`,
+    cancelledTimeline: (creditNoteNumber) => `Annulée par l’avoir ${creditNoteNumber}.`,
+    quoteReopened: 'La facture brouillon issue de ce devis a été supprimée\u00a0: le devis est de nouveau Accepté.',
+    quoteReinvoiced: 'La facture issue de ce devis a été restaurée\u00a0: le devis est de nouveau Facturé.',
+    sentTo: (to) => `E-mail envoyé à ${list(to)}.`,
+    sentNotMarked: (to, kind, ref) => `E-mail envoyé à ${list(to)}, mais ${notMarked[kind]} (réf. ${ref}).`,
+    sendUnknown: (ref) => `L’e-mail est peut-être parti\u00a0: vérifiez vos éléments envoyés avant de réessayer (réf. ${ref}).`,
+    sentTimeline: (to, cc, from) => `E-mail envoyé depuis ${from} à ${list(to)}${cc.length > 0 ? `, en copie à ${list(cc)}` : ''}.`,
   },
 };

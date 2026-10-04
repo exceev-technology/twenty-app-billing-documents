@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkGate, resetOf, type GateContext } from '../../lifecycle/gate.ts';
-import { KINDS, loadDocument, type Loaded } from '../../lifecycle/load.ts';
+import { KINDS, LINE_FIELDS, loadDocument, type Loaded } from '../../lifecycle/load.ts';
 import { numberKeyOf } from '../../lifecycle/numbering.ts';
 import { TODAY, address, money, workspace, type Workspace } from './helpers/fixtures.ts';
 
@@ -203,4 +203,67 @@ test('all problems are reported together, in the order of the checks', async () 
   assert.deepEqual(codes(await loaded(w, invoice.id)), [
     'WRONG_STATUS', 'MISSING_ISSUER', 'MISSING_CURRENCY', 'MISSING_BUYER', 'DATE_IN_FUTURE', 'DUE_BEFORE_ISSUE',
   ]);
+});
+
+const CREDIT = KINDS.billingCreditNote;
+/** The fixture's three lines total 8 160 net, 9 792 with VAT at 20 %. */
+const INVOICE_TOTAL = money(9_792_000_000);
+const pickLine = (row: Record<string, unknown>, fields: readonly string[] = LINE_FIELDS) =>
+  Object.fromEntries(fields.map((field) => [field, row[field] ?? null]));
+
+/** The fixture's invoice as Issue leaves it: numbered, its snapshot holding its three lines, its total. */
+async function issuedInvoice(w: Workspace, over: Record<string, unknown> = {}): Promise<void> {
+  await w.app.update('billingInvoices', w.invoice.id, {
+    status: 'ISSUED', issueDate: '2026-09-20', number: 'F2026-0001', numberKey: numberKeyOf(w.issuer.id, 'F2026-0001'), total: INVOICE_TOTAL,
+    snapshot: { printed: {}, record: { document: { id: w.invoice.id }, lines: Object.fromEntries(w.lines.map((line) => [line.id, pickLine(line)])) } },
+    ...over,
+  });
+}
+
+/** A draft credit note against the fixture's invoice, with the given lines. */
+async function creditDraft(w: Workspace, lines: Record<string, unknown>[]): Promise<Loaded> {
+  const note = w.addCreditNote({ invoiceId: w.invoice.id, issueDate: TODAY });
+  for (const [index, line] of lines.entries()) w.addLine(CREDIT, note.id, { sortOrder: index + 1, ...line });
+  return loaded(w, note.id, CREDIT);
+}
+
+/** A credit line taking `quantity` of the fixture's invoice line `index`, at its price. */
+const takes = (w: Workspace, index: number, quantity: number) => ({
+  invoiceLineId: w.lines[index]!.id, quantity, unitPrice: w.lines[index]!.unitPrice, description: w.lines[index]!.description,
+});
+
+test('a credit note’s invoice must not be cancelled', async () => {
+  const w = workspace();
+  await issuedInvoice(w, { status: 'CANCELLED' });
+  assert.deepEqual(codes(await creditDraft(w, [takes(w, 2, 1)])), ['INVOICE_CANCELLED']);
+});
+
+test('a linked credit note may not credit more of a line than remains, and the problem names the line', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  assert.deepEqual(codes(await creditDraft(w, [takes(w, 0, 4), takes(w, 2, 1)])), []);
+  const over = await creditDraft(w, [takes(w, 2, 1), takes(w, 0, 5)]);
+  assert.deepEqual(checkGate(over, ISSUE).filter((problem) => problem.source === 'lifecycle'), [
+    { source: 'lifecycle', code: 'OVER_CREDIT', field: 'lines', value: '2' },
+  ]);
+});
+
+test('what earlier issued credit notes took counts, and a draft credit note does not', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const earlier = w.addCreditNote({ invoiceId: w.invoice.id, status: 'ISSUED', total: money(936_000_000) });
+  const earlierLine = { ...pickLine(w.lines[0]!), ...takes(w, 0, 1) };
+  await w.app.update('billingCreditNotes', earlier.id, { snapshot: { printed: {}, record: { document: {}, lines: { c1: earlierLine } } } });
+  w.addCreditNote({ invoiceId: w.invoice.id, status: 'DRAFT' });
+  assert.deepEqual(codes(await creditDraft(w, [takes(w, 0, 3)])), []);
+  assert.deepEqual(codes(await creditDraft(w, [takes(w, 0, 3.5)])), ['OVER_CREDIT']);
+});
+
+test('an unlinked credit note may not take more than the invoice’s total, give or take a minor unit per tax', async () => {
+  const w = workspace();
+  await issuedInvoice(w);
+  const whole = { quantity: 1, unitPrice: money(8_160_000_000), description: 'Tout' };
+  assert.deepEqual(codes(await creditDraft(w, [whole])), []);
+  assert.deepEqual(codes(await creditDraft(w, [{ ...whole, unitPrice: money(8_160_010_000) }])), [], 'one cent over: within the margin');
+  assert.deepEqual(codes(await creditDraft(w, [{ ...whole, unitPrice: money(8_160_020_000) }])), ['OVER_CREDIT']);
 });

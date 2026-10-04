@@ -85,13 +85,21 @@ export function memoryDb(options: Options = {}) {
     events.push({ name, plural, recordId: after.id, before: before && copy(before), after: copy(after), updatedFields });
   }
 
-  function store(source: 'APPLICATION' | 'MANUAL' = 'APPLICATION', permissions: { canUpdate?: (plural: string) => boolean } = {}): Store {
+  function store(
+    source: 'APPLICATION' | 'MANUAL' = 'APPLICATION',
+    permissions: { canUpdate?: (plural: string) => boolean; canRead?: (plural: string) => boolean } = {},
+  ): Store {
     const actor = { source, workspaceMemberId: source === 'MANUAL' ? 'member-1' : null, name: source === 'APPLICATION' ? 'Billing Documents' : 'A person' };
 
     function allowed(plural: string, data: Record<string, unknown> = {}): void {
       if (permissions.canUpdate && !permissions.canUpdate(plural)) throw new NotAllowedError(`This role cannot edit ${plural}`);
       if (source === 'APPLICATION') return;
       for (const field of Object.keys(data)) if (options.appOnly?.[plural]?.includes(field)) throw new NotWritableError(field);
+    }
+
+    /** Like Twenty: a role that cannot read a table is refused its reads. */
+    function readable(plural: string): void {
+      if (permissions.canRead && !permissions.canRead(plural)) throw new NotAllowedError(`This role cannot read ${plural}`);
     }
 
     function live(plural: string, id: string): [Row[], number] {
@@ -111,12 +119,14 @@ export function memoryDb(options: Options = {}) {
 
     return {
       async get(plural, id, getOptions) {
+        readable(plural);
         const row = table(plural).find((candidate) => candidate.id === id);
         if (!row || (row.deletedAt && !getOptions?.deleted)) return null;
         return copy(row);
       },
 
       async list(plural, where: Where, listOptions: ListOptions = {}) {
+        readable(plural);
         const deleted = listOptions.deleted ?? 'exclude';
         let rows = table(plural).filter((row) => {
           if (deleted === 'exclude' && row.deletedAt) return false;

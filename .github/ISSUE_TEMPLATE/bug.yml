@@ -1,0 +1,30 @@
+name: Bug
+description: Something does not work as the README says.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got. Leave out real client data.
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: Version of Billing Documents
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: twenty-version
+    attributes:
+      label: Version of Twenty
+      description: Twenty Cloud or self-hosted, and the version.
+    validations:
+      required: true
+  - type: textarea
+    id: message
+    attributes:
+      label: The message Twenty or the app showed, if any
+      render: text

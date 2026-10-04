@@ -1,7 +1,6 @@
 {
   "name": "twenty-app-billing-documents",
   "version": "0.1.0",
-  "private": true,
   "description": "Quotes, invoices and credit notes as PDFs, inside Twenty. Any country, any currency, your own tax rules.",
   "keywords": [
     "twenty-app",
@@ -23,7 +22,7 @@
   "type": "module",
   "engines": {
     "node": ">=24.5.0",
-    "twenty": ">=2.40.0"
+    "twenty": ">=2.43.0"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
@@ -37,7 +36,12 @@
     "status": "twenty remote:status",
     "plan": "twenty plan",
     "apply": "twenty apply",
-    "deploy": "node scripts/deploy.mjs"
+    "deploy": "node scripts/deploy.mjs",
+    "listing:images": "node scripts/listing-images.mjs",
+    "build": "./node_modules/.bin/twenty dev:build",
+    "notices": "node scripts/third-party-notices.mjs",
+    "prepack": "node -e \"const d=process.cwd().split(require('path').sep);if(d.at(-1)!=='output'||d.at(-2)!=='.twenty'){console.error('prepack: not a Twenty build output (the working folder is not <repo>/.twenty/output). Publish with ./node_modules/.bin/twenty app:publish, never with npm publish or npm pack in the repository root.');process.exit(1)}\" && node ../../scripts/package-notices.mjs",
+    "release:check": "node scripts/release-check.mjs"
   },
   "devDependencies": {
     "@types/node": "24.13.6",
