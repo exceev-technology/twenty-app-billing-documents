@@ -135,6 +135,10 @@ test('the form’s words follow the person’s language, and its French takes no
     fr.loading, fr.noRecord, fr.send, fr.sending, fr.cancel, UNCONFIRMED_FR,
   ];
   for (const text of texts) assert.doesNotMatch(text, / [:;?!]|« | »/, text);
+  const ar = formWords('ar-SA');
+  assert.equal(ar.heading('billingInvoice', 'INV-2026-0004'), 'إرسال الفاتورة INV-2026-0004');
+  assert.equal(ar.attachmentLine('INV-2026-0004.pdf'), 'المرفق: INV-2026-0004.pdf');
+  assert.equal(ar.send, 'إرسال');
 });
 
 const SENT: SentRead = { ok: true, message: 'Sent to camille@calibre.example.', variant: 'success' };

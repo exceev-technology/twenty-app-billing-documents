@@ -89,6 +89,12 @@ test('Cancel asks first, in the person’s language', () => {
     subtitle: 'Un avoir pour tout ce qui reste est émis, et la facture passe au statut Annulée. C’est définitif.',
     confirm: 'Annuler la facture',
   });
+  assert.deepEqual(cancelConfirmation('ar-SA'), {
+    title: 'إلغاء هذه الفاتورة؟',
+    subtitle: 'يصدر إشعار دائن بكل المتبقي وتصبح حالة الفاتورة ملغاة. لا يمكن التراجع عن ذلك.',
+    confirm: 'إلغاء الفاتورة',
+  });
+  assert.equal(feedbackFor({ status: 502, body: null }, 'ar').message, 'فشل إجراء الفوترة (HTTP 502).');
 });
 
 test('the buttons’ French words don’t take a plain space before : ; ? ! or inside « »', () => {
