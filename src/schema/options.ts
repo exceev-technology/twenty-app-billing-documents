@@ -3,6 +3,7 @@ import type { Option } from './fields.ts';
 export const LANGUAGES: readonly Option[] = [
   ['EN', 'English', 'blue'],
   ['FR', 'French', 'purple'],
+  ['AR', 'Arabic', 'green'],
 ];
 
 export const ROUNDING_MODES: readonly Option[] = [

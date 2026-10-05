@@ -2,6 +2,7 @@ import type { LanguagePack } from './pack.ts';
 
 export const en: LanguagePack = {
   code: 'EN',
+  direction: 'ltr',
   titles: { QUOTE: 'Quote', INVOICE: 'Invoice', CREDIT_NOTE: 'Credit note' },
   draft: 'DRAFT',
   colon: ': ',

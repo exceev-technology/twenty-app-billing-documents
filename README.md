@@ -5,7 +5,7 @@ Your clients are already in Twenty, so your documents can be too.
 
 - Quotes that become invoices, invoices that are numbered and locked when issued, and credit notes to correct them.
 - Any country, any currency: legal identifiers, tax codes, mentions and numbering rules are records you edit in Twenty, with presets for 12 countries plus a generic one to start from.
-- Five PDF layouts in English or French, and an email form that sends the PDF from your own mailbox.
+- Five PDF layouts in English, French or Arabic (right to left), and an email form that sends the PDF from your own mailbox.
 - Free and open source, MIT licensed. It is a Twenty app: nothing to host beside Twenty itself.
 
 ![The five PDF layouts, one invoice](https://raw.githubusercontent.com/exceev-technology/twenty-app-billing-documents/main/public/gallery/layouts.png)
@@ -119,7 +119,7 @@ In **Settings → Roles**, turn off the permission to destroy records on the bil
 - Taxes with several components (for example GST plus QST), exemptions and reverse charge with the wording the law requires, and prices entered with or without tax.
 - A product and service catalog fills the lines.
 - Where a country requires structured e-invoicing, the PDF is a courtesy copy, and the country preset says so.
-- PDFs and messages come in English or French, in [five layouts](https://github.com/exceev-technology/twenty-app-billing-documents/blob/main/docs/templates.md). The embedded font draws Latin, Greek and Cyrillic; a document with Arabic, Hebrew, Devanagari, Thai or CJK text is refused rather than printed with empty boxes.
+- PDFs and messages come in English, French or Arabic, in [five layouts](https://github.com/exceev-technology/twenty-app-billing-documents/blob/main/docs/templates.md). An Arabic document prints right to left, with day-first dates (locale ar-EG unless the profile sets another) and its total spelled out in Arabic when the profile asks for it. The embedded fonts draw Latin, Greek and Cyrillic (Roboto) and Arabic (Tajawal); a document with Hebrew, Devanagari, Thai or CJK text is refused rather than printed with empty boxes.
 
 ## Upgrading
 
@@ -143,8 +143,9 @@ Uninstall from **Settings → Applications**, on the app's page, or with `./node
 ## Limits
 
 - Not in this version: deposit invoices, recurring invoices, payment records and partial payments (an invoice is Issued, Sent or Paid, and Overdue is a view), online payment links, and submission to government e-invoicing systems (Italy's SDI, Peppol in Belgium, India's IRN, France's 2026 reform and others).
-- PDFs and messages come in English and French only. Another language is one file per pack: see [CONTRIBUTING.md](https://github.com/exceev-technology/twenty-app-billing-documents/blob/main/CONTRIBUTING.md).
-- The embedded font covers Latin, Greek and Cyrillic: other scripts are refused.
+- PDFs and messages come in English, French and Arabic only. Another language is one file per pack: see [CONTRIBUTING.md](https://github.com/exceev-technology/twenty-app-billing-documents/blob/main/CONTRIBUTING.md).
+- The embedded fonts cover Latin, Greek, Cyrillic and Arabic: other scripts are refused.
+- An Arabic text that wraps is broken into lines by the renderer, from Tajawal's widths; text copied out of an Arabic PDF comes out in visual order (words reversed), because pdfmake has no bidirectional text support.
 - A quote has one invoice, and its PDF field keeps its last ten versions.
 - The views add up no amounts, since documents may be in several currencies.
 - A company has no email address in Twenty, so a document billed to a company alone starts with an empty *To*.

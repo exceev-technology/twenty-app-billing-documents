@@ -8,6 +8,7 @@ import { letterhead } from './layouts/letterhead.ts';
 import { modern } from './layouts/modern.ts';
 import { receipt } from './layouts/receipt.ts';
 import { countPages, toPdf } from './pdf.ts';
+import { mirrored } from './rtl.ts';
 import {
   RenderError,
   type Layout, type PdfDefinition, type Party, type RenderInput, type RenderProblem, type RenderResult, type TemplateKey,
@@ -152,11 +153,21 @@ export function checkRender(raw: RenderInput): RenderProblem[] {
   return problems;
 }
 
+/** The `wrapWidth` hints blocks.ts leaves for its Arabic line breaks are not for pdfmake. */
+function withoutHints(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(withoutHints);
+  if (!node || typeof node !== 'object' || Object.getPrototypeOf(node) !== Object.prototype) return node;
+  return Object.fromEntries(Object.entries(node).filter(([key]) => key !== 'wrapWidth').map(([key, value]) => [key, withoutHints(value)]));
+}
+
 /** The page's definition. Exported for the tests; bytes come from renderDocument. */
 export function definitionFor(input: RenderInput): PdfDefinition {
   const problems = checkRender(input);
   if (problems.length > 0) throw new RenderError(problems);
-  return LAYOUTS[input.template](tidy(input), PACKS[input.language]);
+  const pack = PACKS[input.language];
+  const definition = withoutHints(LAYOUTS[input.template](tidy(input), pack)) as PdfDefinition;
+  // An Arabic page reads right to left, so the layout's page is mirrored.
+  return pack.direction === 'rtl' ? mirrored(definition) : definition;
 }
 
 /** A document, rendered. Asynchronous because pdfmake delivers its bytes that way. */

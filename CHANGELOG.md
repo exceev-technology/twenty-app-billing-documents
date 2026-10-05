@@ -6,6 +6,10 @@ bumps `version` in `package.json`.
 
 ## Unreleased
 
+- Print quotes, invoices and credit notes in Arabic: choose Arabic as the document's or the profile's language. Every printed word is Arabic, the page reads right to left in all five layouts, dates print day first and amounts with the Egyptian pound sign (locale ar-EG unless the profile sets another), a taxed invoice is titled فاتورة ضريبية, the discount shows as rows that add up, units agree with their quantity (3 أيام), and the total can be spelled out (فقط ... لا غير).
+- Arabic text keeps its reading order on every line, also where a long description wraps, and Arabic names print in English and French documents too instead of being refused.
+- Units and the emails sent with an Arabic document are in Arabic, and a person who uses Twenty in Arabic reads the app's buttons, messages and email form in Arabic.
+
 ## 0.1.0 - unreleased
 
 The first release.

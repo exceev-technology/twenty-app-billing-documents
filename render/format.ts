@@ -8,7 +8,9 @@ const BIDI = /[\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/g;
 /** Arabic-script signs some locales keep even with Western digits: percent, decimal and thousands separators. */
 const ARABIC_SIGNS: Record<string, string> = { '\u066a': '%', '\u066b': '.', '\u066c': ',' };
 const drawn = (text: string): string =>
-  text.replace(NARROW, '\u00a0').replace(BIDI, '').replace(/[\u066a-\u066c]/g, (sign) => ARABIC_SIGNS[sign]!);
+  text.replace(NARROW, '\u00a0').replace(BIDI, '').replace(/[\u066a-\u066c]/g, (sign) => ARABIC_SIGNS[sign]!)
+    // Intl's Egyptian pound sign ends with a period; Egyptian invoices write ج.م
+    .replace(/ج\.م\./gu, 'ج.م');
 
 /**
  * Western digits and the Gregorian calendar in every locale: an Arabic or Bengali
@@ -138,9 +140,111 @@ function frenchWords(value: number): string {
 const frenchCurrency = (units: number, noun: string): string =>
   units >= 1_000_000 && units % 1_000_000 === 0 ? (/^[aeiouyéh]/i.test(noun) ? `d’${noun}` : `de ${noun}`) : noun;
 
+// Arabic amounts in words, as Egyptian invoices print them (فقط ... لا غير).
+// A counted noun takes four forms: `one` after 1 and after a round hundred or thousand, `two` the
+// dual, `few` the plural after 3 to 10, `many` the singular accusative after 11 to 99. The number
+// takes the opposite gender to a masculine noun (ثلاثة جنيهات, ثلاث هللات).
+type ArabicNoun = { one: string; two: string; few: string; many: string; feminine?: boolean };
+
+const AR_WORDS: Record<string, { main: ArabicNoun; minor: ArabicNoun }> = {
+  EGP: { main: { one: 'جنيه مصري', two: 'جنيهان مصريان', few: 'جنيهات مصرية', many: 'جنيهًا مصريًا' }, minor: { one: 'قرش', two: 'قرشان', few: 'قروش', many: 'قرشًا' } },
+  SAR: { main: { one: 'ريال سعودي', two: 'ريالان سعوديان', few: 'ريالات سعودية', many: 'ريالًا سعوديًا' }, minor: { one: 'هللة', two: 'هللتان', few: 'هللات', many: 'هللة', feminine: true } },
+  USD: { main: { one: 'دولار أمريكي', two: 'دولاران أمريكيان', few: 'دولارات أمريكية', many: 'دولارًا أمريكيًا' }, minor: { one: 'سنت', two: 'سنتان', few: 'سنتات', many: 'سنتًا' } },
+  EUR: { main: { one: 'يورو', two: 'يوروان', few: 'يوروات', many: 'يورو' }, minor: { one: 'سنت', two: 'سنتان', few: 'سنتات', many: 'سنتًا' } },
+  AED: { main: { one: 'درهم إماراتي', two: 'درهمان إماراتيان', few: 'دراهم إماراتية', many: 'درهمًا إماراتيًا' }, minor: { one: 'فلس', two: 'فلسان', few: 'فلوس', many: 'فلسًا' } },
+  KWD: { main: { one: 'دينار كويتي', two: 'ديناران كويتيان', few: 'دنانير كويتية', many: 'دينارًا كويتيًا' }, minor: { one: 'فلس', two: 'فلسان', few: 'فلوس', many: 'فلسًا' } },
+  GBP: { main: { one: 'جنيه إسترليني', two: 'جنيهان إسترلينيان', few: 'جنيهات إسترلينية', many: 'جنيهًا إسترلينيًا' }, minor: { one: 'بنس', two: 'بنسان', few: 'بنسات', many: 'بنسًا' } },
+};
+
+const AR_ONES = {
+  masculine: ['', 'واحد', 'اثنان', 'ثلاثة', 'أربعة', 'خمسة', 'ستة', 'سبعة', 'ثمانية', 'تسعة', 'عشرة'],
+  feminine: ['', 'واحدة', 'اثنتان', 'ثلاث', 'أربع', 'خمس', 'ست', 'سبع', 'ثماني', 'تسع', 'عشر'],
+};
+const AR_TENS = ['', '', 'عشرون', 'ثلاثون', 'أربعون', 'خمسون', 'ستون', 'سبعون', 'ثمانون', 'تسعون'];
+const AR_HUNDREDS = ['', 'مائة', 'مائتان', 'ثلاثمائة', 'أربعمائة', 'خمسمائة', 'ستمائة', 'سبعمائة', 'ثمانمائة', 'تسعمائة'];
+const AR_SCALES: [number, ArabicNoun][] = [
+  [1_000_000_000, { one: 'مليار', two: 'ملياران', few: 'مليارات', many: 'مليارًا' }],
+  [1_000_000, { one: 'مليون', two: 'مليونان', few: 'ملايين', many: 'مليونًا' }],
+  [1000, { one: 'ألف', two: 'ألفان', few: 'آلاف', many: 'ألفًا' }],
+];
+
+function arabicUnder1000(value: number, feminine: boolean): string {
+  const ones = feminine ? AR_ONES.feminine : AR_ONES.masculine;
+  const rest = value % 100;
+  let tail = '';
+  if (rest > 0 && rest <= 10) tail = ones[rest]!;
+  else if (rest === 11) tail = feminine ? 'إحدى عشرة' : 'أحد عشر';
+  else if (rest === 12) tail = feminine ? 'اثنتا عشرة' : 'اثنا عشر';
+  else if (rest > 12 && rest < 20) tail = `${ones[rest - 10]} ${feminine ? 'عشرة' : 'عشر'}`;
+  else if (rest >= 20) {
+    const unit = rest % 10;
+    const first = unit === 1 ? (feminine ? 'إحدى' : 'واحد') : ones[unit]!;
+    tail = unit === 0 ? AR_TENS[rest / 10]! : `${first} و${AR_TENS[Math.floor(rest / 10)]}`;
+  }
+  return [AR_HUNDREDS[Math.floor(value / 100)]!, tail].filter(Boolean).join(' و');
+}
+
+/**
+ * A number a noun follows directly is in construct: a dual loses its nun (مائتا جنيه, ألفا ريال),
+ * and a scale word its tanween (أحد عشر ألف جنيه, not ألفًا).
+ */
+const construct = (words: string): string =>
+  words
+    .replace(/(مائتان|ألفان|مليونان|ملياران)$/u, (dual) => dual.slice(0, -1))
+    .replace(/(ألف|مليون|مليار)ًا$/u, '$1');
+
+/** `count` of `noun`, worded: the number, then the noun in the form the number asks for. */
+function arabicCounted(count: number, noun: ArabicNoun, numberWords: (value: number) => string): string {
+  if (count === 1) return noun.one;
+  if (count === 2) return noun.two;
+  const rest = count % 100;
+  const words = numberWords(count);
+  if (rest >= 3 && rest <= 10) return `${words} ${noun.few}`;
+  if (rest >= 11) return `${words} ${noun.many}`;
+  return `${construct(words)} ${noun.one}`;
+}
+
+function arabicWords(value: number, feminine = false): string {
+  if (value === 0) return 'صفر';
+  const parts: string[] = [];
+  let rest = value;
+  for (const [scale, noun] of AR_SCALES) {
+    const count = Math.floor(rest / scale);
+    if (count > 0) parts.push(arabicCounted(count, noun, (inner) => arabicUnder1000(inner, false)));
+    rest %= scale;
+  }
+  if (rest > 0) parts.push(arabicUnder1000(rest, feminine));
+  return parts.join(' و');
+}
+
+/** An amount of a currency's unit or its minor unit, worded: جنيه مصري واحد, ستة آلاف جنيه مصري. */
+function arabicAmount(value: number, noun: ArabicNoun): string {
+  if (value === 1) return `${noun.one} ${noun.feminine ? 'واحدة' : 'واحد'}`;
+  return arabicCounted(value, noun, (inner) => arabicWords(inner, noun.feminine ?? false));
+}
+
+/** The closing words stay on one line: a no-break space joins them. */
+const ONLY = 'لا\u00a0غير';
+
+function arabicAmountInWords(units: number, minor: number, digits: number, currencyCode: string, negative: boolean): string {
+  const words = AR_WORDS[currencyCode];
+  const sign = negative ? 'سالب ' : '';
+  // With no words for the currency, the minor amount prints as a fraction, as on a cheque: never dropped.
+  if (!words) return `فقط ${sign}${arabicWords(units)} ${currencyCode}${minor === 0 || digits === 0 ? '' : ` و${minor}/${10 ** digits}`} ${ONLY}`;
+  const parts = [
+    ...(units > 0 || minor === 0 ? [units === 0 ? `صفر ${words.main.one}` : arabicAmount(units, words.main)] : []),
+    ...(minor > 0 && digits > 0 ? [arabicAmount(minor, words.minor)] : []),
+  ];
+  return `فقط ${sign}${parts.join(' و')} ${ONLY}`;
+}
+
 /** The total, spelled out, for the countries whose invoices require it. */
-export function amountInWords(micros: number, currencyCode: string, language: 'EN' | 'FR'): string {
+export function amountInWords(micros: number, currencyCode: string, language: 'EN' | 'FR' | 'AR'): string {
   const digits = minorDigits(currencyCode);
+  if (language === 'AR') {
+    const step = 10 ** (6 - digits);
+    return arabicAmountInWords(Math.trunc(Math.abs(micros) / 1_000_000), Math.round((Math.abs(micros) % 1_000_000) / step), digits, currencyCode, micros < 0);
+  }
   const step = 10 ** (6 - digits);
   const units = Math.trunc(Math.abs(micros) / 1_000_000);
   const minor = Math.round((Math.abs(micros) % 1_000_000) / step);

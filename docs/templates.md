@@ -49,9 +49,10 @@ dark ink.
 The look follows the invoice designs of
 [pdfcn](https://github.com/shadcn-labs/pdfcn) (MIT, see
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)), redrawn with the embedded
-Roboto font so that every script the renderer accepts still prints.
+Roboto font (and Tajawal for Arabic) so that every script the renderer accepts still prints.
 
-Documents print in English or French today. The embedded font draws Latin, Greek
-and Cyrillic; text it cannot draw (Arabic, Hebrew, Devanagari, Thai, CJK) is
-refused rather than printed as empty boxes. Font packs for those scripts are
-later work.
+Documents print in English, French or Arabic today. An Arabic document uses the
+same layouts mirrored right to left (`render/rtl.ts`), and its runs print in
+Tajawal. The embedded fonts draw Latin, Greek, Cyrillic and Arabic; text they
+cannot draw (Hebrew, Devanagari, Thai, CJK) is refused rather than printed as
+empty boxes. Font packs for those scripts are later work.

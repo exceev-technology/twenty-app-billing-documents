@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ADVANCES, RANGES, textWidth, undrawable } from '../../render/glyphs.ts';
+import { ADVANCES, DUAL, FORMS, RANGES, TAJAWAL_ADVANCES, TAJAWAL_RANGES, textWidth, undrawable } from '../../render/glyphs.ts';
+import { TAJAWAL_BOLD, TAJAWAL_REGULAR } from '../../render/fonts/tajawal.ts';
+import { readFileSync } from 'node:fs';
 import { PACKS } from '../../render/lang/pack.ts';
 import { amountInWords } from '../../render/format.ts';
 
@@ -10,6 +12,17 @@ test('the drawable list and the widths are read from the fonts: run npm run glyp
   const { robotoRanges, robotoAdvances } = await import(GENERATOR);
   assert.deepEqual(RANGES.map((range) => [...range]), robotoRanges());
   assert.deepEqual([...ADVANCES], robotoAdvances());
+});
+
+test('the Arabic tables and the embedded Tajawal are read from assets/fonts/tajawal: run npm run glyphs after changing it', async () => {
+  const { tajawalRanges, tajawalAdvances, tajawalForms, tajawalDual } = await import(GENERATOR);
+  assert.deepEqual(TAJAWAL_RANGES.map((range) => [...range]), tajawalRanges());
+  assert.deepEqual([...TAJAWAL_ADVANCES], tajawalAdvances());
+  assert.deepEqual([...FORMS].map(([point, forms]) => [point, [...forms]]), tajawalForms());
+  assert.deepEqual([...DUAL], tajawalDual());
+  const face = (name: string): string => readFileSync(new URL(`../../assets/fonts/tajawal/${name}`, import.meta.url)).toString('base64');
+  assert.equal(TAJAWAL_REGULAR, face('Tajawal-Regular.ttf'));
+  assert.equal(TAJAWAL_BOLD, face('Tajawal-Bold.ttf'));
 });
 
 test('a width is the sum of its glyphs at the size asked', () => {
