@@ -267,7 +267,21 @@
     "Paid": "المدفوعة",
     "Pipeline": "قيد المتابعة",
     "To invoice": "جاهزة للفوترة",
-    "Unpaid": "غير المدفوعة"
+    "Unpaid": "غير المدفوعة",
+    "All Quote lines": "كل بنود عروض الأسعار",
+    "All Credit note lines": "كل بنود الإشعارات الدائنة",
+    "All Tax components": "كل المكوّنات الضريبية",
+    "All Quotes": "كل عروض الأسعار",
+    "All Invoices": "كل الفواتير",
+    "All Legal identifiers": "كل المعرّفات القانونية",
+    "All Credit notes": "كل الإشعارات الدائنة",
+    "All Numbering sequences": "كل تسلسلات الترقيم",
+    "All Invoice lines": "كل بنود الفواتير",
+    "All Billing profiles": "كل ملفات الفوترة",
+    "All Identifier types": "كل أنواع المعرّفات",
+    "All Tax codes": "كل الرموز الضريبية",
+    "All Catalog items": "كل الأصناف",
+    "All Issuers": "كل جهات الإصدار"
   },
   "pageLayoutTab.title": {
     "Home": "الرئيسية",

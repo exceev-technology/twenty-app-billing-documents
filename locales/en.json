@@ -267,7 +267,21 @@
     "Paid": "Paid",
     "Pipeline": "Pipeline",
     "To invoice": "To invoice",
-    "Unpaid": "Unpaid"
+    "Unpaid": "Unpaid",
+    "All Quote lines": "All Quote lines",
+    "All Credit note lines": "All Credit note lines",
+    "All Tax components": "All Tax components",
+    "All Quotes": "All Quotes",
+    "All Invoices": "All Invoices",
+    "All Legal identifiers": "All Legal identifiers",
+    "All Credit notes": "All Credit notes",
+    "All Numbering sequences": "All Numbering sequences",
+    "All Invoice lines": "All Invoice lines",
+    "All Billing profiles": "All Billing profiles",
+    "All Identifier types": "All Identifier types",
+    "All Tax codes": "All Tax codes",
+    "All Catalog items": "All Catalog items",
+    "All Issuers": "All Issuers"
   },
   "pageLayoutTab.title": {
     "Home": "Home",
