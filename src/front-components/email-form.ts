@@ -217,10 +217,21 @@ const WORDS = {
     unconfirmed: 'Impossible de confirmer l’envoi de l’e-mail\u00a0: vérifiez vos éléments envoyés, ou l’historique du document, avant de le renvoyer.',
     send: 'Envoyer', sending: 'Envoi…', cancel: 'Annuler',
   },
+  ar: {
+    kinds: { billingInvoice: 'الفاتورة', billingCreditNote: 'الإشعار الدائن', billingQuote: 'عرض السعر' },
+    heading: (kind: string, number: string) => `إرسال ${kind} ${number}`,
+    attachmentLine: (name: string) => `المرفق: ${name}`,
+    from: 'من', to: 'إلى', cc: 'نسخة', subject: 'الموضوع', message: 'الرسالة',
+    separate: 'افصل بين العناوين بفاصلة (,).',
+    loading: 'جارٍ تجهيز البريد…', noRecord: 'لم يتم اختيار أي مستند.',
+    unconfirmed: 'تعذّر التأكد من إرسال البريد. راجع صندوق المرسل أو سجل نشاط المستند قبل إرساله مرة أخرى.',
+    send: 'إرسال', sending: 'جارٍ الإرسال…', cancel: 'إلغاء',
+  },
 };
 
-/** The form's own words, in the person's Twenty language: French for any French locale, English otherwise (spec §8). */
+/** The form's own words, in the person's Twenty language: French or Arabic for those locales, English otherwise (spec §8). */
 export function formWords(locale: string): FormWords {
-  const { kinds, heading, ...words } = locale.toLowerCase().startsWith('fr') ? WORDS.fr : WORDS.en;
+  const language = locale.toLowerCase();
+  const { kinds, heading, ...words } = language.startsWith('fr') ? WORDS.fr : language.startsWith('ar') ? WORDS.ar : WORDS.en;
   return { ...words, heading: (object, number) => heading(kinds[object], number).trim() };
 }

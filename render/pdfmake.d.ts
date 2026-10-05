@@ -3,6 +3,7 @@
 declare module 'pdfmake/build/pdfmake.js' {
   const pdfMake: {
     addVirtualFileSystem(vfs: Record<string, string>): void;
+    addFonts(fonts: Record<string, { normal: string; bold: string; italics: string; bolditalics: string }>): void;
     setUrlAccessPolicy(policy: (url: string) => boolean): void;
     localAccessPolicy?: (path: string) => boolean;
     createPdf(definition: Record<string, unknown>): { getBuffer(): Promise<Uint8Array> };

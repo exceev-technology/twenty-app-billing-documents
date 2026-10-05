@@ -75,8 +75,10 @@ A language is two packs and a few words:
    `src/front-components/action-feedback.ts` and `src/front-components/email-form.ts`.
 
 `test/render/lang.test.ts` and `test/lifecycle/packs.test.ts` list what every pack must
-carry. The embedded font draws Latin, Greek and Cyrillic only: a language in another script
-needs a font first, so open an issue before writing it.
+carry. The embedded fonts draw Latin, Greek and Cyrillic (Roboto) and Arabic (Tajawal, in
+`assets/fonts/tajawal`; `npm run glyphs` reads it): a language in another script needs a font
+first, so open an issue before writing it. A right-to-left pack sets `direction: 'rtl'`, and the
+page is mirrored (`render/rtl.ts`).
 
 ## Deploying to a test workspace
 

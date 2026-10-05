@@ -72,7 +72,9 @@ test('a credit note names the invoice it corrects, in either language', () => {
     checkRender({ ...input, corrects: { number: 'INV-2026-0042', issueDate: '24/09/2026' } }),
     [{ code: 'INVALID_DATE', field: 'corrects.issueDate', value: '24/09/2026' }],
   );
-  assert.deepEqual(checkRender({ ...input, corrects: { number: 'INV-٤٢', issueDate: '2026-09-24' } })[0]?.field, 'corrects.number');
+  // Arabic-Indic digits print (Tajawal); Devanagari digits cannot.
+  assert.deepEqual(checkRender({ ...input, corrects: { number: 'INV-४२', issueDate: '2026-09-24' } })[0]?.field, 'corrects.number');
+  assert.deepEqual(checkRender({ ...input, corrects: { number: 'INV-٤٢', issueDate: '2026-09-24' } }), []);
 });
 
 test('the recap gives the rate a column of its own, and the lines table prints unit prices in full', () => {
@@ -272,8 +274,8 @@ test('a malformed locale, date or logo is refused with its field, never thrown r
     one({ lines: [{ ...input.lines[0]!, periodStart: '2026-13-01' }, ...input.lines.slice(1)] }),
     [{ code: 'INVALID_DATE', field: 'lines[0].periodStart', value: '2026-13-01' }],
   );
-  const kashmiri = one({ locale: 'ks' });
-  assert.deepEqual([kashmiri[0]?.code, kashmiri[0]?.field], ['UNSUPPORTED_SCRIPT', 'locale'], 'a locale whose numbers Roboto cannot draw');
+  // Kashmiri prints its numbers with the Arabic comma (U+060C), which Tajawal draws.
+  assert.deepEqual(one({ locale: 'ks' }), [], 'a locale written with the Arabic comma now prints');
   assert.deepEqual(one({ qr: { mode: 'PAYLOAD', payload: '' } }), [{ code: 'QR_PAYLOAD_EMPTY', field: 'qr.payload' }]);
   const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>');
   assert.deepEqual(
@@ -286,12 +288,14 @@ test('a malformed locale, date or logo is refused with its field, never thrown r
 test('text the font cannot draw is refused, naming the field, wherever it hides', () => {
   const input = mockInvoice();
   const first = (patch: Partial<typeof input>) => checkRender({ ...input, ...patch })[0];
-  assert.deepEqual(first({ buyer: { ...input.buyer, name: 'مؤسسة الشرق' } })?.field, 'buyer.name');
+  // Arabic prints (Tajawal), so a script neither font draws (Hebrew) stands in for it.
+  assert.deepEqual(first({ buyer: { ...input.buyer, name: 'מוסד המזרח' } })?.field, 'buyer.name');
+  assert.deepEqual(checkRender({ ...input, buyer: { ...input.buyer, name: 'مؤسسة الشرق' } }), []);
   assert.deepEqual(first({ lines: [{ ...input.lines[0]!, description: 'Conseil 相談' } as RenderLine] })?.field, 'lines[0].description');
   assert.deepEqual(first({ mentions: 'Paiement à 30 jours ☕' })?.field, 'mentions');
   assert.deepEqual(first({ brand: { ...input.brand, footerNote: 'शुक्रिया' } })?.field, 'brand.footerNote');
   const code = input.totals.taxCodesUsed[0]!;
-  assert.deepEqual(first({ taxNames: { [code]: 'ضريبة القيمة المضافة' } })?.field, `taxNames.${code}`);
+  assert.deepEqual(first({ taxNames: { [code]: 'מס ערך מוסף' } })?.field, `taxNames.${code}`);
   assert.equal(first({ mentions: 'Paiement ☕' })?.code, 'UNSUPPORTED_SCRIPT');
 });
 

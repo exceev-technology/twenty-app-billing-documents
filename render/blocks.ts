@@ -1,6 +1,6 @@
 import { amountInWords, formatDate, formatMoney, formatPercent, formatQuantity, formatUnitPrice } from './format.ts';
 import type { LabelKey, LanguagePack } from './lang/pack.ts';
-import { textWidth } from './glyphs.ts';
+import { hasArabic, textWidth } from './glyphs.ts';
 import { qrBox, qrText } from './qr.ts';
 import { HAIRLINE, INK, MUTED, MUTED_ON_PANEL, PANEL, RULE, smallLabel, typeScale } from './tokens.ts';
 import type { Party, RenderInput, RenderLine } from './types.ts';
@@ -112,17 +112,68 @@ function pieces(text: string, size: number, limit: number): string | string[] {
   return split ? found : text;
 }
 
-/** Every printed string of a block, at its own font size, made to fit `limit`. The QR payload and the logo are data, not text. */
-function breakable(node: unknown, limit: number, size: number): unknown {
-  if (Array.isArray(node)) return node.map((child) => breakable(child, limit, size));
+/**
+ * pdfmake fills a line from the left, so an Arabic text it wraps itself would print the
+ * end of the sentence on the first line (render/rtl.ts). Text that holds Arabic is broken into lines
+ * here instead, in reading order, measured in Tajawal (glyphs.ts), so that pdfmake wraps none of it.
+ * A break replaces the space before the word that does not fit; a run that starts on a new line
+ * starts with the break.
+ */
+function lineBreaks(text: unknown, size: number, limit: number): unknown {
+  const runs = Array.isArray(text) ? text : [text];
+  let x = 0;
+  const broken = runs.map((run) => {
+    const record = run && typeof run === 'object' ? (run as Record<string, unknown>) : null;
+    const value = record ? record.text : run;
+    if (typeof value !== 'string') return run;
+    const own = record && typeof record.fontSize === 'number' ? record.fontSize : size;
+    const out: string[] = [];
+    for (const token of value.split(/(\n| +)/u)) {
+      if (token === '') continue;
+      if (token === '\n') {
+        out.push(token);
+        x = 0;
+      } else if (/^ +$/u.test(token)) {
+        out.push(token);
+        x += textWidth(token, own);
+      } else {
+        const width = textWidth(token, own);
+        if (x > 0 && x + width > limit) {
+          if (out.length > 0 && /^ +$/u.test(out.at(-1)!)) out[out.length - 1] = '\n';
+          else out.push('\n');
+          x = 0;
+        }
+        out.push(token);
+        x += width;
+      }
+    }
+    return record ? { ...record, text: out.join('') } : out.join('');
+  });
+  return Array.isArray(text) ? broken : broken[0];
+}
+
+const holdsArabic = (text: unknown): boolean =>
+  typeof text === 'string' ? hasArabic(text)
+    : Array.isArray(text) && text.some((run) => holdsArabic(run && typeof run === 'object' ? (run as Record<string, unknown>).text : run));
+
+/**
+ * Every printed string of a block, at its own font size, made to fit `limit`. The QR payload and the logo are data, not text.
+ * `room` is the width a block really has, which a node can state as `wrapWidth`; only the
+ * Arabic line breaks use it, so a document without Arabic is drawn exactly as before.
+ */
+function breakable(node: unknown, limit: number, size: number, room = limit): unknown {
+  if (Array.isArray(node)) return node.map((child) => breakable(child, limit, size, room));
   if (!node || typeof node !== 'object') return node;
   const record = node as Record<string, unknown>;
   const own = typeof record.fontSize === 'number' ? record.fontSize : size;
+  const width = typeof record.wrapWidth === 'number' ? record.wrapWidth : room;
+  // The hint stays on the node, so a second pass (wrap() over linesTable()) breaks the same way; document.ts drops it.
   return Object.fromEntries(Object.entries(record).map(([key, value]) => [
     key,
-    key === 'text' && typeof value === 'string' ? pieces(value, own, limit)
+    key === 'text' && holdsArabic(value) ? lineBreaks(value, own, width)
+      : key === 'text' && typeof value === 'string' ? pieces(value, own, limit)
       : key === 'qr' || key === 'image' || typeof value === 'function' ? value
-      : breakable(value, limit, own),
+      : breakable(value, limit, own, width),
   ]));
 }
 
@@ -167,11 +218,12 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   // Keyed on the codes, not their names: two codes may share a name and still differ.
   const hasManyTaxes = input.totals.taxCodesUsed.length > 1;
 
-  const title = (): string => input.title?.trim() || pack.titles[input.kind];
+  const taxed = input.totals.taxTotalMicros > 0 ? pack.taxedTitles?.[input.kind] : undefined;
+  const title = (): string => input.title?.trim() || taxed || pack.titles[input.kind];
 
   /** The header's facts, a label and its value each, only those the document has. The number comes first. */
   const facts = (): [string, string][] => [
-    [label('number'), input.number ?? pack.draft] as [string, string],
+    [pack.numberLabels?.[input.kind] ?? label('number'), input.number ?? pack.draft] as [string, string],
     [label('issueDate'), date(input.issueDate)] as [string, string],
     ...(input.corrects ? [[label('correctsInvoice'), `${input.corrects.number} (${date(input.corrects.issueDate)})`] as [string, string]] : []),
     ...(input.dueDate ? [[label('dueDate'), date(input.dueDate)] as [string, string]] : []),
@@ -228,7 +280,8 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     const text = input.notes!;
     if (style.notes === 'plain') return { text, margin: [0, 4, 0, 0] };
     return {
-      table: { widths: ['*'], body: [[{ text, color: MUTED_ON_PANEL }]] },
+      // The callout's padding (9 each side) and its accent bar take this much of the page.
+      table: { widths: ['*'], body: [[{ text, color: MUTED_ON_PANEL, wrapWidth: width - 21 }]] },
       layout: { fillColor: () => PANEL, hLineWidth: () => 0, vLineWidth: (index: number) => (index === 0 ? 2.5 : 0), vLineColor: () => accent, ...padded(9, 5) },
       margin: [0, 6, 0, 0],
     };
@@ -240,7 +293,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
       input.buyerReference ? labelled(label('reference'), input.buyerReference) : null,
       input.notes ? notes() : null,
     ].filter((node) => node !== null);
-    return present.length === 0 ? NOTHING : { margin: [0, 0, 0, 12], stack: present };
+    return present.length === 0 ? NOTHING : { margin: [0, 0, 0, 12], stack: present, wrapWidth: width };
   };
 
   /** The title in the accent, when the accent reads on white. */
@@ -396,7 +449,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     return [
       // The period in grey under the description; dark enough for a grey row too.
       { text: [{ text: line.description }, ...(period ? [{ text: period, color: MUTED_ON_PANEL }] : [])], fontSize: style.base },
-      { text: `${formatQuantity(line.quantity, input.locale)} ${line.unit}`.trim(), alignment: 'right', fontSize: style.base },
+      { text: `${formatQuantity(line.quantity, input.locale)} ${pack.countedUnit ? pack.countedUnit(line.quantity, line.unit) : line.unit}`.trim(), alignment: 'right', fontSize: style.base },
       { text: formatUnitPrice(line.unitPriceMicros, input.currencyCode, input.locale), alignment: 'right', fontSize: style.base },
       ...(hasDiscount ? [{ text: line.discountPercent ? formatPercent(line.discountPercent, input.locale) : '', alignment: 'right', fontSize: style.base }] : []),
       ...(hasManyTaxes ? [{ text: line.taxLabel, alignment: 'right', fontSize: style.base }] : []),
@@ -469,8 +522,16 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
     const rowHeight = (line: RenderLine): number =>
       `${line.description}\nperiod`.split('\n').reduce((count, part) => count + Math.max(1, Math.ceil(textWidth(part, style.base) / cell)), 0) * style.base * 1.2;
     const tallRow = input.lines.some((line) => rowHeight(line) > 500);
+    // The room the description column really gets, for the Arabic line breaks: the page
+    // less the other columns (each as wide as its widest cell, with its padding) and the rules.
+    const rows = input.lines.map(lineRow);
+    const padX = { grid: 7, accent: 7, tight: 5, framed: 7, bare: 4 }[style.table];
+    const widest = (column: number): number =>
+      Math.max(...[header, ...rows].map((row) => textWidth(String((row[column] as Node).text ?? ''), style.base))) + 2 * padX;
+    const room = width - header.slice(1).reduce((sum, _cell, index) => sum + widest(index + 1), 0) - 2 * padX - (header.length + 1);
+    const body = rows.map((row, index) => (hasArabic(input.lines[index]!.description) ? [{ ...row[0]!, wrapWidth: room }, ...row.slice(1)] : row));
     return breakable({
-      table: { headerRows: 1, widths, body: [header, ...input.lines.map(lineRow)], dontBreakRows: !tallRow },
+      table: { headerRows: 1, widths, body: [header, ...body], dontBreakRows: !tallRow },
       layout: linesLook(),
       margin: [0, 0, 0, 12],
     }, cell, style.base) as Node;
@@ -547,7 +608,15 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
 
   const totals = (): Node => {
     // The subtotal already has the discounts deducted, so they are a note below the sum, never a row of it.
+    // A pack with discountRows shows the discount above the sum, as rows that add up.
+    const discountRows = pack.discountRows && input.totals.discountTotalMicros !== 0 && !input.pricesIncludeTax ? pack.discountRows : null;
     const rows: [string, string][] = [
+      ...(discountRows
+        ? [
+            [discountRows.gross, money(input.totals.subtotalMicros + input.totals.discountTotalMicros)] as [string, string],
+            [discountRows.discount, money(-input.totals.discountTotalMicros)] as [string, string],
+          ]
+        : []),
       [label('subtotal'), money(input.totals.subtotalMicros)],
       [label('taxTotal'), money(input.totals.taxTotalMicros)],
       [label('total'), money(input.totals.totalMicros)],
@@ -569,9 +638,10 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
       },
       layout: totalsLayout(),
     };
-    const note = (text: Node): Node => ({ ...text, fontSize: size.small, margin: [0, 4, 0, 0] });
+    // Arabic letters rise higher than Latin ones; 4 pt left them touching the totals box.
+    const note = (text: Node): Node => ({ ...text, fontSize: size.small, margin: [0, pack.direction === 'rtl' ? 8 : 4, 0, 0] });
     const extras = [
-      input.totals.discountTotalMicros !== 0 ? note(labelled(label('discountTotal'), money(input.totals.discountTotalMicros))) : NOTHING,
+      input.totals.discountTotalMicros !== 0 && !discountRows ? note(labelled(label('discountTotal'), money(input.totals.discountTotalMicros))) : NOTHING,
       input.pricesIncludeTax ? note({ text: label('pricesIncludeTax'), italics: true, color: MUTED }) : NOTHING,
       input.amountInWords
         ? note(labelled(label('amountInWords'), amountInWords(input.totals.totalMicros, input.currencyCode, pack.code)))
@@ -582,7 +652,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   };
 
   const paymentDetails = (): Node =>
-    input.brand.paymentDetails ? labelled(label('paymentDetails'), input.brand.paymentDetails, { margin: [0, 0, 0, 8] }) : NOTHING;
+    input.brand.paymentDetails ? labelled(label('paymentDetails'), input.brand.paymentDetails, { margin: [0, 0, 0, 8], wrapWidth: width }) : NOTHING;
 
   /** The QR sized by qrBox, with four modules of white above and below it, the quiet zone a scanner needs. */
   const qrCode = (): Node => {
@@ -593,6 +663,7 @@ export function blocks(input: RenderInput, pack: LanguagePack, style: Style) {
   };
 
   const legal = (): Node => ({
+    wrapWidth: width,
     stack: [
       // Everything the seller block prints elsewhere: the legal form is a legal mention in several countries.
       ...(style.top === 'letter'

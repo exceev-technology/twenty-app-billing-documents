@@ -1,6 +1,7 @@
 import type { Problem } from '../../engine/index.ts';
 import { describeProblem, type DocumentKind, type Language } from '../../render/lang/pack.ts';
 import type { RenderProblem, RenderProblemCode } from '../../render/types.ts';
+import { ar } from './ar.ts';
 import { en } from './en.ts';
 import { fr } from './fr.ts';
 
@@ -136,10 +137,12 @@ export type LifecyclePack = {
   };
 };
 
-export const PACKS: Record<Language, LifecyclePack> = { EN: en, FR: fr };
+export const PACKS: Record<Language, LifecyclePack> = { EN: en, FR: fr, AR: ar };
 
-/** The pack for a Twenty locale ('fr-FR', 'en', 'de-DE'): French for any French locale, English otherwise. */
+/** The pack for a Twenty locale ('fr-FR', 'ar-SA', 'en'): French or Arabic for those locales, English otherwise. */
 export function packFor(locale: string | null | undefined): LifecyclePack {
+  // Twenty's Arabic is ar-SA; any Arabic locale reads the Arabic pack.
+  if (/^ar(?:[-_]|$)/i.test(locale ?? '')) return ar;
   return /^fr(?:[-_]|$)/i.test(locale ?? '') ? fr : en;
 }
 

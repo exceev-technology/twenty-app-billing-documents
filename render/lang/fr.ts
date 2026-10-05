@@ -2,6 +2,7 @@ import type { LanguagePack } from './pack.ts';
 
 export const fr: LanguagePack = {
   code: 'FR',
+  direction: 'ltr',
   titles: { QUOTE: 'Devis', INVOICE: 'Facture', CREDIT_NOTE: 'Avoir' },
   draft: 'BROUILLON',
   colon: '\u00a0: ',

@@ -57,9 +57,23 @@ const WORDS = {
       confirm: 'Annuler la facture',
     },
   },
+  ar: {
+    more: (count: number) => `و${count} أخرى.`,
+    off: 'إجراءات الفوترة تحتاج الدوال المنطقية (logic functions) وهي متوقفة على هذا الخادم. راجع "Requirements" في ملف README للتطبيق.',
+    failed: (status: number) => `فشل إجراء الفوترة (HTTP ${status}).`,
+    unreachable: 'تعذّر وصول إجراء الفوترة إلى الخادم. تحقّق من اتصالك وحاول مرة أخرى.',
+    cancel: {
+      title: 'إلغاء هذه الفاتورة؟',
+      subtitle: 'يصدر إشعار دائن بكل المتبقي وتصبح حالة الفاتورة ملغاة. لا يمكن التراجع عن ذلك.',
+      confirm: 'إلغاء الفاتورة',
+    },
+  },
 };
 
-const wordsFor = (locale: string) => (locale.toLowerCase().startsWith('fr') ? WORDS.fr : WORDS.en);
+const wordsFor = (locale: string) => {
+  const language = locale.toLowerCase();
+  return language.startsWith('fr') ? WORDS.fr : language.startsWith('ar') ? WORDS.ar : WORDS.en;
+};
 
 /** Cancel invoice's confirmation, in the person's language. */
 export const cancelConfirmation = (locale: string): Confirmation => wordsFor(locale).cancel;

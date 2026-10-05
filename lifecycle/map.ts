@@ -52,7 +52,7 @@ export const languageOf = (document: Row, profile: Row | null): Language =>
 
 /** The locale amounts and dates print in: the profile's, else the language's own (spec §9). */
 export const localeOf = (language: Language, profile: Row | null): string =>
-  textOf(profile?.locale).trim() || (language === 'FR' ? 'fr-FR' : 'en-GB');
+  textOf(profile?.locale).trim() || ({ FR: 'fr-FR', AR: 'ar-EG' } as Partial<Record<Language, string>>)[language] || 'en-GB';
 
 const packOf = (language: Language): LifecyclePack => PACKS[language] ?? PACKS.EN;
 
